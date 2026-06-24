@@ -1,0 +1,3 @@
+[submodule "sorrel-web"]
+	path = sorrel-web
+	url = https://github.com/MGRAFF2006/sorrel-web.git
