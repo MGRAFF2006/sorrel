@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-24 11:46 UTC
+Last updated: 2026-06-24 11:56 UTC
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -30,14 +30,14 @@ This means the next implementation priority is a compatibility pass across compl
 
 | Module | Status | Latest known work | Notes |
 | --- | --- | --- | --- |
-| `sorrel-protocol` | Done / merged / root pointer staged | Protocol package + Core permission spine schemas | Repaired submodule `main` at `f5cf9cd`; validation passed with `npm run validate`. |
-| `sorrel-core` | Done / merged / root pointer staged | Object store + snapshot + Change + policy evaluator + lane/stack metadata | Repaired submodule `main` at `ca82981`; `cargo test` passed 28/28. |
-| `sorrel-cli` | Done / merged / root pointer staged | Mocked CLI + headless policy/grant/secret command surfaces | Repaired submodule `main` at `d33ae00`; `cargo test` passed 14/14 integration tests. |
-| `sorrel-vault` | Done / merged / root pointer staged | Secrets spec/local backend + Core policy decisions for grants/redaction | Repaired submodule `main` at `fa16a55`; `npm test` passed. |
-| `sorrel-runners` | Done / merged / root pointer staged | Local/container runner + Core policy-gated JobBundle/secret refs | Repaired submodule `main` at `5028df5`; `cargo test` passed 7/7 integration tests. |
+| `sorrel-protocol` | Done / merged | Protocol package + Core permission spine schemas | Root points to `sorrel-protocol/main` at `f5cf9cd`; validation passed with `npm run validate`. |
+| `sorrel-core` | Done / merged | Object store + snapshot + Change + policy evaluator + lane/stack metadata | Root points to `sorrel-core/main` at `ca82981`; `cargo test` passed 28/28. |
+| `sorrel-cli` | Done / merged | Mocked CLI + headless policy/grant/secret command surfaces | Root points to `sorrel-cli/main` at `d33ae00`; `cargo test` passed 14/14 integration tests. |
+| `sorrel-vault` | Done / merged | Secrets spec/local backend + Core policy decisions for grants/redaction | Root points to `sorrel-vault/main` at `fa16a55`; `npm test` passed. |
+| `sorrel-runners` | Done / merged | Local/container runner + Core policy-gated JobBundle/secret refs | Root points to `sorrel-runners/main` at `5028df5`; `cargo test` passed 7/7 integration tests. |
 | `sorrel-slices` | Done / merged | TS/JS slice manifest prototype | Relative import dependency closure, package metadata, unresolved imports. |
-| `sorrel-web` | Public product page hosted / root pointer staged | Polished static landing page + Core-native permissions copy | Webpage PR #1 merged in `sorrel-web`; root pointer staged to `sorrel-web/main` at `db12183`. |
-| `sorrel-hub` | Done / merged / root pointer staged | Node HTTP app/server skeleton + Core policy refs | Repaired submodule `main` at `3278782`; `npm test` passed 10/10. |
+| `sorrel-web` | Public product page hosted / merged | Polished static landing page + Core-native permissions copy | Root points to `sorrel-web/main` at `db12183`. |
+| `sorrel-hub` | Done / merged | Node HTTP app/server skeleton + Core policy refs | Root points to `sorrel-hub/main` at `3278782`; `npm test` passed 10/10. |
 | `sorrel-agents` | Not started | Agent policy/control plane | Start after lanes/claims are clearer. |
 | `sorrel-sdk-js` | Not started | TypeScript SDK | Start after protocol stabilizes around CLI/HUB needs. |
 | `sorrel-sdk-rust` | Not started | Rust SDK | Start after core APIs settle. |
@@ -54,7 +54,7 @@ Reported running by user:
 
 | Module | Local branch/commit | Blocker | Recovery action |
 | --- | --- | --- | --- |
-| Root PRs #15-#20 | Root repo PRs from agents | Agents opened root pointer/implementation PRs instead of completing the submodule-main handoff. | Superseded by manual repair: merged the corresponding submodule branches into each submodule `main`, pushed those mains, and staged one root pointer update branch. Close superseded root PRs after root repair PR lands. |
+| None active | Root PRs #15-#20 were superseded and closed; root PR #21 was merged. | Submodule work now lives on each corresponding submodule `main`, and root points to those commits. | No action needed. |
 | Historical only | old wrong-repo local branch `cursor/sorrel-hub-skeleton-18de` / `48583c2` | Superseded by correct-repo implementation. | No recovery needed unless useful code must be compared manually. |
 
 ## Immediate next completion checks
@@ -77,11 +77,11 @@ Goal:
 
 - Review repaired submodule-main commits for consistency across protocol/core/CLI/Vault/Runners/Hub.
 - Confirm authority roots, signed policy changes, scoped delegation, and explicit self-grant/self-escalation denial are either implemented or tracked as next gaps.
-- Close or supersede root PRs #15-#20 after the root repair PR lands.
+- Treat this as the next focused review/hardening pass, not a pointer repair.
 
 Depends on:
 
-- Repaired submodule mains staged in this root branch.
+- Root `main` now points to repaired submodule mains.
 
 ### L - `sorrel-core` lanes and stacks
 
@@ -128,15 +128,13 @@ Depends on:
 
 | Order | Work | Target | Blocked by |
 | --- | --- | --- | --- |
-| 1 | Merge root repair PR | root repo | Points root to repaired submodule-main commits and removes stale prompt pack. |
-| 2 | Close/supersede root PRs #15-#20 | root repo | Their work was repaired into submodule mains manually. |
-| 3 | Verify/self-escalation hardening pass | `sorrel-protocol`, `sorrel-core`, consumers | Ensure signed `PolicyChange`/authority rules are implemented, not just documented. |
-| 4 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | Runner prototype and CLI integration complete; use Core workflow.run/runner.use decisions. |
-| 5 | Vault CLI/dev API on Core grants | `sorrel-vault` | Vault backend complete; map grants/redaction to Core policy. |
-| 6 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `3278782`; policy should be Core-owned. |
-| 7 | Agent control plane | `sorrel-agents` | Lanes/stacks + Core policy model. |
-| 8 | Git bridge | `sorrel-core` / `sorrel-cli` | Change + lanes basics. |
-| 9 | Merge/conflict model | `sorrel-core` | Change + lanes basics. |
+| 1 | Verify/self-escalation hardening pass | `sorrel-protocol`, `sorrel-core`, consumers | Ensure signed `PolicyChange`/authority rules are implemented, not just documented. |
+| 2 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | Runner prototype and CLI integration complete; use Core workflow.run/runner.use decisions. |
+| 3 | Vault CLI/dev API on Core grants | `sorrel-vault` | Vault backend complete; map grants/redaction to Core policy. |
+| 4 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `3278782`; policy should be Core-owned. |
+| 5 | Agent control plane | `sorrel-agents` | Lanes/stacks + Core policy model. |
+| 6 | Git bridge | `sorrel-core` / `sorrel-cli` | Change + lanes basics. |
+| 7 | Merge/conflict model | `sorrel-core` | Change + lanes basics. |
 
 ## Do not start yet
 
@@ -197,3 +195,4 @@ git push origin main
 | 2026-06-24 11:27 | User reported starting the prompt-pack agents. Added decentralized authority/self-escalation requirements and a `sorrel-web` prompt for updating the landing page with Core-native permissions messaging. |
 | 2026-06-24 11:45 | User reported all prompt-pack agents finished but opened root PRs instead of completing submodule-main handoffs. Manually merged/pushed repaired submodule mains: protocol `f5cf9cd`, core `ca82981`, CLI `d33ae00`, Hub `3278782`, runners `5028df5`, vault `fa16a55`. Removed stale `SORREL_AGENT_PROMPTS.md`; webpage agent reported running. |
 | 2026-06-24 11:46 | User reported `sorrel-web` PR #1 merged. Staged root `sorrel-web` pointer to `db12183`, which adds Core-native permissions landing-page copy. |
+| 2026-06-24 11:56 | User merged root PR #21 and closed superseded root PRs #15-#20. Verified no open root PRs and root `main` points to repaired submodule-main commits. |
