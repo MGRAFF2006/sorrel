@@ -40,7 +40,7 @@ Reported running by user:
 
 | Module | Local branch/commit | Blocker | Recovery action |
 | --- | --- | --- | --- |
-| None active | Previous Core/CLI parent pointer pushes were blocked by token permissions. | Repaired in root branch `cursor/update-sorrel-web-product-page-c5ce` by pointing to commits reachable from each submodule `main`. | Merge the root pointer PR after review. |
+| None active | Previous Core/CLI parent pointer pushes were blocked by token permissions. | Repaired in root branch `cursor/update-sorrel-web-product-page-c5ce` / root PR #13 by pointing to commits reachable from each submodule `main`. | Merge root PR #13 after review. |
 | Historical only | old wrong-repo local branch `cursor/sorrel-hub-skeleton-18de` / `48583c2` | Superseded by correct-repo implementation. | No recovery needed unless useful code must be compared manually. |
 
 ## Immediate next completion checks
@@ -100,7 +100,7 @@ Depends on:
 
 | Order | Work | Target | Blocked by |
 | --- | --- | --- | --- |
-| 1 | Merge root pointer/product-page PR | root repo | Pointers staged for Core/CLI/Hub/Web and dashboard updated. |
+| 1 | Merge root pointer/product-page PR #13 | root repo | Pointers staged for Core/CLI/Hub/Web and dashboard updated. |
 | 2 | Lanes/stacks | `sorrel-core` | Change model complete; latest verified main is `af2505b`. |
 | 3 | Workflow file parser | `sorrel-runners` / `sorrel-cli` | Runner prototype and CLI integration complete. |
 | 4 | Vault CLI/dev API | `sorrel-vault` | Vault backend complete. |
@@ -161,3 +161,4 @@ git push origin main
 | 2026-06-24 10:45 | `sorrel-cli` local integration pass completed and merged in submodule PR #1; root pointer update blocked from push. |
 | 2026-06-24 10:58 | `sorrel-web` public product page completed and pushed to `sorrel-web/main` at `1862d5b`; static validation passed. |
 | 2026-06-24 10:58 | Verified submodule mains and staged root pointer repairs: `sorrel-core` `af2505b`, `sorrel-cli` `7160391`, `sorrel-hub` `c0707b7`, `sorrel-web` `1862d5b`. |
+| 2026-06-24 10:59 | Opened root PR #13 from `cursor/update-sorrel-web-product-page-c5ce` to update the product-page pointer, repair completed submodule pointers, and refresh the progress dashboard. |
