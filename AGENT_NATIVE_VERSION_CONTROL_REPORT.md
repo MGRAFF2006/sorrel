@@ -326,9 +326,11 @@ Resolution  reusable conflict-resolution change
 Review      portable review metadata
 Issue       portable issue metadata
 Principal   user, agent, service, team, org, runner, or app identity reference
+Authority   trust root or delegated policy authority
 Grant       scoped permission assignment or delegation
 SecretRef   reference to external/encrypted secret
 Policy      portable authorization, visibility, workflow, and redaction rules
+PolicyChange signed proposal/transaction that changes grants, policy, or authority
 Decision    auditable policy evaluation result
 AgentNote   instruction/policy overlay for agents
 Workflow    portable job DAG
@@ -351,6 +353,8 @@ Core policy requirements:
 - Store grant and policy objects as portable Sorrel data where possible, with stable export/import semantics.
 - Keep raw secret values outside the object graph; store only `SecretRef`, schema, grant, redaction, and audit metadata.
 - Produce deterministic policy decisions that can be tested in memory and replayed for audit.
+- Treat policy mutation as a privileged action governed by the previous effective policy, not by the proposed new policy.
+- Reject self-grants, self-escalation, and unsigned authority changes unless an already-authorized authority delegated that power.
 - Allow Hub to add authentication, UI, administration, and team workflows without changing Core semantics.
 
 Canonical policy evaluation shape:
@@ -386,6 +390,58 @@ needs_review
 ```
 
 This spine should land before deeper lanes/stacks, workflow execution, vault integration, and Hub expansion so those modules share one authorization vocabulary.
+
+### Layer 2.6: Decentralized authority and self-escalation prevention
+
+A decentralized Sorrel repository cannot rely on a central server to prevent someone from editing a local file. It must instead make permission changes verifiable. Anyone can mutate bytes in their own clone, but other peers, runners, Hub, CI, and upstream repositories must reject policy state that is not authorized by the existing authority graph.
+
+Core invariants:
+
+- Policy, grant, and authority updates are signed `PolicyChange` objects, not ordinary untrusted file edits.
+- A `PolicyChange` is evaluated against the effective policy before that change is applied.
+- A principal cannot grant itself new capabilities unless it already has a delegated capability such as `policy.grant` or `authority.admin` for that resource.
+- A principal cannot broaden the scope of a delegated grant beyond the scope it received.
+- Root authority rotation requires the current root authority rule, such as owner signature, maintainer threshold, or explicit recovery policy.
+- Grants are monotonic only through valid authority chains; a forged or locally edited grant is visible as invalid/untrusted.
+- Runners, vaults, Hub, and remotes verify policy signatures and decisions before accepting changes, injecting secrets, running privileged workflows, or displaying private objects.
+- Forks may choose their own authority roots for their own namespace, but cannot impersonate upstream authority when proposing back.
+
+Canonical authority root:
+
+```json
+{
+  "id": "auth_repo_main",
+  "scope": { "scope": "repo", "repo": "repo_api" },
+  "authorities": [
+    { "principal": "user:alice", "weight": 1 },
+    { "principal": "user:bob", "weight": 1 },
+    { "principal": "user:carol", "weight": 1 }
+  ],
+  "threshold": 2,
+  "capabilities": ["policy.grant", "policy.revoke", "policy.update", "authority.rotate"],
+  "createdAt": "2026-06-24T00:00:00Z",
+  "signature": "sig_root..."
+}
+```
+
+Example rejected self-escalation:
+
+```json
+{
+  "type": "PolicyChange",
+  "actor": "agent:agent_17",
+  "operation": "grant",
+  "grant": {
+    "principal": "agent:agent_17",
+    "capabilities": ["secret.inject", "policy.grant"],
+    "resources": [{ "scope": "repo", "repo": "repo_api" }]
+  },
+  "decision": "deny",
+  "reason": "actor lacks policy.grant on repo_api under the previous effective policy"
+}
+```
+
+This is the difference between "decentralized" and "permissionless mutation." Sorrel can be local-first and peer-verifiable while still refusing unauthorized policy state.
 
 ### Layer 3: Change model
 
@@ -833,6 +889,7 @@ runner
 workflow
 marketplace app
 anonymous/public viewer
+authority
 ```
 
 Scopes:
@@ -853,6 +910,7 @@ Scopes:
 - runner
 - workflow
 - marketplace app
+- authority
 
 Capabilities:
 
@@ -887,6 +945,13 @@ agent.modify_instructions
 runner.use
 workflow.run
 marketplace.install
+policy.read
+policy.grant
+policy.revoke
+policy.update
+policy.delegate
+authority.admin
+authority.rotate
 ```
 
 Grant object:
@@ -910,6 +975,27 @@ Grant object:
   "signature": "sig_..."
 }
 ```
+
+Policy changes:
+
+```text
+PolicyChange
+  actor: Principal
+  operation: grant | revoke | update_policy | delegate | rotate_authority
+  previousPolicyRoot: ObjectId
+  proposedPolicyRoot: ObjectId
+  signatures: one or more authority signatures
+  evaluatedAgainst: previous effective policy
+  decision: allow | deny | needs_review
+```
+
+Security-critical rule:
+
+```text
+Never evaluate a permission change using the permissions created by that same change.
+```
+
+The evaluator must first ask whether the actor already has authority to make the change under the previous effective policy. This prevents an agent, fork, local clone, or compromised tool from editing its own policy object and having that edit accepted by peers.
 
 Policy decision object:
 

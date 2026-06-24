@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-24 11:20 UTC
+Last updated: 2026-06-24 11:27 UTC
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -16,12 +16,15 @@ This is the root overview for Sorrel orchestration. Update this file whenever an
 
 Sorrel Core must include headless identity, permissions, grants, policy decisions, redaction, `SecretRef`, and audit semantics from the foundation. Sorrel Hub is the collaboration product and administration surface on top of those Core semantics, not the owner of the only permission model.
 
+Decentralized does not mean permissionless. Core policy/grant/authority changes must be signed `PolicyChange` objects evaluated against the previous effective policy. A principal cannot grant itself power unless it already has delegated authority such as `policy.grant`, `policy.delegate`, or `authority.admin`; peers, runners, Hub, remotes, and vaults should reject locally edited or forged permission state.
+
 This means the next implementation priority is a compatibility pass across completed foundations before deeper lanes/stacks work:
 
 1. Define protocol schemas for principals, capabilities, resources, grants, policies, decisions, secret refs, redaction, and audit events.
-2. Add matching Core model types and a minimal deterministic in-memory policy evaluator.
-3. Adapt CLI, Vault, Runners, Slices, and Hub assumptions to consume the shared Core permission vocabulary.
-4. Resume lanes/stacks with owner principal, visibility, policy refs, grant refs, touched resources, and audit hooks included from the start.
+2. Add authority roots, signed policy changes, delegation rules, and self-escalation denial.
+3. Add matching Core model types and a minimal deterministic in-memory policy evaluator.
+4. Adapt CLI, Vault, Runners, Slices, and Hub assumptions to consume the shared Core permission vocabulary.
+5. Resume lanes/stacks with owner principal, visibility, policy refs, grant refs, touched resources, and audit hooks included from the start.
 
 ## Module status
 
@@ -46,6 +49,7 @@ Reported running by user:
 | Agent | Target | Goal | Dependency notes |
 | --- | --- | --- | --- |
 | K | root `AGENTS.md` | Durable instructions for future agents | Should replace stale setup notes and document submodule/private repo realities. |
+| Prompt-pack agents | protocol/core/CLI/vault/runners/slices/Hub | User reported starting the agents from `SORREL_AGENT_PROMPTS.md`. | Evaluate outputs against the Core-owned permission spine and self-escalation prevention requirements. |
 
 ## Blocked handoffs
 
@@ -75,6 +79,7 @@ These are ready for agents working directly in the submodule repos after verifyi
 Goal:
 
 - Adapt already completed foundations so they share the Core permission spine.
+- Include decentralized authority roots, signed policy changes, scoped delegation, and explicit self-grant/self-escalation denial.
 - Touch protocol/core first, then CLI/Vault/Runners/Slices/Hub as consumers.
 - Keep it headless and local-first; do not add production auth or hosted compute.
 
@@ -193,3 +198,4 @@ git push origin main
 | 2026-06-24 11:12 | Architecture correction recorded: Core owns headless identity, permissions, grants, policies, redaction, `SecretRef`, and audit semantics; Hub consumes/administers them. Added `SORREL_AGENT_PROMPTS.md` for adaptation and next agents. |
 | 2026-06-24 11:17 | Root PR #13 merged, so root `main` now points Core/CLI/Hub/Web at verified submodule-main commits. |
 | 2026-06-24 11:20 | Resolved PR #14 conflict against merged PR #13, preserving completed pointer repair status and Core-permissions priority correction. |
+| 2026-06-24 11:27 | User reported starting the prompt-pack agents. Added decentralized authority/self-escalation requirements and a `sorrel-web` prompt for updating the landing page with Core-native permissions messaging. |
