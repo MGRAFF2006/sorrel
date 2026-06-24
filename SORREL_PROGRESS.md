@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-24 11:56 UTC
+Last updated: 2026-06-24 14:17 UTC
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -18,26 +18,25 @@ Sorrel Core must include headless identity, permissions, grants, policy decision
 
 Decentralized does not mean permissionless. Core policy/grant/authority changes must be signed `PolicyChange` objects evaluated against the previous effective policy. A principal cannot grant itself power unless it already has delegated authority such as `policy.grant`, `policy.delegate`, or `authority.admin`; peers, runners, Hub, remotes, and vaults should reject locally edited or forged permission state.
 
-This means the next implementation priority is a compatibility pass across completed foundations before deeper lanes/stacks work:
+The initial compatibility pass has now landed across the separate submodule repositories. The current coordination priority is to repair root pointers to those submodule-main commits, then do a focused unification/conformance pass so Core policy behavior does not drift across consumers:
 
-1. Define protocol schemas for principals, capabilities, resources, grants, policies, decisions, secret refs, redaction, and audit events.
-2. Add authority roots, signed policy changes, delegation rules, and self-escalation denial.
-3. Add matching Core model types and a minimal deterministic in-memory policy evaluator.
-4. Adapt CLI, Vault, Runners, Slices, and Hub assumptions to consume the shared Core permission vocabulary.
-5. Resume lanes/stacks with owner principal, visibility, policy refs, grant refs, touched resources, and audit hooks included from the start.
+1. Repair root submodule pointers from the inaccessible PR #25 gitlinks to real submodule `main` commits.
+2. Use protocol fixtures as cross-language conformance tests for `AuthorityRoot`, `PolicyChange`, and policy decisions.
+3. Reduce evaluator drift between Rust Core, embedded CLI code, Hub's JS mirror, runner evaluators, and Vault adapters.
+4. Resume workflow/vault/Hub expansion only after the policy authority contract is consistent.
 
 ## Module status
 
 | Module | Status | Latest known work | Notes |
 | --- | --- | --- | --- |
-| `sorrel-protocol` | Done / merged | Protocol package + Core permission spine schemas | Root points to `sorrel-protocol/main` at `f5cf9cd`; validation passed with `npm run validate`. |
-| `sorrel-core` | Done / merged | Object store + snapshot + Change + policy evaluator + lane/stack metadata | Root points to `sorrel-core/main` at `ca82981`; `cargo test` passed 28/28. |
-| `sorrel-cli` | Done / merged | Mocked CLI + headless policy/grant/secret command surfaces | Root points to `sorrel-cli/main` at `d33ae00`; `cargo test` passed 14/14 integration tests. |
-| `sorrel-vault` | Done / merged | Secrets spec/local backend + Core policy decisions for grants/redaction | Root points to `sorrel-vault/main` at `fa16a55`; `npm test` passed. |
-| `sorrel-runners` | Done / merged | Local/container runner + Core policy-gated JobBundle/secret refs | Root points to `sorrel-runners/main` at `5028df5`; `cargo test` passed 7/7 integration tests. |
+| `sorrel-protocol` | Done / merged / root pointer repair staged | Protocol package + Core permission spine + AuthorityRoot/PolicyChange schemas | Submodule PR #1 merged at `5c43054`; local validation passed with `npm test` (61 passed). This branch repairs the root pointer to `5c43054`. |
+| `sorrel-core` | Done / merged / root pointer repair staged | Object store + snapshot + Change + policy evaluator + lane/stack metadata + authority hardening | Submodule PR #2 merged at `5e84f0f`; local validation passed with `cargo test` (40 passed). This branch repairs the root pointer to `5e84f0f`. |
+| `sorrel-cli` | Done / merged / root pointer repair staged | Mocked CLI + Core-backed policy evaluation and policy-change command surfaces | Submodule PR #2 merged at `0717f6f`; local validation passed with `cargo test --workspace` (17 CLI integration + 5 embedded core tests). This branch repairs the root pointer to `0717f6f`. |
+| `sorrel-vault` | Done / merged / root pointer repair staged | Secrets spec/local backend + trusted Core evaluate for `secret.read` / `secret.inject` | Submodule PR #1 merged at `f1ed7cd`; local validation passed with `npm test`. This branch repairs the root pointer to `f1ed7cd`. |
+| `sorrel-runners` | Done / merged / root pointer repair staged | Local/container runner + Core permission gate before JobBundle execution | Submodule PR #1 merged at `38dcef3`; local validation passed with `cargo test` (12 passed). This branch repairs the root pointer to `38dcef3`. |
 | `sorrel-slices` | Done / merged | TS/JS slice manifest prototype | Relative import dependency closure, package metadata, unresolved imports. |
 | `sorrel-web` | Public product page hosted / merged | Polished static landing page + Core-native permissions copy | Root points to `sorrel-web/main` at `db12183`. |
-| `sorrel-hub` | Done / merged | Node HTTP app/server skeleton + Core policy refs | Root points to `sorrel-hub/main` at `3278782`; `npm test` passed 10/10. |
+| `sorrel-hub` | Done / merged / root pointer repair staged | Node HTTP app/server skeleton + Core policy refs/admin guard | Submodule PR #2 merged at `aae580a`; local validation passed with `npm test` (13 passed). This branch repairs the root pointer to `aae580a`. |
 | `sorrel-agents` | Not started | Agent policy/control plane | Start after lanes/claims are clearer. |
 | `sorrel-sdk-js` | Not started | TypeScript SDK | Start after protocol stabilizes around CLI/HUB needs. |
 | `sorrel-sdk-rust` | Not started | Rust SDK | Start after core APIs settle. |
@@ -54,7 +53,8 @@ Reported running by user:
 
 | Module | Local branch/commit | Blocker | Recovery action |
 | --- | --- | --- | --- |
-| None active | Root PRs #15-#20 were superseded and closed; root PR #21 was merged. | Submodule work now lives on each corresponding submodule `main`, and root points to those commits. | No action needed. |
+| Root submodule pointers | root PR #25 / `a5dc79c` | PR #25 was merged with six inaccessible submodule gitlinks (`not our ref`) for protocol/core/CLI/Hub/runners/vault. | Repair staged in `cursor/repair-authority-hardening-pointers-c5ce`, pointing to actual submodule `main` commits: protocol `5c43054`, core `5e84f0f`, CLI `0717f6f`, Hub `aae580a`, runners `38dcef3`, vault `f1ed7cd`. |
+| Root PR #24 | `cursor/submodule-authority-prompts-43b8` | Prompt-only PR is now stale because the authority hardening work already ran in the separate submodule repositories. | Close or supersede PR #24 unless durable prompt docs are explicitly wanted. |
 | Historical only | old wrong-repo local branch `cursor/sorrel-hub-skeleton-18de` / `48583c2` | Superseded by correct-repo implementation. | No recovery needed unless useful code must be compared manually. |
 
 ## Immediate next completion checks
@@ -71,17 +71,33 @@ When an active agent reports completion, verify and record:
 
 These are ready for agents working directly in the submodule repos after verifying each submodule `main`.
 
-### O - verify repaired Core permission compatibility
+### O - repair root pointers after authority hardening
 
 Goal:
 
-- Review repaired submodule-main commits for consistency across protocol/core/CLI/Vault/Runners/Hub.
-- Confirm authority roots, signed policy changes, scoped delegation, and explicit self-grant/self-escalation denial are either implemented or tracked as next gaps.
-- Treat this as the next focused review/hardening pass, not a pointer repair.
+- Replace the inaccessible root PR #25 gitlinks with actual submodule `main` commits.
+- Update the root dashboard and mark PR #24 stale/superseded.
+- Verify each repaired root gitlink is reachable from the corresponding submodule `origin/main`.
 
 Depends on:
 
-- Root `main` now points to repaired submodule mains.
+- Authority-hardening submodule PRs merged in the separate repositories.
+
+### P - unify Core policy evaluator usage across consumers
+
+Goal:
+
+- Review the new authority-hardening implementations and remove drift between duplicated policy evaluators/adapters.
+- `sorrel-cli` currently embeds a `crates/sorrel-core` path dependency.
+- `sorrel-hub` mirrors Core evaluation in JavaScript until a package is available.
+- `sorrel-runners` uses a `CorePermissionEvaluator` trait and in-memory grant test double.
+- `sorrel-vault` uses injected `corePolicy.evaluate()` / local-dev adapter.
+- Decide the short-term shared contract: protocol fixtures + test vectors, a generated JS SDK, or a small shared package.
+
+Depends on:
+
+- Root pointer repair landing.
+- Current authority-hardening commits being reachable from submodule `main`.
 
 ### L - `sorrel-core` lanes and stacks
 
@@ -128,13 +144,16 @@ Depends on:
 
 | Order | Work | Target | Blocked by |
 | --- | --- | --- | --- |
-| 1 | Verify/self-escalation hardening pass | `sorrel-protocol`, `sorrel-core`, consumers | Ensure signed `PolicyChange`/authority rules are implemented, not just documented. |
-| 2 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | Runner prototype and CLI integration complete; use Core workflow.run/runner.use decisions. |
-| 3 | Vault CLI/dev API on Core grants | `sorrel-vault` | Vault backend complete; map grants/redaction to Core policy. |
-| 4 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `3278782`; policy should be Core-owned. |
-| 5 | Agent control plane | `sorrel-agents` | Lanes/stacks + Core policy model. |
-| 6 | Git bridge | `sorrel-core` / `sorrel-cli` | Change + lanes basics. |
-| 7 | Merge/conflict model | `sorrel-core` | Change + lanes basics. |
+| 1 | Merge root pointer repair for authority-hardening work | root repo | Root PR #25 points at inaccessible gitlinks; repair branch points to real submodule `main` commits. |
+| 2 | Close/supersede stale prompt PR #24 | root repo | Authority hardening already ran in separate repositories. |
+| 3 | Policy evaluator unification pass | `sorrel-core`, `sorrel-cli`, `sorrel-hub`, `sorrel-runners`, `sorrel-vault` | Avoid long-term drift between embedded/mirrored/evaluator-adapter implementations. |
+| 4 | Protocol/Core compatibility test vectors | `sorrel-protocol`, `sorrel-core`, JS consumers | Use protocol fixtures as cross-language conformance tests for `PolicyChange` and authority decisions. |
+| 5 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | Runner prototype and CLI integration complete; use Core workflow.run/runner.use decisions. |
+| 6 | Vault CLI/dev API on Core grants | `sorrel-vault` | Vault backend complete; map grants/redaction to Core policy. |
+| 7 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `aae580a`; policy should be Core-owned. |
+| 8 | Agent control plane | `sorrel-agents` | Lanes/stacks + Core policy model. |
+| 9 | Git bridge | `sorrel-core` / `sorrel-cli` | Change + lanes basics. |
+| 10 | Merge/conflict model | `sorrel-core` | Change + lanes basics. |
 
 ## Do not start yet
 
@@ -196,3 +215,5 @@ git push origin main
 | 2026-06-24 11:45 | User reported all prompt-pack agents finished but opened root PRs instead of completing submodule-main handoffs. Manually merged/pushed repaired submodule mains: protocol `f5cf9cd`, core `ca82981`, CLI `d33ae00`, Hub `3278782`, runners `5028df5`, vault `fa16a55`. Removed stale `SORREL_AGENT_PROMPTS.md`; webpage agent reported running. |
 | 2026-06-24 11:46 | User reported `sorrel-web` PR #1 merged. Staged root `sorrel-web` pointer to `db12183`, which adds Core-native permissions landing-page copy. |
 | 2026-06-24 11:56 | User merged root PR #21 and closed superseded root PRs #15-#20. Verified no open root PRs and root `main` points to repaired submodule-main commits. |
+| 2026-06-24 14:11 | User reported authority-hardening agents were split into separate repositories. Verified merged submodule PRs: protocol #1 `5c43054`, core #2 `5e84f0f`, CLI #2 `0717f6f`, Hub #2 `aae580a`, runners #1 `38dcef3`, vault #1 `f1ed7cd`. Found root PR #25 had inaccessible gitlinks and needs repair; root PR #24 prompt docs are stale. |
+| 2026-06-24 14:17 | Staged root pointer repair to actual submodule `main` commits and locally revalidated: protocol `npm test`, core `cargo test`, CLI `cargo test --workspace`, Hub `npm test`, runners `cargo test`, vault `npm test` all passed. |
