@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-24 10:45 UTC
+Last updated: 2026-06-24 10:58 UTC
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -17,13 +17,13 @@ This is the root overview for Sorrel orchestration. Update this file whenever an
 | Module | Status | Latest known work | Notes |
 | --- | --- | --- | --- |
 | `sorrel-protocol` | Done / merged | Initial `sorrel.protocol.v0` schema package | Schemas, examples, validation, versioning rules. |
-| `sorrel-core` | Done in submodule / root pointer blocked | Object store + snapshot + Change model | Change model merged in `sorrel-core` PR #1 at `64d9c26`; root pointer update commit `1453970` exists locally but could not be pushed by agent token. |
-| `sorrel-cli` | Done in submodule / root pointer blocked | Mocked CLI + local integration pass | CLI integration merged in `sorrel-cli` PR #1; root pointer update commit `14cf35b` exists locally but could not be pushed by agent token. |
+| `sorrel-core` | Done / merged / root pointer staged | Object store + snapshot + Change model | Verified `sorrel-core/main` at `af2505b`; this root branch updates the pointer from `f478c5d` to `af2505b`. |
+| `sorrel-cli` | Done / merged / root pointer staged | Mocked CLI + local integration pass | Verified `sorrel-cli/main` at `7160391`; this root branch updates the pointer from `6b8cb6a` to `7160391`. |
 | `sorrel-vault` | Done / merged | Secrets spec + local dev backend | `sorrel.secrets.yml`, SecretRef examples, grants, redaction, local backend. |
 | `sorrel-runners` | Done / merged | Local runner prototype | JobBundle, capabilities, local runner, minimal Docker/Podman runner, JSONL logs. |
 | `sorrel-slices` | Done / merged | TS/JS slice manifest prototype | Relative import dependency closure, package metadata, unresolved imports. |
-| `sorrel-web` | Seeded | Static landing page | Continue independently; does not block core architecture. |
-| `sorrel-hub` | Implemented in submodule | Node HTTP app/server skeleton | Correct-repo implementation completed: dependency-light Node HTTP server, domain models, in-memory store, project APIs, health route, README, tests. Commit/PR/root pointer details not yet reported. |
+| `sorrel-web` | Public product page shipped / root pointer staged | Polished static landing page | Committed to `sorrel-web/main` at `1862d5b`; validation passed with HTML asset check and local Python static server. |
+| `sorrel-hub` | Done / merged / root pointer staged | Node HTTP app/server skeleton | Verified `sorrel-hub/main` at `c0707b7`; correct-repo implementation includes dependency-light Node HTTP server, models, in-memory store, project APIs, health route, README, and tests reported 5/5 passing. |
 | `sorrel-agents` | Not started | Agent policy/control plane | Start after lanes/claims are clearer. |
 | `sorrel-sdk-js` | Not started | TypeScript SDK | Start after protocol stabilizes around CLI/HUB needs. |
 | `sorrel-sdk-rust` | Not started | Rust SDK | Start after core APIs settle. |
@@ -40,9 +40,8 @@ Reported running by user:
 
 | Module | Local branch/commit | Blocker | Recovery action |
 | --- | --- | --- | --- |
-| `sorrel-core` | root pointer branch `cursor/update-sorrel-core-change-model-fb27` / `1453970` | Agent could not push parent repo pointer update (`403 Permission to MGRAFF2006/sorrel.git denied`). | From root `main`, update `sorrel-core` to submodule commit `64d9c26` after it is on `sorrel-core/main`, then commit/push the root pointer. |
-| `sorrel-cli` | root pointer branch `cursor/update-sorrel-cli-submodule-6002` / `14cf35b` | Agent could not push parent repo pointer update (`403 Permission to MGRAFF2006/sorrel.git denied`). | From root `main`, update `sorrel-cli` to the merged `sorrel-cli/main` commit from PR #1, then commit/push the root pointer. |
-| `sorrel-hub` | old wrong-repo local branch `cursor/sorrel-hub-skeleton-18de` / `48583c2` | Superseded by correct-repo implementation. | No recovery needed unless useful code must be compared manually. |
+| None active | Previous Core/CLI parent pointer pushes were blocked by token permissions. | Repaired in root branch `cursor/update-sorrel-web-product-page-c5ce` / root PR #13 by pointing to commits reachable from each submodule `main`. | Merge root PR #13 after review. |
+| Historical only | old wrong-repo local branch `cursor/sorrel-hub-skeleton-18de` / `48583c2` | Superseded by correct-repo implementation. | No recovery needed unless useful code must be compared manually. |
 
 ## Immediate next completion checks
 
@@ -56,7 +55,7 @@ When an active agent reports completion, verify and record:
 
 ## Next planned agents
 
-These are now ready once the root submodule pointers are repaired or agents work directly in the submodule repos.
+These are ready once this root pointer repair PR lands, or immediately if agents work directly in the submodule repos and verify `main` first.
 
 ### L - `sorrel-core` lanes and stacks
 
@@ -68,7 +67,7 @@ Goal:
 
 Depends on:
 
-- Change model completed in `sorrel-core` at `64d9c26`.
+- Change model completed in `sorrel-core`; latest verified `sorrel-core/main` is `af2505b`.
 
 ### M - `sorrel-runners` workflow file parser
 
@@ -101,11 +100,11 @@ Depends on:
 
 | Order | Work | Target | Blocked by |
 | --- | --- | --- | --- |
-| 1 | Repair root pointers for Core/CLI | root repo | Submodule commits must be on each submodule `main`. |
-| 2 | Lanes/stacks | `sorrel-core` | Change model complete; root pointer repair recommended. |
+| 1 | Merge root pointer/product-page PR #13 | root repo | Pointers staged for Core/CLI/Hub/Web and dashboard updated. |
+| 2 | Lanes/stacks | `sorrel-core` | Change model complete; latest verified main is `af2505b`. |
 | 3 | Workflow file parser | `sorrel-runners` / `sorrel-cli` | Runner prototype and CLI integration complete. |
 | 4 | Vault CLI/dev API | `sorrel-vault` | Vault backend complete. |
-| 5 | Hub proposal/review expansion | `sorrel-hub` | Hub skeleton complete; root pointer details still needed. |
+| 5 | Hub proposal/review expansion | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `c0707b7`. |
 | 6 | Agent control plane | `sorrel-agents` | Lanes/stacks + policy model. |
 | 7 | Git bridge | `sorrel-core` / `sorrel-cli` | Change + lanes basics. |
 | 8 | Merge/conflict model | `sorrel-core` | Change + lanes basics. |
@@ -160,3 +159,6 @@ git push origin main
 | 2026-06-24 10:45 | Correct `sorrel-hub` implementation completed with Node HTTP server, models, in-memory store, routes, README, and 5/5 tests. |
 | 2026-06-24 10:45 | `sorrel-core` Change model completed and merged in submodule PR #1 at `64d9c26`; root pointer update blocked from push. |
 | 2026-06-24 10:45 | `sorrel-cli` local integration pass completed and merged in submodule PR #1; root pointer update blocked from push. |
+| 2026-06-24 10:58 | `sorrel-web` public product page completed and pushed to `sorrel-web/main` at `1862d5b`; static validation passed. |
+| 2026-06-24 10:58 | Verified submodule mains and staged root pointer repairs: `sorrel-core` `af2505b`, `sorrel-cli` `7160391`, `sorrel-hub` `c0707b7`, `sorrel-web` `1862d5b`. |
+| 2026-06-24 10:59 | Opened root PR #13 from `cursor/update-sorrel-web-product-page-c5ce` to update the product-page pointer, repair completed submodule pointers, and refresh the progress dashboard. |
