@@ -1,14 +1,14 @@
-# Forge Core and Forge Hub: Agent-Native Version Control and Collaboration Report
+# Sorrel Core and Sorrel Hub: Agent-Native Version Control and Collaboration Report
 
 ## Executive summary
 
-Forge Core and Forge Hub are the recommended working names for a new version-control and collaboration system built for modern software work: humans, parallel AI agents, cloud workspaces, local-first development, secrets, portable workflows, and selective sharing of unfinished work.
+Sorrel Core and Sorrel Hub are the final selected names for a new version-control and collaboration system built for modern software work: humans, parallel AI agents, cloud workspaces, local-first development, secrets, portable workflows, and selective sharing of unfinished work.
 
 The core idea is not to build "Git but nicer." The better architecture is a layered system:
 
 1. A new VCS core based on content-addressed objects, changes, lanes, slices, and first-class conflicts.
 2. A Git bridge so teams can import, export, mirror, and leave without lock-in.
-3. A collaboration forge with reviews, stacks, proposals, issues, CI, policies, and agent coordination.
+3. A collaboration product with reviews, stacks, proposals, issues, CI, policies, and agent coordination.
 4. A secret and environment layer built into the workflow.
 5. A portable workflow and runner protocol that supports local and user-owned remote compute.
 6. An optional marketplace for integrations, workflow modules, analyzers, runners, and agent tools.
@@ -17,29 +17,30 @@ The framework and protocol should be independent. Hosted products, marketplaces,
 
 ## Naming recommendation
 
-### Recommended working names: Forge Core and Forge Hub
+### Recommended working names: Sorrel Core and Sorrel Hub
 
-Forge Core is the protocol, storage engine, local CLI, SDK, and interoperability layer. Forge Hub is the collaboration product built on top of it: reviews, proposals, issues, runners, secrets, policies, organizations, and marketplace.
+Sorrel Core is the protocol, storage engine, local CLI, SDK, and interoperability layer. Sorrel Hub is the collaboration product built on top of it: reviews, proposals, issues, runners, secrets, policies, organizations, and marketplace.
 
-Why these are good working names:
+Why these are good final names:
 
-- "Forge" fits code collaboration, creation, and shared engineering work.
+- "Sorrel" is short, memorable, and calmer than a hard technical acronym.
 - The split keeps the framework independent from the hosted product.
 - "Core" makes the protocol/runtime boundary clear.
 - "Hub" makes the collaboration surface clear without forcing hosted compute into the initial product.
+- The matching Core and Hub domains are available/acquired for the product split.
 - The names leave room for sub-brands:
-  - Forge Core
-  - Forge Hub
-  - Forge Runners
-  - Forge Slices
-  - Forge Vault
+  - Sorrel Core
+  - Sorrel Hub
+  - Sorrel Runners
+  - Sorrel Slices
+  - Sorrel Vault
 
 Potential CLI names:
 
 ```bash
-forge
-fg
-forge-core
+sorrel
+srl
+sorrel-core
 ```
 
 ### Names checked and naming cautions
@@ -48,8 +49,9 @@ This was only a quick collision check, not a trademark clearance.
 
 | Name | Reason to avoid |
 | --- | --- |
-| ForgeCore / Forge Core | Preferred despite some unrelated uses; "forge" is crowded in developer tooling, so legal/domain checks are still needed. |
-| Forge | Too broad by itself; use Forge Core and Forge Hub as the specific names. |
+| Sorrel Core / Sorrel Hub | Final selected names; still requires normal legal/trademark clearance. |
+| ForgeCore / Forge Core | Liked, but the related `.com` domains were unavailable or crowded. |
+| Forge | Too broad by itself and crowded in developer tooling. |
 | Weave / GitWeave / ChangeWeave | Crowded around agent VCS, semantic merge, and Git submodule alternatives. |
 | Loom | Used for Git worktree/multirepo tooling and older patch-stack tooling. |
 | Patchlane | Existing npm CLI for managing custom patches on forks. |
@@ -64,7 +66,7 @@ This was only a quick collision check, not a trademark clearance.
 
 ### Naming note
 
-Forge Core and Forge Hub are stronger than the more artificial coined-name alternatives because they communicate the product shape immediately. The naming risk is crowding, not meaning. If legal and domain checks are acceptable, they should remain the primary names.
+Sorrel Core and Sorrel Hub are the final selected names. The architecture keeps the same product split: Sorrel Core is the independent protocol/runtime, and Sorrel Hub is the collaboration layer built on top.
 
 ## Product thesis
 
@@ -81,7 +83,7 @@ Git was designed for human-driven source-code history. Modern development increa
 - stack-based review
 - local and remote execution options
 
-Forge Core should treat these as primary design constraints, not integrations added after the fact.
+Sorrel Core should treat these as primary design constraints, not integrations added after the fact.
 
 ## Competitive research summary
 
@@ -243,7 +245,7 @@ Weaknesses:
 
 Lessons:
 
-- Forge Core should have storage adapters from day one:
+- Sorrel Core should have storage adapters from day one:
   - native filesystem
   - in-memory
   - IndexedDB / OPFS
@@ -271,7 +273,7 @@ Lessons:
 
 ## Core architecture
 
-Forge Core should have a Rust core with CLI, server, Node/WASM bindings, and a TypeScript SDK.
+Sorrel Core should have a Rust core with CLI, server, Node/WASM bindings, and a TypeScript SDK.
 
 ### Layer 1: Storage engine
 
@@ -296,7 +298,7 @@ interface Workspace {
 
 Backends:
 
-- Filesystem backend with `.forge/` beside the working tree.
+- Filesystem backend with `.sorrel/` beside the working tree.
 - Bare backend for servers, CI, bots, and merge queues.
 - In-memory backend for JS agents, tests, browser sandboxes, and ephemeral previews.
 - Browser backend using IndexedDB or OPFS.
@@ -332,7 +334,7 @@ Use BLAKE3 or SHA-256 for native object IDs. Preserve Git SHA compatibility thro
 
 ### Layer 3: Change model
 
-Git commits are snapshots. Forge Core should treat changes as primary.
+Git commits are snapshots. Sorrel Core should treat changes as primary.
 
 Example:
 
@@ -368,22 +370,22 @@ Adoption requires a bridge.
 ### Git-colocated mode
 
 ```bash
-forge init --git-colocated
+sorrel init --git-colocated
 ```
 
 Creates:
 
 ```text
 .git/
-.forge/
+.sorrel/
 ```
 
-Users can still use Git. Forge Core imports Git commits and exports Forge Core changes as normal Git commits.
+Users can still use Git. Sorrel Core imports Git commits and exports Sorrel Core changes as normal Git commits.
 
 ### Native mode
 
 ```bash
-forge clone forge://org/project
+sorrel clone sorrel://org/project
 ```
 
 Uses the native object model.
@@ -391,22 +393,22 @@ Uses the native object model.
 ### Git remote bridge
 
 ```bash
-git remote add forge forge://org/project
-git push forge main
+git remote add sorrel sorrel://org/project
+git push sorrel main
 ```
 
 or:
 
 ```bash
-forge git export --to origin/main
+sorrel git export --to origin/main
 ```
 
 ### One-way mirror
 
 For early adoption:
 
-- team works in Forge Core
-- Forge Core exports to GitHub or GitLab
+- team works in Sorrel Core
+- Sorrel Core exports to GitHub or GitLab
 - existing CI and deployments continue
 
 ### Round-trip exit
@@ -414,14 +416,14 @@ For early adoption:
 Teams must be able to leave:
 
 ```bash
-forge export --git ./repo.git
+sorrel export --git ./repo.git
 ```
 
 No lock-in should be a product principle.
 
 ## Collaboration platform
 
-Forge Hub is the GitHub-like collaboration product built on top of Forge Core's portable collaboration objects.
+Sorrel Hub is the GitHub-like collaboration product built on top of Sorrel Core's portable collaboration objects.
 
 Core features:
 
@@ -487,10 +489,10 @@ Agents should not scrape human terminal output. Provide three stable interfaces.
 ### CLI
 
 ```bash
-forge lane create agent/refactor-auth
-forge slice create --entry packages/auth/src/index.ts --name auth-lib
-forge workflow run test
-forge workflow run test --runner ssh-buildbox
+sorrel lane create agent/refactor-auth
+sorrel slice create --entry packages/auth/src/index.ts --name auth-lib
+sorrel workflow run test
+sorrel workflow run test --runner ssh-buildbox
 ```
 
 ### JSON API
@@ -504,9 +506,9 @@ POST /repos/:repo/workflows/:workflow/runs
 ### SDK
 
 ```ts
-const lane = await forge.lanes.create("agent/refactor-auth")
+const lane = await sorrel.lanes.create("agent/refactor-auth")
 
-const slice = await forge.slices.create({
+const slice = await sorrel.slices.create({
   entrypoint: "packages/auth/src/index.ts",
   name: "auth-lib",
   carryPermissions: true
@@ -577,7 +579,7 @@ Slices are better submodules.
 The user should be able to say:
 
 ```bash
-forge slice create \
+sorrel slice create \
   --entry packages/auth/src/index.ts \
   --name auth-lib \
   --visibility team
@@ -618,7 +620,7 @@ The system should:
 ```yaml
 dependencies:
   auth-lib:
-    repo: forge://org/auth-lib
+    repo: sorrel://org/auth-lib
     ref: main
     mode: live
 ```
@@ -630,7 +632,7 @@ Best for active shared components.
 ```yaml
 dependencies:
   auth-lib:
-    repo: forge://org/auth-lib
+    repo: sorrel://org/auth-lib
     change: chg_abc123
     mode: pinned
 ```
@@ -642,7 +644,7 @@ Best for reproducible production dependencies.
 ```yaml
 dependencies:
   auth-lib:
-    repo: forge://org/auth-lib
+    repo: sorrel://org/auth-lib
     change: chg_abc123
     mode: vendored
 ```
@@ -653,7 +655,7 @@ Best when consumers should not need remote access after import.
 
 The parent repo shows the slice as a normal directory, but storage, review, and history know it is linked.
 
-Best long-term UX, but requires native Forge Core tooling.
+Best long-term UX, but requires native Sorrel Core tooling.
 
 ### Permission carryover
 
@@ -666,7 +668,7 @@ new repo permissions = source permissions intersected with explicit share target
 Example:
 
 ```bash
-forge slice create \
+sorrel slice create \
   --entry packages/billing \
   --name billing-sdk \
   --share team:payments
@@ -693,7 +695,7 @@ In the new repo:
 
 ```yaml
 origin:
-  sourceRepo: forge://org/app
+  sourceRepo: sorrel://org/app
   sourcePath: packages/auth
   sourceChange: chg_123
 ```
@@ -703,7 +705,7 @@ In the old repo:
 ```yaml
 links:
   packages/auth:
-    repo: forge://org/auth-lib
+    repo: sorrel://org/auth-lib
     mode: live
     createdFrom: chg_123
 ```
@@ -711,9 +713,9 @@ links:
 Sync commands:
 
 ```bash
-forge slice sync auth-lib --from-parent
-forge slice sync auth-lib --to-parent
-forge slice history auth-lib
+sorrel slice sync auth-lib --from-parent
+sorrel slice sync auth-lib --to-parent
+sorrel slice history auth-lib
 ```
 
 ### Entrypoint dependency closure
@@ -745,7 +747,7 @@ analyzers:
 Allow overrides:
 
 ```bash
-forge slice create \
+sorrel slice create \
   --entry packages/auth/src/index.ts \
   --include packages/auth/tests \
   --exclude "**/*.snap"
@@ -753,7 +755,7 @@ forge slice create \
 
 ## Permissions model
 
-Git has weak permission granularity. Forge Core should support object-level policy.
+Git has weak permission granularity. Sorrel Core should support object-level policy.
 
 Scopes:
 
@@ -817,7 +819,7 @@ Never commit raw secrets. Repos should contain:
 ```text
 .env.schema
 .env.example
-forge.secrets.yml
+sorrel.secrets.yml
 ```
 
 Example:
@@ -837,7 +839,7 @@ environments:
 
 Actual values can live in:
 
-- Forge Core Vault
+- Sorrel Core Vault
 - HashiCorp Vault
 - Infisical
 - Doppler
@@ -862,9 +864,9 @@ Features:
 Commands:
 
 ```bash
-forge secrets import .env --env dev
-forge run --env dev npm test
-forge agent start --task fix-tests --secrets test-only
+sorrel secrets import .env --env dev
+sorrel run --env dev npm test
+sorrel agent start --task fix-tests --secrets test-only
 ```
 
 For agents, prefer secret handles over raw values.
@@ -887,7 +889,7 @@ Materialized locally as:
 ```text
 AGENTS.md
 AGENTS.local.md
-.forge/agent-policy.lock
+.sorrel/agent-policy.lock
 ```
 
 Canonical policy object:
@@ -920,7 +922,7 @@ This creates one control plane for:
 
 ## Workflow and runner system
 
-Forge Core should not offer hosted compute at the beginning. Instead, build a portable execution protocol.
+Sorrel Core should not offer hosted compute at the beginning. Instead, build a portable execution protocol.
 
 The platform stores:
 
@@ -964,15 +966,15 @@ workflows:
 Run locally:
 
 ```bash
-forge workflow run test
+sorrel workflow run test
 ```
 
 Run elsewhere:
 
 ```bash
-forge workflow run test --runner k8s-prod
-forge workflow run test --runner ssh-mac-mini
-forge workflow run test --runner local-docker
+sorrel workflow run test --runner k8s-prod
+sorrel workflow run test --runner ssh-mac-mini
+sorrel workflow run test --runner local-docker
 ```
 
 Same workflow, different execution target.
@@ -982,7 +984,7 @@ Same workflow, different execution target.
 #### Local process runner
 
 ```bash
-forge runner local
+sorrel runner local
 ```
 
 Pros:
@@ -1000,7 +1002,7 @@ Cons:
 Docker or Podman.
 
 ```bash
-forge runner docker
+sorrel runner docker
 ```
 
 Pros:
@@ -1016,7 +1018,7 @@ Cons:
 #### SSH runner
 
 ```bash
-forge runner register ssh://buildbox.internal
+sorrel runner register ssh://buildbox.internal
 ```
 
 Pros:
@@ -1031,7 +1033,7 @@ Cons:
 #### Kubernetes runner
 
 ```bash
-forge runner register k8s://cluster/prod-builds
+sorrel runner register k8s://cluster/prod-builds
 ```
 
 Pros:
@@ -1047,8 +1049,8 @@ Cons:
 #### GitHub Actions / GitLab CI adapter
 
 ```bash
-forge workflow export --target github-actions
-forge workflow export --target gitlab-ci
+sorrel workflow export --target github-actions
+sorrel workflow export --target gitlab-ci
 ```
 
 Pros:
@@ -1150,7 +1152,7 @@ Workflows should target capabilities, not hardcoded machines.
 ### Runner registration
 
 ```bash
-forge runner register \
+sorrel runner register \
   --name mac-mini-1 \
   --labels macos,arm64,ios-simulator,codesign \
   --mode pull
@@ -1190,9 +1192,9 @@ JobBundle
 Reroute:
 
 ```bash
-forge workflow run test --local
-forge workflow rerun run_123 --runner k8s
-forge workflow rerun run_123 --runner ssh-gpu-box
+sorrel workflow run test --local
+sorrel workflow rerun run_123 --runner k8s
+sorrel workflow rerun run_123 --runner ssh-gpu-box
 ```
 
 Same inputs. Same command. Different runner.
@@ -1202,7 +1204,7 @@ Same inputs. Same command. Different runner.
 Agents can ask:
 
 ```bash
-forge workflow suggest
+sorrel workflow suggest
 ```
 
 Response:
@@ -1225,7 +1227,7 @@ Response:
 Agents can run:
 
 ```bash
-forge workflow run unit --lane agent/refactor-auth
+sorrel workflow run unit --lane agent/refactor-auth
 ```
 
 The run is attached to the agent lane, change, and proposal.
@@ -1297,7 +1299,7 @@ Use signed packages and sandboxed execution. Marketplace apps should mutate core
 
 ## Modern filesystem support
 
-Forge Core must support:
+Sorrel Core must support:
 
 - Linux
 - macOS
@@ -1480,13 +1482,13 @@ Build:
 Commands:
 
 ```bash
-forge init
-forge status
-forge change create
-forge change list
-forge switch
-forge diff
-forge undo
+sorrel init
+sorrel status
+sorrel change create
+sorrel change list
+sorrel switch
+sorrel diff
+sorrel undo
 ```
 
 Success criteria:
@@ -1501,16 +1503,16 @@ Success criteria:
 Build:
 
 ```bash
-forge init --git-colocated
-forge git import
-forge git export
-forge git sync
+sorrel init --git-colocated
+sorrel git import
+sorrel git export
+sorrel git sync
 ```
 
 Success criteria:
 
 - Existing Git repo can be used.
-- Forge Core changes export as normal Git commits.
+- Sorrel Core changes export as normal Git commits.
 - Team can leave without data loss.
 
 ### Phase 3: Lanes and stacks
@@ -1518,10 +1520,10 @@ Success criteria:
 Build:
 
 ```bash
-forge lane create agent-17/fix-tests
-forge stack create
-forge stack submit
-forge lane status
+sorrel lane create agent-17/fix-tests
+sorrel stack create
+sorrel stack submit
+sorrel lane status
 ```
 
 Success criteria:
@@ -1535,10 +1537,10 @@ Success criteria:
 Build:
 
 ```bash
-forge slice create --entry packages/auth/src/index.ts --name auth-lib
-forge slice inspect auth-lib
-forge slice sync auth-lib --from-parent
-forge slice sync auth-lib --to-parent
+sorrel slice create --entry packages/auth/src/index.ts --name auth-lib
+sorrel slice inspect auth-lib
+sorrel slice sync auth-lib --from-parent
+sorrel slice sync auth-lib --to-parent
 ```
 
 Success criteria:
@@ -1553,9 +1555,9 @@ Success criteria:
 Build:
 
 ```bash
-forge workflow run test --local
-forge workflow rerun run_123 --runner ssh-buildbox
-forge runner register ssh://buildbox.internal
+sorrel workflow run test --local
+sorrel workflow rerun run_123 --runner ssh-buildbox
+sorrel runner register ssh://buildbox.internal
 ```
 
 Success criteria:
@@ -1565,7 +1567,7 @@ Success criteria:
 - Secret refs are resolved only by authorized runners.
 - Runs attach to lanes, changes, proposals, and agents.
 
-### Phase 6: Forge Hub server
+### Phase 6: Sorrel Hub server
 
 Build:
 
@@ -1588,9 +1590,9 @@ Success criteria:
 Build:
 
 ```bash
-forge secrets import .env
-forge secrets grant agent-17 --env dev
-forge run --env dev npm test
+sorrel secrets import .env
+sorrel secrets grant agent-17 --env dev
+sorrel run --env dev npm test
 ```
 
 Success criteria:
@@ -1639,7 +1641,7 @@ The first convincing demo should show:
 1. Import an existing Git repo.
 2. Create three agent lanes.
 3. Two agents edit the same file.
-4. Forge Core detects overlapping symbols.
+4. Sorrel Core detects overlapping symbols.
 5. One change merges cleanly.
 6. One produces a first-class conflict object.
 7. Conflict resolution is saved and reused.
@@ -1680,14 +1682,14 @@ If that demo works, the foundation is strong enough to justify the larger platfo
 
 ## Final recommendation
 
-Build Forge Core in this order:
+Build Sorrel Core in this order:
 
 1. Core object store, changes, snapshots, operation log, and in-memory backend.
 2. Git bridge.
 3. Lanes and stacks.
 4. Slices from entrypoints with permission projection.
 5. Portable workflows and user-owned runners.
-6. Forge collaboration server.
+6. Sorrel Hub collaboration server.
 7. Secrets, agent policy, and marketplace.
 
 This keeps the hardest technical bets close to the core while delaying hosted compute and marketplace complexity until the protocol is proven.
