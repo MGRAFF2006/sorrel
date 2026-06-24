@@ -1,3 +1,33 @@
 [submodule "sorrel-web"]
 	path = sorrel-web
 	url = https://github.com/MGRAFF2006/sorrel-web.git
+[submodule "sorrel-core"]
+	path = sorrel-core
+	url = https://github.com/MGRAFF2006/sorrel-core.git
+[submodule "sorrel-protocol"]
+	path = sorrel-protocol
+	url = https://github.com/MGRAFF2006/sorrel-protocol.git
+[submodule "sorrel-cli"]
+	path = sorrel-cli
+	url = https://github.com/MGRAFF2006/sorrel-cli.git
+[submodule "sorrel-hub"]
+	path = sorrel-hub
+	url = https://github.com/MGRAFF2006/sorrel-hub.git
+[submodule "sorrel-runners"]
+	path = sorrel-runners
+	url = https://github.com/MGRAFF2006/sorrel-runners.git
+[submodule "sorrel-vault"]
+	path = sorrel-vault
+	url = https://github.com/MGRAFF2006/sorrel-vault.git
+[submodule "sorrel-slices"]
+	path = sorrel-slices
+	url = https://github.com/MGRAFF2006/sorrel-slices.git
+[submodule "sorrel-agents"]
+	path = sorrel-agents
+	url = https://github.com/MGRAFF2006/sorrel-agents.git
+[submodule "sorrel-sdk-js"]
+	path = sorrel-sdk-js
+	url = https://github.com/MGRAFF2006/sorrel-sdk-js.git
+[submodule "sorrel-sdk-rust"]
+	path = sorrel-sdk-rust
+	url = https://github.com/MGRAFF2006/sorrel-sdk-rust.git
