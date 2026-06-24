@@ -7,19 +7,20 @@ Sorrel Core and Sorrel Hub are the final selected names for a new version-contro
 The core idea is not to build "Git but nicer." The better architecture is a layered system:
 
 1. A new VCS core based on content-addressed objects, changes, lanes, slices, and first-class conflicts.
-2. A Git bridge so teams can import, export, mirror, and leave without lock-in.
-3. A collaboration product with reviews, stacks, proposals, issues, CI, policies, and agent coordination.
-4. A secret and environment layer built into the workflow.
-5. A portable workflow and runner protocol that supports local and user-owned remote compute.
-6. An optional marketplace for integrations, workflow modules, analyzers, runners, and agent tools.
+2. Core-native identity, permissions, grants, policy evaluation, audit records, and secret/environment references that work without Sorrel Hub.
+3. A Git bridge so teams can import, export, mirror, and leave without lock-in.
+4. A collaboration product with reviews, stacks, proposals, issues, CI, policy administration, and agent coordination.
+5. A secret and environment layer built into the workflow and governed by Core grants.
+6. A portable workflow and runner protocol that supports local and user-owned remote compute.
+7. An optional marketplace for integrations, workflow modules, analyzers, runners, and agent tools.
 
-The framework and protocol should be independent. Hosted products, marketplaces, and UI layers should sit on top of the open core rather than define it.
+The framework and protocol should be independent. Hosted products, marketplaces, and UI layers should sit on top of the open core rather than define identity, permission, policy, or secret semantics.
 
 ## Naming recommendation
 
 ### Recommended working names: Sorrel Core and Sorrel Hub
 
-Sorrel Core is the protocol, storage engine, local CLI, SDK, and interoperability layer. Sorrel Hub is the collaboration product built on top of it: reviews, proposals, issues, runners, secrets, policies, organizations, and marketplace.
+Sorrel Core is the protocol, storage engine, policy engine, local CLI, SDK, and interoperability layer. Sorrel Hub is the collaboration product built on top of it: reviews, proposals, issues, runners, policy administration, organizations, and marketplace.
 
 Why these are good final names:
 
@@ -66,7 +67,7 @@ This was only a quick collision check, not a trademark clearance.
 
 ### Naming note
 
-Sorrel Core and Sorrel Hub are the final selected names. The architecture keeps the same product split: Sorrel Core is the independent protocol/runtime, and Sorrel Hub is the collaboration layer built on top.
+Sorrel Core and Sorrel Hub are the final selected names. The architecture keeps the same product split: Sorrel Core is the independent protocol/runtime, including headless identity, permissions, grants, policies, and audit semantics. Sorrel Hub is the collaboration layer built on top.
 
 ## Product thesis
 
@@ -77,6 +78,7 @@ Git was designed for human-driven source-code history. Modern development increa
 - in-memory/browser execution
 - generated code
 - secrets and environment files
+- permissions for humans, agents, runners, workflows, and marketplace tools
 - large binaries and non-code assets
 - hidden work in progress
 - cross-repo and subproject sharing
@@ -323,14 +325,67 @@ Conflict    first-class unresolved merge state
 Resolution  reusable conflict-resolution change
 Review      portable review metadata
 Issue       portable issue metadata
+Principal   user, agent, service, team, org, runner, or app identity reference
+Grant       scoped permission assignment or delegation
 SecretRef   reference to external/encrypted secret
-Policy      permissions and workflow rules
+Policy      portable authorization, visibility, workflow, and redaction rules
+Decision    auditable policy evaluation result
 AgentNote   instruction/policy overlay for agents
 Workflow    portable job DAG
 Runner      execution target with capabilities
+AuditEvent  append-only security/workflow event
 ```
 
 Use BLAKE3 or SHA-256 for native object IDs. Preserve Git SHA compatibility through mapping tables.
+
+### Layer 2.5: Core identity, permissions, and policy spine
+
+Permissions are not a Sorrel Hub add-on. Sorrel Core must define the portable identity, capability, grant, policy, decision, and audit objects that every UI, CLI, runner, vault backend, and hosted product consumes. A repository should be usable headlessly through the CLI or SDK while still enforcing the same access model that Hub would show in a web UI.
+
+Core policy requirements:
+
+- Work without Sorrel Hub, a hosted database, or production auth.
+- Treat humans, agents, services, runners, workflow jobs, teams, organizations, and marketplace apps as principals.
+- Authorize object reads before returning private/redacted objects, not only before rendering them.
+- Express path, symbol, change, lane, stack, slice, proposal, workflow, runner, environment, and secret scopes.
+- Store grant and policy objects as portable Sorrel data where possible, with stable export/import semantics.
+- Keep raw secret values outside the object graph; store only `SecretRef`, schema, grant, redaction, and audit metadata.
+- Produce deterministic policy decisions that can be tested in memory and replayed for audit.
+- Allow Hub to add authentication, UI, administration, and team workflows without changing Core semantics.
+
+Canonical policy evaluation shape:
+
+```json
+{
+  "principal": "agent:agent_17",
+  "action": "path.write",
+  "resource": {
+    "scope": "path",
+    "repo": "repo_api",
+    "path": "packages/auth/src/session.ts"
+  },
+  "context": {
+    "lane": "lane_agent_17_fix_tests",
+    "workflowRun": null,
+    "requestedAt": "2026-06-24T00:00:00Z"
+  },
+  "decision": "allow",
+  "matchedPolicy": "pol_auth_agent_edits",
+  "auditEvent": "audit_123"
+}
+```
+
+Minimal decisions:
+
+```text
+allow
+deny
+redact
+needs_grant
+needs_review
+```
+
+This spine should land before deeper lanes/stacks, workflow execution, vault integration, and Hub expansion so those modules share one authorization vocabulary.
 
 ### Layer 3: Change model
 
@@ -423,7 +478,7 @@ No lock-in should be a product principle.
 
 ## Collaboration platform
 
-Sorrel Hub is the GitHub-like collaboration product built on top of Sorrel Core's portable collaboration objects.
+Sorrel Hub is the GitHub-like collaboration product built on top of Sorrel Core's portable collaboration, identity, policy, and audit objects. Hub can provide auth, administration UI, hosted storage, notifications, and team workflows, but it must not define a separate permission model that Core cannot run headlessly.
 
 Core features:
 
@@ -440,11 +495,12 @@ Core features:
 - CI/workflows
 - merge queue
 - agent jobs
-- secret manager
+- policy and grant administration
+- secret/environment administration backed by Core `SecretRef` and grant semantics
 - environments
 - marketplace
 
-Canonical project data should be exportable and syncable, not trapped in a hosted database only.
+Canonical project data should be exportable and syncable, not trapped in a hosted database only. Hub-only metadata should be an optimization or product feature, not the source of truth for whether a principal can read, write, run, inject, review, merge, or redact Sorrel objects.
 
 ### Proposal model
 
@@ -755,7 +811,29 @@ sorrel slice create \
 
 ## Permissions model
 
-Git has weak permission granularity. Sorrel Core should support object-level policy.
+Git has weak permission granularity. Sorrel Core should support object-level policy as a core runtime feature, not a Hub-only product feature. Every module that reads, writes, runs, injects secrets, exposes review state, or launches agents should be able to ask the same Core policy engine for a decision.
+
+Headless invariant:
+
+```text
+same repository + same principal + same grant/policy objects + same action = same decision
+```
+
+That invariant must hold from the CLI, SDK, local runner, test harness, Hub server, or future hosted product.
+
+Principals:
+
+```text
+user
+agent
+service
+team
+org
+runner
+workflow
+marketplace app
+anonymous/public viewer
+```
 
 Scopes:
 
@@ -783,19 +861,69 @@ repo.read
 repo.write
 path.read
 path.write
+symbol.read
+symbol.write
 change.create
+change.read
 change.read_private
+change.update_visibility
+lane.create
+lane.read
+lane.write
+stack.create
+stack.submit
+slice.create
+slice.export
 proposal.view
 proposal.review
 proposal.merge
 secret.read
 secret.inject
+environment.read
+environment.use
 agent.launch
 agent.read_logs
 agent.modify_instructions
 runner.use
 workflow.run
 marketplace.install
+```
+
+Grant object:
+
+```json
+{
+  "id": "grant_123",
+  "principal": "agent:agent_17",
+  "capabilities": ["path.write", "workflow.run"],
+  "resources": [
+    { "scope": "path", "path": "packages/auth/**" },
+    { "scope": "workflow", "name": "test" }
+  ],
+  "constraints": {
+    "lane": "lane_agent_17_fix_tests",
+    "expiresAt": "2026-06-24T04:00:00Z",
+    "requiresReviewFor": ["proposal.merge"]
+  },
+  "issuedBy": "user:alice",
+  "createdAt": "2026-06-24T00:00:00Z",
+  "signature": "sig_..."
+}
+```
+
+Policy decision object:
+
+```json
+{
+  "id": "decision_123",
+  "principal": "agent:agent_17",
+  "action": "secret.inject",
+  "resource": "secret://project/api/dev/DATABASE_URL",
+  "decision": "needs_grant",
+  "reason": "No matching grant for secret injection in this lane",
+  "matchedPolicies": [],
+  "auditEvent": "audit_456"
+}
 ```
 
 Visibility states:
@@ -808,11 +936,11 @@ public        visible to everyone with repo access
 redacted      metadata visible, diff hidden
 ```
 
-Private work should be enforced by object-level authorization and, where needed, encryption rather than UI hiding only.
+Private work should be enforced by object-level authorization and, where needed, encryption rather than UI hiding only. Redacted objects should remain useful for coordination by exposing safe metadata, such as IDs, dependencies, touched paths, or required review state, while hiding protected content.
 
 ## Secret management
 
-Secrets must be first-class.
+Secrets must be first-class, but raw secret values must not become Sorrel objects. Sorrel Core owns the portable `SecretRef`, environment schema, grant, redaction, and audit semantics. `sorrel-vault` and external vaults resolve values only after Core policy allows the requesting principal, workflow, runner, and environment context.
 
 Never commit raw secrets. Repos should contain:
 
@@ -857,6 +985,7 @@ Features:
 - per-agent grants
 - per-workflow grants
 - per-runner grants
+- policy-engine decisions before injection
 - redaction in logs
 - preview environment secrets
 - secret diffs without values
@@ -869,7 +998,7 @@ sorrel run --env dev npm test
 sorrel agent start --task fix-tests --secrets test-only
 ```
 
-For agents, prefer secret handles over raw values.
+For agents, prefer secret handles over raw values. Agent prompts, lanes, proposals, workflow bundles, and logs should carry `SecretRef` handles and redaction metadata, never the value itself.
 
 ## Agent instruction system
 
@@ -1234,6 +1363,8 @@ The run is attached to the agent lane, change, and proposal.
 
 ### Workflow permissions
 
+Workflow permissions are Core policy inputs. Runners should not decide privilege from local config alone; they should receive a `JobBundle`, principal context, required capabilities, and secret/environment refs, then ask Core policy whether the run, runner use, and secret injection are allowed.
+
 ```yaml
 permissions:
   workflows:
@@ -1466,7 +1597,9 @@ Use for hosted storage and user-owned storage backends.
 
 ## MVP plan
 
-### Phase 1: Core engine
+MVP priority correction: identity, permissions, grants, policy decisions, secret/environment references, redaction metadata, and audit events are part of the Core foundation. Later phases can deepen UX and integrations, but they must not be the first place these concepts appear.
+
+### Phase 1: Core engine and permission spine
 
 Build:
 
@@ -1475,6 +1608,9 @@ Build:
 - In-memory backend.
 - Snapshot objects.
 - Change objects.
+- Minimal Principal, Grant, Policy, Decision, SecretRef, and AuditEvent objects.
+- Deterministic in-memory policy evaluator.
+- Object read/write authorization hooks for private/redacted metadata.
 - Basic diff/apply.
 - Operation log and undo.
 - First-class conflict objects.
@@ -1486,6 +1622,8 @@ sorrel init
 sorrel status
 sorrel change create
 sorrel change list
+sorrel policy evaluate --principal agent:demo --action path.write --path src/lib.rs
+sorrel grant create --principal agent:demo --capability path.write --path src/**
 sorrel switch
 sorrel diff
 sorrel undo
@@ -1495,8 +1633,26 @@ Success criteria:
 
 - Tracks files without Git.
 - Runs entirely in memory.
+- Evaluates permissions without Sorrel Hub.
+- Represents private/redacted object visibility through Core decisions.
 - Supports undo.
 - Represents conflict objects.
+
+### Phase 1b: Adapt existing module foundations to the permission spine
+
+Build:
+
+- Protocol schemas for principals, capabilities, resource scopes, grants, policies, decisions, audit events, `SecretRef`, and redaction markers.
+- Core model types and serialization for the same vocabulary.
+- CLI commands that expose headless policy inspection/evaluation before Hub exists.
+- Vault and runner adapters that use Core grants/decisions rather than local-only authorization shapes.
+- Hub model updates so organizations, projects, repositories, proposals, and workflow runs reference Core principals/policies instead of inventing product-only permissions.
+
+Success criteria:
+
+- Existing protocol/core/CLI/vault/runner/slice/Hub skeletons can compile/test with the shared permission vocabulary.
+- A local test can ask whether an agent may write a path, run a workflow, and inject a secret without starting Hub.
+- Existing secret grants and runner capabilities map onto Core grant/policy objects.
 
 ### Phase 2: Git bridge
 
@@ -1530,6 +1686,7 @@ Success criteria:
 
 - Multiple lanes can edit the same base.
 - Stacks are first-class.
+- Lanes and stacks carry owner principal, visibility, policy refs, grant refs, touched resources, and audit hooks.
 - Rebase/merge preserves reviewable changes.
 
 ### Phase 4: Slices
@@ -1585,7 +1742,9 @@ Success criteria:
 - Private draft proposals work.
 - Review comments survive rebases.
 
-### Phase 7: Secrets and environments
+### Phase 7: Secrets and environments UX/adapters
+
+The Core `SecretRef`, grant, policy decision, redaction, and audit model exists earlier. This phase adds richer CLI ergonomics, external backend adapters, and operational workflows.
 
 Build:
 
