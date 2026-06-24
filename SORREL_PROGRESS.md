@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-24 14:27 UTC
+Last updated: 2026-06-24 16:30 UTC
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -18,24 +18,24 @@ Sorrel Core must include headless identity, permissions, grants, policy decision
 
 Decentralized does not mean permissionless. Core policy/grant/authority changes must be signed `PolicyChange` objects evaluated against the previous effective policy. A principal cannot grant itself power unless it already has delegated authority such as `policy.grant`, `policy.delegate`, or `authority.admin`; peers, runners, Hub, remotes, and vaults should reject locally edited or forged permission state.
 
-The initial compatibility pass has now landed across the separate submodule repositories, and root pointers have been repaired to the real submodule-main commits. The current coordination priority is a focused unification/conformance pass so Core policy behavior does not drift across consumers:
+The policy evaluator unification/conformance pass has now landed across all six policy submodules, and root pointers have been advanced to the conformance-inclusive submodule-main commits. The shared contract is **protocol fixtures as the canonical conformance source**: a single language-neutral manifest, `sorrel-protocol/conformance/policy-conformance.json`, is vendored into each consumer with a small mapping layer and tests asserting the consumer's evaluator returns the manifest's expected decisions (see `sorrel-protocol/docs/policy-conformance.md`).
 
-1. Use protocol fixtures as cross-language conformance tests for `AuthorityRoot`, `PolicyChange`, and policy decisions.
-2. Reduce evaluator drift between Rust Core, embedded CLI code, Hub's JS mirror, runner evaluators, and Vault adapters.
-3. Resume workflow/vault/Hub expansion only after the policy authority contract is consistent.
+1. Protocol fixtures are now the cross-language conformance tests for `AuthorityRoot`, `PolicyChange`, and policy decisions.
+2. Drift is now guarded by conformance tests in Rust Core, embedded CLI code, Hub's JS mirror, runner evaluators, and Vault adapters. (Conformance surfaced and fixed one drift: the CLI embedded Core now governs authority rotation by `authority.rotate`/`authority.admin`, matching canonical Core.)
+3. Workflow/vault/Hub expansion may now resume; the policy authority contract is consistent and test-enforced.
 
 ## Module status
 
 | Module | Status | Latest known work | Notes |
 | --- | --- | --- | --- |
-| `sorrel-protocol` | Done / merged | Protocol package + Core permission spine + AuthorityRoot/PolicyChange schemas | Root points to `sorrel-protocol/main` at `5c43054`; local validation passed with `npm test` (61 passed). |
-| `sorrel-core` | Done / merged | Object store + snapshot + Change + policy evaluator + lane/stack metadata + authority hardening | Root points to `sorrel-core/main` at `5e84f0f`; local validation passed with `cargo test` (40 passed). |
-| `sorrel-cli` | Done / merged | Mocked CLI + Core-backed policy evaluation and policy-change command surfaces | Root points to `sorrel-cli/main` at `0717f6f`; local validation passed with `cargo test --workspace` (17 CLI integration + 5 embedded core tests). |
-| `sorrel-vault` | Done / merged | Secrets spec/local backend + trusted Core evaluate for `secret.read` / `secret.inject` | Root points to `sorrel-vault/main` at `f1ed7cd`; local validation passed with `npm test`. |
-| `sorrel-runners` | Done / merged | Local/container runner + Core permission gate before JobBundle execution | Root points to `sorrel-runners/main` at `38dcef3`; local validation passed with `cargo test` (12 passed). |
+| `sorrel-protocol` | Done / merged | Authority spine + canonical policy conformance manifest | Root points to `sorrel-protocol/main` at `2b17af3`; `npm test` 7/7, `npm run validate` 51 ok / 4 invalid rejected. |
+| `sorrel-core` | Done / merged | Authority evaluator + protocol policy conformance tests | Root points to `sorrel-core/main` at `e16b4d8`; `cargo test` all pass; fmt + clippy clean. |
+| `sorrel-cli` | Done / merged | Policy CLI over embedded Core + conformance tests (rotation capability aligned) | Root points to `sorrel-cli/main` at `df90623`; `cargo test --workspace` all pass; fmt + clippy clean. |
+| `sorrel-vault` | Done / merged | Trusted Core evaluate for secrets + conformance + no-bypass tests | Root points to `sorrel-vault/main` at `db8b951`; `npm test` pass; `npm run validate` ok. |
+| `sorrel-runners` | Done / merged | Core permission gate + conformance + forged-bundle bypass tests | Root points to `sorrel-runners/main` at `694a09b`; `cargo test` 15 pass; fmt + clippy clean. |
 | `sorrel-slices` | Done / merged | TS/JS slice manifest prototype | Relative import dependency closure, package metadata, unresolved imports. |
 | `sorrel-web` | Public product page hosted / merged | Polished static landing page + Core-native permissions copy | Root points to `sorrel-web/main` at `db12183`. |
-| `sorrel-hub` | Done / merged | Node HTTP app/server skeleton + Core policy refs/admin guard | Root points to `sorrel-hub/main` at `aae580a`; local validation passed with `npm test` (13 passed). |
+| `sorrel-hub` | Done / merged | Node app/server + Core policy admin guard + conformance tests | Root points to `sorrel-hub/main` at `1e33feb`; `npm test` 15/15. |
 | `sorrel-agents` | Not started | Agent policy/control plane | Start after lanes/claims are clearer. |
 | `sorrel-sdk-js` | Not started | TypeScript SDK | Start after protocol stabilizes around CLI/HUB needs. |
 | `sorrel-sdk-rust` | Not started | Rust SDK | Start after core APIs settle. |
@@ -69,20 +69,17 @@ When an active agent reports completion, verify and record:
 
 These are ready for agents working directly in the submodule repos after verifying each submodule `main`.
 
-### O - unify Core policy evaluator usage across consumers
+### O - unify Core policy evaluator usage across consumers (COMPLETE)
 
-Goal:
+Done:
 
-- Review the new authority-hardening implementations and remove drift between duplicated policy evaluators/adapters.
-- `sorrel-cli` currently embeds a `crates/sorrel-core` path dependency.
-- `sorrel-hub` mirrors Core evaluation in JavaScript until a package is available.
-- `sorrel-runners` uses a `CorePermissionEvaluator` trait and in-memory grant test double.
-- `sorrel-vault` uses injected `corePolicy.evaluate()` / local-dev adapter.
-- Decide the short-term shared contract: protocol fixtures + test vectors, a generated JS SDK, or a small shared package.
-
-Depends on:
-
-- Current authority-hardening commits being reachable from submodule `main`.
+- Shared contract chosen: **protocol fixtures are canonical** via `sorrel-protocol/conformance/policy-conformance.json` (over generated SDK or shared package), the lightest option matching current repo state.
+- Each consumer vendors the manifest + a small mapping layer + conformance tests:
+  - `sorrel-cli` (embedded `crates/sorrel-core`) — conformance also fixed a rotation-capability drift.
+  - `sorrel-hub` (JS mirror) — admin guard agrees on allow/deny; signature trust stays Core's job.
+  - `sorrel-runners` (`CorePermissionEvaluator`) — runner.use/workflow.run/secret.read/secret.inject + forged-bundle bypass test.
+  - `sorrel-vault` (`corePolicy.evaluate()`) — secret.read/secret.inject + local-YAML-only no-bypass test.
+- Known gap: vendored copies must be re-synced when the protocol manifest changes; a generated-fixtures or shared-package path could automate this later.
 
 ### L - `sorrel-core` lanes and stacks
 
@@ -129,8 +126,9 @@ Depends on:
 
 | Order | Work | Target | Blocked by |
 | --- | --- | --- | --- |
-| 1 | Policy evaluator unification pass | `sorrel-core`, `sorrel-cli`, `sorrel-hub`, `sorrel-runners`, `sorrel-vault` | Avoid long-term drift between embedded/mirrored/evaluator-adapter implementations. |
-| 2 | Protocol/Core compatibility test vectors | `sorrel-protocol`, `sorrel-core`, JS consumers | Use protocol fixtures as cross-language conformance tests for `PolicyChange` and authority decisions. |
+| 1 | Policy evaluator unification pass | `sorrel-core`, `sorrel-cli`, `sorrel-hub`, `sorrel-runners`, `sorrel-vault` | DONE. Drift now guarded by conformance tests; CLI rotation drift fixed. |
+| 2 | Protocol/Core compatibility test vectors | `sorrel-protocol`, `sorrel-core`, JS consumers | DONE. `sorrel-protocol/conformance/policy-conformance.json` is canonical; vendored into all consumers. |
+| 2a | Automate conformance manifest sync | `sorrel-protocol` + consumers | NEXT. Generate vendored copies or publish/consume a shared package to remove manual re-copy. |
 | 3 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | Runner prototype and CLI integration complete; use Core workflow.run/runner.use decisions. |
 | 4 | Vault CLI/dev API on Core grants | `sorrel-vault` | Vault backend complete; map grants/redaction to Core policy. |
 | 5 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `aae580a`; policy should be Core-owned. |
@@ -201,3 +199,10 @@ git push origin main
 | 2026-06-24 14:11 | User reported authority-hardening agents were split into separate repositories. Verified merged submodule PRs: protocol #1 `5c43054`, core #2 `5e84f0f`, CLI #2 `0717f6f`, Hub #2 `aae580a`, runners #1 `38dcef3`, vault #1 `f1ed7cd`. Found root PR #25 had inaccessible gitlinks and needs repair; root PR #24 prompt docs are stale. |
 | 2026-06-24 14:17 | Staged root pointer repair to actual submodule `main` commits and locally revalidated: protocol `npm test`, core `cargo test`, CLI `cargo test --workspace`, Hub `npm test`, runners `cargo test`, vault `npm test` all passed. |
 | 2026-06-24 14:27 | User merged root PR #26 and closed stale prompt PR #24. Root now points to the valid authority-hardening submodule `main` commits. |
+| 2026-06-24 16:10 | Policy evaluator conformance pass landed across submodules. `sorrel-protocol` PR #2 merged (`2b17af3`): canonical `conformance/policy-conformance.json`, new PolicyDecision fixtures, conformance test, contract doc. |
+| 2026-06-24 16:14 | `sorrel-core` PR #3 merged (`e16b4d8`): vendored manifest + `tests/policy_conformance.rs`; `cargo test` + fmt + clippy clean. |
+| 2026-06-24 16:18 | `sorrel-cli` PR #3 merged (`df90623`): embedded-Core conformance tests; fixed rotation capability drift (authority.rotate/authority.admin); `cargo test --workspace` + fmt + clippy clean. |
+| 2026-06-24 16:22 | `sorrel-hub` PR #3 merged (`1e33feb`): admin-guard conformance tests; `npm test` 15/15. |
+| 2026-06-24 16:26 | `sorrel-runners` PR #2 merged (`694a09b`): gate conformance + forged-bundle bypass tests; `cargo test` 15 + fmt + clippy clean. |
+| 2026-06-24 16:29 | `sorrel-vault` PR #2 merged (`db8b951`): secret.read/secret.inject conformance + local-YAML no-bypass test; `npm test` + validate ok. |
+| 2026-06-24 16:30 | Advanced root submodule pointers to conformance commits and updated this dashboard; opening root pointer/progress PR. |
