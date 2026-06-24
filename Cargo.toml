@@ -1,0 +1,13 @@
+[workspace]
+members = ["crates/sorrel-core"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/MGRAFF2006/Version-Controle"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
