@@ -1,8 +1,8 @@
-# Patchora: Agent-Native Version Control and Collaboration Report
+# Forge Core and Forge Hub: Agent-Native Version Control and Collaboration Report
 
 ## Executive summary
 
-Patchora is the recommended working name for a new version-control and collaboration system built for modern software work: humans, parallel AI agents, cloud workspaces, local-first development, secrets, portable workflows, and selective sharing of unfinished work.
+Forge Core and Forge Hub are the recommended working names for a new version-control and collaboration system built for modern software work: humans, parallel AI agents, cloud workspaces, local-first development, secrets, portable workflows, and selective sharing of unfinished work.
 
 The core idea is not to build "Git but nicer." The better architecture is a layered system:
 
@@ -17,38 +17,39 @@ The framework and protocol should be independent. Hosted products, marketplaces,
 
 ## Naming recommendation
 
-### Recommended working name: Patchora
+### Recommended working names: Forge Core and Forge Hub
 
-Patchora is a coined name derived from "patch" plus a product-like suffix. It fits the architecture because the system treats changes, patches, lanes, slices, and conflict resolutions as first-class units.
+Forge Core is the protocol, storage engine, local CLI, SDK, and interoperability layer. Forge Hub is the collaboration product built on top of it: reviews, proposals, issues, runners, secrets, policies, organizations, and marketplace.
 
-Why it is a good working name:
+Why these are good working names:
 
-- Directly signals the patch/change model.
-- Less crowded than names based on forge, weave, loom, lane, arc, or cairn.
-- Works for both CLI and hosted product naming.
-- Leaves room for sub-brands:
-  - Patchora Core
-  - Patchora Forge
-  - Patchora Runners
-  - Patchora Slices
-  - Patchora Vault
+- "Forge" fits code collaboration, creation, and shared engineering work.
+- The split keeps the framework independent from the hosted product.
+- "Core" makes the protocol/runtime boundary clear.
+- "Hub" makes the collaboration surface clear without forcing hosted compute into the initial product.
+- The names leave room for sub-brands:
+  - Forge Core
+  - Forge Hub
+  - Forge Runners
+  - Forge Slices
+  - Forge Vault
 
 Potential CLI names:
 
 ```bash
-pat
-ptc
-patchora
+forge
+fg
+forge-core
 ```
 
-### Names checked and rejected
+### Names checked and naming cautions
 
 This was only a quick collision check, not a trademark clearance.
 
 | Name | Reason to avoid |
 | --- | --- |
-| ForgeCore | No direct VCS collision found, but "forge" is crowded in developer tooling and there are unrelated ForgeCore uses. |
-| Forge | Already used for VCS-like tools, Git extensions, Java frameworks, and many developer products. |
+| ForgeCore / Forge Core | Preferred despite some unrelated uses; "forge" is crowded in developer tooling, so legal/domain checks are still needed. |
+| Forge | Too broad by itself; use Forge Core and Forge Hub as the specific names. |
 | Weave / GitWeave / ChangeWeave | Crowded around agent VCS, semantic merge, and Git submodule alternatives. |
 | Loom | Used for Git worktree/multirepo tooling and older patch-stack tooling. |
 | Patchlane | Existing npm CLI for managing custom patches on forks. |
@@ -63,7 +64,7 @@ This was only a quick collision check, not a trademark clearance.
 
 ### Naming note
 
-ForgeCore is still a likeable name and not disastrously misaligned. If the browser game hub or unrelated uses do not matter legally, it could remain an internal codename. For a public product, Patchora is cleaner.
+Forge Core and Forge Hub are stronger than the more artificial coined-name alternatives because they communicate the product shape immediately. The naming risk is crowding, not meaning. If legal and domain checks are acceptable, they should remain the primary names.
 
 ## Product thesis
 
@@ -80,7 +81,7 @@ Git was designed for human-driven source-code history. Modern development increa
 - stack-based review
 - local and remote execution options
 
-Patchora should treat these as primary design constraints, not integrations added after the fact.
+Forge Core should treat these as primary design constraints, not integrations added after the fact.
 
 ## Competitive research summary
 
@@ -242,7 +243,7 @@ Weaknesses:
 
 Lessons:
 
-- Patchora should have storage adapters from day one:
+- Forge Core should have storage adapters from day one:
   - native filesystem
   - in-memory
   - IndexedDB / OPFS
@@ -270,7 +271,7 @@ Lessons:
 
 ## Core architecture
 
-Patchora should have a Rust core with CLI, server, Node/WASM bindings, and a TypeScript SDK.
+Forge Core should have a Rust core with CLI, server, Node/WASM bindings, and a TypeScript SDK.
 
 ### Layer 1: Storage engine
 
@@ -295,7 +296,7 @@ interface Workspace {
 
 Backends:
 
-- Filesystem backend with `.patchora/` beside the working tree.
+- Filesystem backend with `.forge/` beside the working tree.
 - Bare backend for servers, CI, bots, and merge queues.
 - In-memory backend for JS agents, tests, browser sandboxes, and ephemeral previews.
 - Browser backend using IndexedDB or OPFS.
@@ -331,7 +332,7 @@ Use BLAKE3 or SHA-256 for native object IDs. Preserve Git SHA compatibility thro
 
 ### Layer 3: Change model
 
-Git commits are snapshots. Patchora should treat changes as primary.
+Git commits are snapshots. Forge Core should treat changes as primary.
 
 Example:
 
@@ -367,22 +368,22 @@ Adoption requires a bridge.
 ### Git-colocated mode
 
 ```bash
-pat init --git-colocated
+forge init --git-colocated
 ```
 
 Creates:
 
 ```text
 .git/
-.patchora/
+.forge/
 ```
 
-Users can still use Git. Patchora imports Git commits and exports Patchora changes as normal Git commits.
+Users can still use Git. Forge Core imports Git commits and exports Forge Core changes as normal Git commits.
 
 ### Native mode
 
 ```bash
-pat clone patchora://org/project
+forge clone forge://org/project
 ```
 
 Uses the native object model.
@@ -390,22 +391,22 @@ Uses the native object model.
 ### Git remote bridge
 
 ```bash
-git remote add patchora patchora://org/project
-git push patchora main
+git remote add forge forge://org/project
+git push forge main
 ```
 
 or:
 
 ```bash
-pat git export --to origin/main
+forge git export --to origin/main
 ```
 
 ### One-way mirror
 
 For early adoption:
 
-- team works in Patchora
-- Patchora exports to GitHub or GitLab
+- team works in Forge Core
+- Forge Core exports to GitHub or GitLab
 - existing CI and deployments continue
 
 ### Round-trip exit
@@ -413,14 +414,14 @@ For early adoption:
 Teams must be able to leave:
 
 ```bash
-pat export --git ./repo.git
+forge export --git ./repo.git
 ```
 
 No lock-in should be a product principle.
 
 ## Collaboration platform
 
-Build a GitHub-like forge on top of portable collaboration objects.
+Forge Hub is the GitHub-like collaboration product built on top of Forge Core's portable collaboration objects.
 
 Core features:
 
@@ -486,10 +487,10 @@ Agents should not scrape human terminal output. Provide three stable interfaces.
 ### CLI
 
 ```bash
-pat lane create agent/refactor-auth
-pat slice create --entry packages/auth/src/index.ts --name auth-lib
-pat workflow run test
-pat workflow run test --runner ssh-buildbox
+forge lane create agent/refactor-auth
+forge slice create --entry packages/auth/src/index.ts --name auth-lib
+forge workflow run test
+forge workflow run test --runner ssh-buildbox
 ```
 
 ### JSON API
@@ -503,9 +504,9 @@ POST /repos/:repo/workflows/:workflow/runs
 ### SDK
 
 ```ts
-const lane = await patchora.lanes.create("agent/refactor-auth")
+const lane = await forge.lanes.create("agent/refactor-auth")
 
-const slice = await patchora.slices.create({
+const slice = await forge.slices.create({
   entrypoint: "packages/auth/src/index.ts",
   name: "auth-lib",
   carryPermissions: true
@@ -576,7 +577,7 @@ Slices are better submodules.
 The user should be able to say:
 
 ```bash
-pat slice create \
+forge slice create \
   --entry packages/auth/src/index.ts \
   --name auth-lib \
   --visibility team
@@ -617,7 +618,7 @@ The system should:
 ```yaml
 dependencies:
   auth-lib:
-    repo: patchora://org/auth-lib
+    repo: forge://org/auth-lib
     ref: main
     mode: live
 ```
@@ -629,7 +630,7 @@ Best for active shared components.
 ```yaml
 dependencies:
   auth-lib:
-    repo: patchora://org/auth-lib
+    repo: forge://org/auth-lib
     change: chg_abc123
     mode: pinned
 ```
@@ -641,7 +642,7 @@ Best for reproducible production dependencies.
 ```yaml
 dependencies:
   auth-lib:
-    repo: patchora://org/auth-lib
+    repo: forge://org/auth-lib
     change: chg_abc123
     mode: vendored
 ```
@@ -652,7 +653,7 @@ Best when consumers should not need remote access after import.
 
 The parent repo shows the slice as a normal directory, but storage, review, and history know it is linked.
 
-Best long-term UX, but requires native Patchora tooling.
+Best long-term UX, but requires native Forge Core tooling.
 
 ### Permission carryover
 
@@ -665,7 +666,7 @@ new repo permissions = source permissions intersected with explicit share target
 Example:
 
 ```bash
-pat slice create \
+forge slice create \
   --entry packages/billing \
   --name billing-sdk \
   --share team:payments
@@ -692,7 +693,7 @@ In the new repo:
 
 ```yaml
 origin:
-  sourceRepo: patchora://org/app
+  sourceRepo: forge://org/app
   sourcePath: packages/auth
   sourceChange: chg_123
 ```
@@ -702,7 +703,7 @@ In the old repo:
 ```yaml
 links:
   packages/auth:
-    repo: patchora://org/auth-lib
+    repo: forge://org/auth-lib
     mode: live
     createdFrom: chg_123
 ```
@@ -710,9 +711,9 @@ links:
 Sync commands:
 
 ```bash
-pat slice sync auth-lib --from-parent
-pat slice sync auth-lib --to-parent
-pat slice history auth-lib
+forge slice sync auth-lib --from-parent
+forge slice sync auth-lib --to-parent
+forge slice history auth-lib
 ```
 
 ### Entrypoint dependency closure
@@ -744,7 +745,7 @@ analyzers:
 Allow overrides:
 
 ```bash
-pat slice create \
+forge slice create \
   --entry packages/auth/src/index.ts \
   --include packages/auth/tests \
   --exclude "**/*.snap"
@@ -752,7 +753,7 @@ pat slice create \
 
 ## Permissions model
 
-Git has weak permission granularity. Patchora should support object-level policy.
+Git has weak permission granularity. Forge Core should support object-level policy.
 
 Scopes:
 
@@ -816,7 +817,7 @@ Never commit raw secrets. Repos should contain:
 ```text
 .env.schema
 .env.example
-patchora.secrets.yml
+forge.secrets.yml
 ```
 
 Example:
@@ -836,7 +837,7 @@ environments:
 
 Actual values can live in:
 
-- Patchora Vault
+- Forge Core Vault
 - HashiCorp Vault
 - Infisical
 - Doppler
@@ -861,9 +862,9 @@ Features:
 Commands:
 
 ```bash
-pat secrets import .env --env dev
-pat run --env dev npm test
-pat agent start --task fix-tests --secrets test-only
+forge secrets import .env --env dev
+forge run --env dev npm test
+forge agent start --task fix-tests --secrets test-only
 ```
 
 For agents, prefer secret handles over raw values.
@@ -886,7 +887,7 @@ Materialized locally as:
 ```text
 AGENTS.md
 AGENTS.local.md
-.patchora/agent-policy.lock
+.forge/agent-policy.lock
 ```
 
 Canonical policy object:
@@ -919,7 +920,7 @@ This creates one control plane for:
 
 ## Workflow and runner system
 
-Patchora should not offer hosted compute at the beginning. Instead, build a portable execution protocol.
+Forge Core should not offer hosted compute at the beginning. Instead, build a portable execution protocol.
 
 The platform stores:
 
@@ -963,15 +964,15 @@ workflows:
 Run locally:
 
 ```bash
-pat workflow run test
+forge workflow run test
 ```
 
 Run elsewhere:
 
 ```bash
-pat workflow run test --runner k8s-prod
-pat workflow run test --runner ssh-mac-mini
-pat workflow run test --runner local-docker
+forge workflow run test --runner k8s-prod
+forge workflow run test --runner ssh-mac-mini
+forge workflow run test --runner local-docker
 ```
 
 Same workflow, different execution target.
@@ -981,7 +982,7 @@ Same workflow, different execution target.
 #### Local process runner
 
 ```bash
-pat runner local
+forge runner local
 ```
 
 Pros:
@@ -999,7 +1000,7 @@ Cons:
 Docker or Podman.
 
 ```bash
-pat runner docker
+forge runner docker
 ```
 
 Pros:
@@ -1015,7 +1016,7 @@ Cons:
 #### SSH runner
 
 ```bash
-pat runner register ssh://buildbox.internal
+forge runner register ssh://buildbox.internal
 ```
 
 Pros:
@@ -1030,7 +1031,7 @@ Cons:
 #### Kubernetes runner
 
 ```bash
-pat runner register k8s://cluster/prod-builds
+forge runner register k8s://cluster/prod-builds
 ```
 
 Pros:
@@ -1046,8 +1047,8 @@ Cons:
 #### GitHub Actions / GitLab CI adapter
 
 ```bash
-pat workflow export --target github-actions
-pat workflow export --target gitlab-ci
+forge workflow export --target github-actions
+forge workflow export --target gitlab-ci
 ```
 
 Pros:
@@ -1149,7 +1150,7 @@ Workflows should target capabilities, not hardcoded machines.
 ### Runner registration
 
 ```bash
-pat runner register \
+forge runner register \
   --name mac-mini-1 \
   --labels macos,arm64,ios-simulator,codesign \
   --mode pull
@@ -1189,9 +1190,9 @@ JobBundle
 Reroute:
 
 ```bash
-pat workflow run test --local
-pat workflow rerun run_123 --runner k8s
-pat workflow rerun run_123 --runner ssh-gpu-box
+forge workflow run test --local
+forge workflow rerun run_123 --runner k8s
+forge workflow rerun run_123 --runner ssh-gpu-box
 ```
 
 Same inputs. Same command. Different runner.
@@ -1201,7 +1202,7 @@ Same inputs. Same command. Different runner.
 Agents can ask:
 
 ```bash
-pat workflow suggest
+forge workflow suggest
 ```
 
 Response:
@@ -1224,7 +1225,7 @@ Response:
 Agents can run:
 
 ```bash
-pat workflow run unit --lane agent/refactor-auth
+forge workflow run unit --lane agent/refactor-auth
 ```
 
 The run is attached to the agent lane, change, and proposal.
@@ -1296,7 +1297,7 @@ Use signed packages and sandboxed execution. Marketplace apps should mutate core
 
 ## Modern filesystem support
 
-Patchora must support:
+Forge Core must support:
 
 - Linux
 - macOS
@@ -1479,13 +1480,13 @@ Build:
 Commands:
 
 ```bash
-pat init
-pat status
-pat change create
-pat change list
-pat switch
-pat diff
-pat undo
+forge init
+forge status
+forge change create
+forge change list
+forge switch
+forge diff
+forge undo
 ```
 
 Success criteria:
@@ -1500,16 +1501,16 @@ Success criteria:
 Build:
 
 ```bash
-pat init --git-colocated
-pat git import
-pat git export
-pat git sync
+forge init --git-colocated
+forge git import
+forge git export
+forge git sync
 ```
 
 Success criteria:
 
 - Existing Git repo can be used.
-- Patchora changes export as normal Git commits.
+- Forge Core changes export as normal Git commits.
 - Team can leave without data loss.
 
 ### Phase 3: Lanes and stacks
@@ -1517,10 +1518,10 @@ Success criteria:
 Build:
 
 ```bash
-pat lane create agent-17/fix-tests
-pat stack create
-pat stack submit
-pat lane status
+forge lane create agent-17/fix-tests
+forge stack create
+forge stack submit
+forge lane status
 ```
 
 Success criteria:
@@ -1534,10 +1535,10 @@ Success criteria:
 Build:
 
 ```bash
-pat slice create --entry packages/auth/src/index.ts --name auth-lib
-pat slice inspect auth-lib
-pat slice sync auth-lib --from-parent
-pat slice sync auth-lib --to-parent
+forge slice create --entry packages/auth/src/index.ts --name auth-lib
+forge slice inspect auth-lib
+forge slice sync auth-lib --from-parent
+forge slice sync auth-lib --to-parent
 ```
 
 Success criteria:
@@ -1552,9 +1553,9 @@ Success criteria:
 Build:
 
 ```bash
-pat workflow run test --local
-pat workflow rerun run_123 --runner ssh-buildbox
-pat runner register ssh://buildbox.internal
+forge workflow run test --local
+forge workflow rerun run_123 --runner ssh-buildbox
+forge runner register ssh://buildbox.internal
 ```
 
 Success criteria:
@@ -1564,7 +1565,7 @@ Success criteria:
 - Secret refs are resolved only by authorized runners.
 - Runs attach to lanes, changes, proposals, and agents.
 
-### Phase 6: Forge server
+### Phase 6: Forge Hub server
 
 Build:
 
@@ -1587,9 +1588,9 @@ Success criteria:
 Build:
 
 ```bash
-pat secrets import .env
-pat secrets grant agent-17 --env dev
-pat run --env dev npm test
+forge secrets import .env
+forge secrets grant agent-17 --env dev
+forge run --env dev npm test
 ```
 
 Success criteria:
@@ -1638,7 +1639,7 @@ The first convincing demo should show:
 1. Import an existing Git repo.
 2. Create three agent lanes.
 3. Two agents edit the same file.
-4. Patchora detects overlapping symbols.
+4. Forge Core detects overlapping symbols.
 5. One change merges cleanly.
 6. One produces a first-class conflict object.
 7. Conflict resolution is saved and reused.
@@ -1679,7 +1680,7 @@ If that demo works, the foundation is strong enough to justify the larger platfo
 
 ## Final recommendation
 
-Build Patchora in this order:
+Build Forge Core in this order:
 
 1. Core object store, changes, snapshots, operation log, and in-memory backend.
 2. Git bridge.
