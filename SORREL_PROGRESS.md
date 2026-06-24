@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-24 10:19 UTC
+Last updated: 2026-06-24 10:26 UTC
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -23,7 +23,7 @@ This is the root overview for Sorrel orchestration. Update this file whenever an
 | `sorrel-runners` | Done / merged | Local runner prototype | JobBundle, capabilities, local runner, minimal Docker/Podman runner, JSONL logs. |
 | `sorrel-slices` | Done / merged | TS/JS slice manifest prototype | Relative import dependency closure, package metadata, unresolved imports. |
 | `sorrel-web` | Seeded | Static landing page | Continue independently; does not block core architecture. |
-| `sorrel-hub` | Running | First app/server skeleton | Should stay lightweight; no real auth, merge queue, or hosted compute yet. |
+| `sorrel-hub` | Blocked / local only | Axum app/server skeleton | Implemented locally at `cursor/sorrel-hub-skeleton-18de` commit `48583c2`, but not pushed because the agent could not access `MGRAFF2006/sorrel-hub`. |
 | `sorrel-agents` | Not started | Agent policy/control plane | Start after lanes/claims are clearer. |
 | `sorrel-sdk-js` | Not started | TypeScript SDK | Start after protocol stabilizes around CLI/HUB needs. |
 | `sorrel-sdk-rust` | Not started | Rust SDK | Start after core APIs settle. |
@@ -36,8 +36,13 @@ Reported running by user:
 | --- | --- | --- | --- |
 | H | `sorrel-core` | First Change model | Builds on object store, blobs, trees, snapshots, and `sorrel-protocol`. |
 | I | `sorrel-cli` | Integrate CLI with real local modules where feasible | Preserve existing mocked JSON output compatibility. |
-| J | `sorrel-hub` | Hub skeleton | Use protocol concepts; avoid full auth/merge queue/compute. |
 | K | root `AGENTS.md` | Durable instructions for future agents | Should replace stale setup notes and document submodule/private repo realities. |
+
+## Blocked handoffs
+
+| Module | Local branch/commit | Blocker | Recovery action |
+| --- | --- | --- | --- |
+| `sorrel-hub` | `cursor/sorrel-hub-skeleton-18de` / `48583c2` | Agent could not push to `https://github.com/MGRAFF2006/sorrel-hub.git` (`Repository not found`). | Run a new agent directly inside the accessible `sorrel-hub` repo, or manually push the local commit if available, then merge into `sorrel-hub/main` and update the root submodule pointer. |
 
 ## Immediate next completion checks
 
@@ -153,3 +158,4 @@ git push origin main
 | 2026-06-24 09:46 | `sorrel-slices` TS/JS slice manifest prototype completed and merged. |
 | 2026-06-24 10:10 | Root/submodule branch policy clarified: root on `main`, submodule work merged into submodule `main`. |
 | 2026-06-24 10:19 | Active batch reported running: H (`sorrel-core` changes), I (`sorrel-cli` integration), J (`sorrel-hub` skeleton), K (`AGENTS.md`). |
+| 2026-06-24 10:26 | `sorrel-hub` skeleton implemented locally with Axum/models/routes/tests, but blocked from push due to private repo access. |
