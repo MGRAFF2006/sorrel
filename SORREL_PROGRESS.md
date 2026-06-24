@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-24 11:27 UTC
+Last updated: 2026-06-24 11:46 UTC
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -30,14 +30,14 @@ This means the next implementation priority is a compatibility pass across compl
 
 | Module | Status | Latest known work | Notes |
 | --- | --- | --- | --- |
-| `sorrel-protocol` | Done / merged; needs permission schema pass | Initial `sorrel.protocol.v0` schema package | Next: add Core permission spine schemas and examples. |
-| `sorrel-core` | Done / merged; needs permission spine | Object store + snapshot + Change model | Root now points to verified `sorrel-core/main` at `af2505b`. Next: Principal/Grant/PolicyDecision model and evaluator before lanes/stacks. |
-| `sorrel-cli` | Done / merged; needs headless policy UX | Mocked CLI + local integration pass | Root now points to verified `sorrel-cli/main` at `7160391`. Next: policy/grant command shapes after Core vocabulary exists. |
-| `sorrel-vault` | Done / merged | Secrets spec + local dev backend | `sorrel.secrets.yml`, SecretRef examples, grants, redaction, local backend. |
-| `sorrel-runners` | Done / merged | Local runner prototype | JobBundle, capabilities, local runner, minimal Docker/Podman runner, JSONL logs. |
+| `sorrel-protocol` | Done / merged / root pointer staged | Protocol package + Core permission spine schemas | Repaired submodule `main` at `f5cf9cd`; validation passed with `npm run validate`. |
+| `sorrel-core` | Done / merged / root pointer staged | Object store + snapshot + Change + policy evaluator + lane/stack metadata | Repaired submodule `main` at `ca82981`; `cargo test` passed 28/28. |
+| `sorrel-cli` | Done / merged / root pointer staged | Mocked CLI + headless policy/grant/secret command surfaces | Repaired submodule `main` at `d33ae00`; `cargo test` passed 14/14 integration tests. |
+| `sorrel-vault` | Done / merged / root pointer staged | Secrets spec/local backend + Core policy decisions for grants/redaction | Repaired submodule `main` at `fa16a55`; `npm test` passed. |
+| `sorrel-runners` | Done / merged / root pointer staged | Local/container runner + Core policy-gated JobBundle/secret refs | Repaired submodule `main` at `5028df5`; `cargo test` passed 7/7 integration tests. |
 | `sorrel-slices` | Done / merged | TS/JS slice manifest prototype | Relative import dependency closure, package metadata, unresolved imports. |
-| `sorrel-web` | Public product page hosted / merged | Polished static landing page | Product page pushed to `sorrel-web/main` at `1862d5b`, validated with HTML asset check/local Python static server, and now hosted by the user. Future polish can continue independently. |
-| `sorrel-hub` | Done / merged; needs Core policy alignment | Node HTTP app/server skeleton | Root now points to verified `sorrel-hub/main` at `c0707b7`. Next Hub work should consume Core policy objects, not define product-only permissions. |
+| `sorrel-web` | Public product page hosted / root pointer staged | Polished static landing page + Core-native permissions copy | Webpage PR #1 merged in `sorrel-web`; root pointer staged to `sorrel-web/main` at `db12183`. |
+| `sorrel-hub` | Done / merged / root pointer staged | Node HTTP app/server skeleton + Core policy refs | Repaired submodule `main` at `3278782`; `npm test` passed 10/10. |
 | `sorrel-agents` | Not started | Agent policy/control plane | Start after lanes/claims are clearer. |
 | `sorrel-sdk-js` | Not started | TypeScript SDK | Start after protocol stabilizes around CLI/HUB needs. |
 | `sorrel-sdk-rust` | Not started | Rust SDK | Start after core APIs settle. |
@@ -48,14 +48,13 @@ Reported running by user:
 
 | Agent | Target | Goal | Dependency notes |
 | --- | --- | --- | --- |
-| K | root `AGENTS.md` | Durable instructions for future agents | Should replace stale setup notes and document submodule/private repo realities. |
-| Prompt-pack agents | protocol/core/CLI/vault/runners/slices/Hub | User reported starting the agents from `SORREL_AGENT_PROMPTS.md`. | Evaluate outputs against the Core-owned permission spine and self-escalation prevention requirements. |
+| None active | - | - | Webpage agent completed and merged in `sorrel-web` PR #1. |
 
 ## Blocked handoffs
 
 | Module | Local branch/commit | Blocker | Recovery action |
 | --- | --- | --- | --- |
-| None active | Previous Core/CLI parent pointer pushes were blocked by token permissions. | Repaired by merged root PR #13, which points Core/CLI/Hub/Web at commits reachable from each submodule `main`. | No action needed. |
+| Root PRs #15-#20 | Root repo PRs from agents | Agents opened root pointer/implementation PRs instead of completing the submodule-main handoff. | Superseded by manual repair: merged the corresponding submodule branches into each submodule `main`, pushed those mains, and staged one root pointer update branch. Close superseded root PRs after root repair PR lands. |
 | Historical only | old wrong-repo local branch `cursor/sorrel-hub-skeleton-18de` / `48583c2` | Superseded by correct-repo implementation. | No recovery needed unless useful code must be compared manually. |
 
 ## Immediate next completion checks
@@ -70,23 +69,19 @@ When an active agent reports completion, verify and record:
 
 ## Next planned agents
 
-Use `SORREL_AGENT_PROMPTS.md` for full copy/paste prompts.
-
 These are ready for agents working directly in the submodule repos after verifying each submodule `main`.
 
-### O - compatibility pass for headless Core permissions
+### O - verify repaired Core permission compatibility
 
 Goal:
 
-- Adapt already completed foundations so they share the Core permission spine.
-- Include decentralized authority roots, signed policy changes, scoped delegation, and explicit self-grant/self-escalation denial.
-- Touch protocol/core first, then CLI/Vault/Runners/Slices/Hub as consumers.
-- Keep it headless and local-first; do not add production auth or hosted compute.
+- Review repaired submodule-main commits for consistency across protocol/core/CLI/Vault/Runners/Hub.
+- Confirm authority roots, signed policy changes, scoped delegation, and explicit self-grant/self-escalation denial are either implemented or tracked as next gaps.
+- Close or supersede root PRs #15-#20 after the root repair PR lands.
 
 Depends on:
 
-- Architecture spec update in root report.
-- Existing protocol/core/CLI/vault/runners/slices/Hub foundations.
+- Repaired submodule mains staged in this root branch.
 
 ### L - `sorrel-core` lanes and stacks
 
@@ -99,7 +94,7 @@ Goal:
 
 Depends on:
 
-- Change model completed in `sorrel-core`; latest verified `sorrel-core/main` is `af2505b`.
+- Change model completed in `sorrel-core`; latest verified `sorrel-core/main` is `ca82981`.
 - Core permission spine compatibility pass.
 
 ### M - `sorrel-runners` workflow file parser
@@ -133,14 +128,15 @@ Depends on:
 
 | Order | Work | Target | Blocked by |
 | --- | --- | --- | --- |
-| 1 | Core permission compatibility pass | `sorrel-protocol`, `sorrel-core`, consumers | Required so permissions do not feel bolted on. |
-| 2 | Lanes/stacks with permission metadata | `sorrel-core` | Change model complete; permission spine should land first. |
-| 3 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | Runner prototype and CLI integration complete; use Core workflow.run/runner.use decisions. |
-| 4 | Vault CLI/dev API on Core grants | `sorrel-vault` | Vault backend complete; map grants/redaction to Core policy. |
-| 5 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `c0707b7`; policy should be Core-owned. |
-| 6 | Agent control plane | `sorrel-agents` | Lanes/stacks + Core policy model. |
-| 7 | Git bridge | `sorrel-core` / `sorrel-cli` | Change + lanes basics. |
-| 8 | Merge/conflict model | `sorrel-core` | Change + lanes basics. |
+| 1 | Merge root repair PR | root repo | Points root to repaired submodule-main commits and removes stale prompt pack. |
+| 2 | Close/supersede root PRs #15-#20 | root repo | Their work was repaired into submodule mains manually. |
+| 3 | Verify/self-escalation hardening pass | `sorrel-protocol`, `sorrel-core`, consumers | Ensure signed `PolicyChange`/authority rules are implemented, not just documented. |
+| 4 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | Runner prototype and CLI integration complete; use Core workflow.run/runner.use decisions. |
+| 5 | Vault CLI/dev API on Core grants | `sorrel-vault` | Vault backend complete; map grants/redaction to Core policy. |
+| 6 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `3278782`; policy should be Core-owned. |
+| 7 | Agent control plane | `sorrel-agents` | Lanes/stacks + Core policy model. |
+| 8 | Git bridge | `sorrel-core` / `sorrel-cli` | Change + lanes basics. |
+| 9 | Merge/conflict model | `sorrel-core` | Change + lanes basics. |
 
 ## Do not start yet
 
@@ -199,3 +195,5 @@ git push origin main
 | 2026-06-24 11:17 | Root PR #13 merged, so root `main` now points Core/CLI/Hub/Web at verified submodule-main commits. |
 | 2026-06-24 11:20 | Resolved PR #14 conflict against merged PR #13, preserving completed pointer repair status and Core-permissions priority correction. |
 | 2026-06-24 11:27 | User reported starting the prompt-pack agents. Added decentralized authority/self-escalation requirements and a `sorrel-web` prompt for updating the landing page with Core-native permissions messaging. |
+| 2026-06-24 11:45 | User reported all prompt-pack agents finished but opened root PRs instead of completing submodule-main handoffs. Manually merged/pushed repaired submodule mains: protocol `f5cf9cd`, core `ca82981`, CLI `d33ae00`, Hub `3278782`, runners `5028df5`, vault `fa16a55`. Removed stale `SORREL_AGENT_PROMPTS.md`; webpage agent reported running. |
+| 2026-06-24 11:46 | User reported `sorrel-web` PR #1 merged. Staged root `sorrel-web` pointer to `db12183`, which adds Core-native permissions landing-page copy. |
