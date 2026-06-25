@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-25 06:48 UTC
+Last updated: 2026-06-25 09:00 UTC
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -32,7 +32,7 @@ Conformance manifest synchronization is now **automated** so vendored copies can
 | --- | --- | --- | --- |
 | `sorrel-protocol` | Done / merged | Canonical conformance manifest + sync sidecar/export tooling | Root points to `sorrel-protocol/main` at `ac865ff`; `npm test` 8/8, `npm run validate` 51 ok / 4 invalid rejected / sidecar current. |
 | `sorrel-core` | Done / merged | Authority evaluator + conformance tests + sidecar drift guard | Root points to `sorrel-core/main` at `66aaa9f`; `cargo test` all pass; fmt + clippy clean. |
-| `sorrel-cli` | Done / merged | Policy CLI over embedded Core + conformance tests + sidecar drift guard | Root points to `sorrel-cli/main` at `31030b8`; `cargo test --workspace` all pass; fmt + clippy clean. |
+| `sorrel-cli` | Done / merged; workflow CLI draft PR open | Policy CLI over embedded Core + conformance tests + sidecar drift guard | Root points to `sorrel-cli/main` at `31030b8`; draft PR #5 adds `workflow validate` and `workflow run <job-name>` using a temporary workspace `crates/sorrel-runners` mirror. |
 | `sorrel-vault` | Done / merged | Trusted Core evaluate for secrets + conformance + sidecar drift guard | Root points to `sorrel-vault/main` at `a4ec2af`; `npm test` pass; `npm run validate` ok. |
 | `sorrel-runners` | Done / merged | Core permission gate + conformance + sidecar drift guard | Root points to `sorrel-runners/main` at `9ce2177`; `cargo test` all pass; fmt + clippy clean. |
 | `sorrel-slices` | Done / merged | TS/JS slice manifest prototype | Relative import dependency closure, package metadata, unresolved imports. |
@@ -48,7 +48,7 @@ Reported running by user:
 
 | Agent | Target | Goal | Dependency notes |
 | --- | --- | --- | --- |
-| None active | - | - | Webpage agent completed and merged in `sorrel-web` PR #1. |
+| CLI workflow integration | `sorrel-cli` PR #5 | Add `sorrel workflow validate` and `sorrel workflow run <job-name>` | Draft PR is open and clean. Reported validation: `cargo fmt --all -- --check`, `cargo test --workspace` (38 tests), and `cargo clippy --all-targets` passed. |
 
 ## Blocked handoffs
 
@@ -131,7 +131,7 @@ Depends on:
 | 1 | Policy evaluator unification pass | `sorrel-core`, `sorrel-cli`, `sorrel-hub`, `sorrel-runners`, `sorrel-vault` | DONE. Drift now guarded by conformance tests; CLI rotation drift fixed. |
 | 2 | Protocol/Core compatibility test vectors | `sorrel-protocol`, `sorrel-core`, JS consumers | DONE. `sorrel-protocol/conformance/policy-conformance.json` is canonical; vendored into all consumers. |
 | 2a | Automate conformance manifest sync | `sorrel-protocol` + consumers | DONE. Sidecar checksum/version + per-consumer drift-guard tests + export/sync helpers. A published shared package (npm/crate) could later replace vendoring entirely. |
-| 3 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | Runner prototype and CLI integration complete; use Core workflow.run/runner.use decisions. |
+| 3 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | `sorrel-runners` parser/execution is complete; `sorrel-cli` integration is in draft PR #5. Review/merge it, then update the root pointer. |
 | 4 | Vault CLI/dev API on Core grants | `sorrel-vault` | Vault backend complete; map grants/redaction to Core policy. |
 | 5 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `aae580a`; policy should be Core-owned. |
 | 6 | Agent control plane | `sorrel-agents` | Lanes/stacks + Core policy model. |
@@ -212,3 +212,4 @@ git push origin main
 | 2026-06-25 | Consumer drift guards merged: `sorrel-core` PR #4 (`66aaa9f`), `sorrel-cli` PR #4 (`31030b8`), `sorrel-runners` PR #3 (`9ce2177`) — each adds a vendored sidecar + dependency-free SHA-256 `conformance_sync` test; `cargo test`/`--workspace` + fmt + clippy clean. |
 | 2026-06-25 | `sorrel-hub` PR #4 (`b8fd035`, `npm test` 16/16) and `sorrel-vault` PR #3 (`a4ec2af`, `npm test` + validate ok) add `node:crypto` sidecar drift-guard tests. |
 | 2026-06-25 | Root PR #29 merged (`ad8674a`): added `scripts/sync-conformance.sh` (export + `--check`) and advanced root pointers protocol `ac865ff`, core `66aaa9f`, cli `31030b8`, runners `9ce2177`, hub `b8fd035`, vault `a4ec2af`. Verified `scripts/sync-conformance.sh --check` reports all consumers in sync. |
+| 2026-06-25 09:00 | `sorrel-cli` draft PR #5 opened for workflow file support: `workflow validate`, `workflow run <job-name>`, JSON output, local execution through `LocalProcessRunner`, and policy denial coverage. Important follow-up: replace temporary workspace `crates/sorrel-runners` mirror with the standalone `sorrel-runners` crate once consumable. |
