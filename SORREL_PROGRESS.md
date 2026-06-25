@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-25 UTC
+Last updated: 2026-06-25 06:48 UTC
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -207,8 +207,8 @@ git push origin main
 | 2026-06-24 16:22 | `sorrel-hub` PR #3 merged (`1e33feb`): admin-guard conformance tests; `npm test` 15/15. |
 | 2026-06-24 16:26 | `sorrel-runners` PR #2 merged (`694a09b`): gate conformance + forged-bundle bypass tests; `cargo test` 15 + fmt + clippy clean. |
 | 2026-06-24 16:29 | `sorrel-vault` PR #2 merged (`db8b951`): secret.read/secret.inject conformance + local-YAML no-bypass test; `npm test` + validate ok. |
-| 2026-06-24 16:30 | Advanced root submodule pointers to conformance commits and updated this dashboard; opening root pointer/progress PR. |
+| 2026-06-24 16:30 | Advanced root submodule pointers to conformance commits and updated this dashboard in root PR #28. |
 | 2026-06-25 | Conformance manifest sync automation landed across all six policy submodules. `sorrel-protocol` PR #3 merged (`ac865ff`): sidecar `policy-conformance.meta.json` + `conformance-meta.mjs`/`export-conformance.mjs` + docs; `npm test` 8/8, `npm run validate` ok (sidecar current). |
 | 2026-06-25 | Consumer drift guards merged: `sorrel-core` PR #4 (`66aaa9f`), `sorrel-cli` PR #4 (`31030b8`), `sorrel-runners` PR #3 (`9ce2177`) — each adds a vendored sidecar + dependency-free SHA-256 `conformance_sync` test; `cargo test`/`--workspace` + fmt + clippy clean. |
 | 2026-06-25 | `sorrel-hub` PR #4 (`b8fd035`, `npm test` 16/16) and `sorrel-vault` PR #3 (`a4ec2af`, `npm test` + validate ok) add `node:crypto` sidecar drift-guard tests. |
-| 2026-06-25 | Added root `scripts/sync-conformance.sh` (export + `--check`); advanced root pointers protocol `ac865ff`, core `66aaa9f`, cli `31030b8`, runners `9ce2177`, hub `b8fd035`, vault `a4ec2af`; opening root pointer/progress PR. (`sorrel-web` working tree carries unrelated pre-existing local drift and was deliberately not advanced.) |
+| 2026-06-25 | Root PR #29 merged (`ad8674a`): added `scripts/sync-conformance.sh` (export + `--check`) and advanced root pointers protocol `ac865ff`, core `66aaa9f`, cli `31030b8`, runners `9ce2177`, hub `b8fd035`, vault `a4ec2af`. Verified `scripts/sync-conformance.sh --check` reports all consumers in sync. |
