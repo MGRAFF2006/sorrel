@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-25 09:00 UTC
+Last updated: 2026-06-26 UTC (orchestration pass: lanes L/M/N merged; CLI workflow draft tracked)
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -33,8 +33,8 @@ Conformance manifest synchronization is now **automated** so vendored copies can
 | `sorrel-protocol` | Done / merged | Canonical conformance manifest + sync sidecar/export tooling | Root points to `sorrel-protocol/main` at `ac865ff`; `npm test` 8/8, `npm run validate` 51 ok / 4 invalid rejected / sidecar current. |
 | `sorrel-core` | Done / merged | Authority evaluator + conformance tests + sidecar drift guard | Root points to `sorrel-core/main` at `66aaa9f`; `cargo test` all pass; fmt + clippy clean. |
 | `sorrel-cli` | Done / merged; workflow CLI draft PR open | Policy CLI over embedded Core + conformance tests + sidecar drift guard | Root points to `sorrel-cli/main` at `31030b8`; draft PR #5 adds `workflow validate` and `workflow run <job-name>` using a temporary workspace `crates/sorrel-runners` mirror. |
-| `sorrel-vault` | Done / merged | Trusted Core evaluate for secrets + conformance + sidecar drift guard | Root points to `sorrel-vault/main` at `a4ec2af`; `npm test` pass; `npm run validate` ok. |
-| `sorrel-runners` | Done / merged | Core permission gate + conformance + sidecar drift guard | Root points to `sorrel-runners/main` at `9ce2177`; `cargo test` all pass; fmt + clippy clean. |
+| `sorrel-vault` | Done / merged | Vault dev CLI (import/list/grant/redact) over existing libs | PR #4 merged; root points to `sorrel-vault/main` at `1299b8b`; `npm test` 13/13, `npm run validate` ok. |
+| `sorrel-runners` | Done / merged | `sorrel.workflow.yml` parser -> `JobBundle` | PR #5 merged; root points to `sorrel-runners/main` at `307b018`; `cargo test` pass (9 new), fmt + clippy clean. |
 | `sorrel-slices` | Done / merged | TS/JS slice manifest prototype | Relative import dependency closure, package metadata, unresolved imports. |
 | `sorrel-web` | Public product page hosted / merged | Polished static landing page + Core-native permissions copy | Root points to `sorrel-web/main` at `db12183`. |
 | `sorrel-hub` | Done / merged | Node app/server + Core policy admin guard + conformance + sidecar drift guard | Root points to `sorrel-hub/main` at `b8fd035`; `npm test` 16/16. |
@@ -48,7 +48,7 @@ Reported running by user:
 
 | Agent | Target | Goal | Dependency notes |
 | --- | --- | --- | --- |
-| CLI workflow integration | `sorrel-cli` PR #5 | Add `sorrel workflow validate` and `sorrel workflow run <job-name>` | Draft PR is open and clean. Reported validation: `cargo fmt --all -- --check`, `cargo test --workspace` (38 tests), and `cargo clippy --all-targets` passed. |
+| CLI workflow integration | `sorrel-cli` PR #5 | Add `sorrel workflow validate` and `sorrel workflow run <job-name>` | Draft PR is open and clean. Reported validation: `cargo fmt --all -- --check`, `cargo test --workspace` (38 tests), and `cargo clippy --all-targets` passed. Lanes M (runners PR #5) and N (vault PR #4) merged; root pointers advanced. |
 
 ## Blocked handoffs
 
@@ -83,46 +83,30 @@ Done:
   - `sorrel-vault` (`corePolicy.evaluate()`) — secret.read/secret.inject + local-YAML-only no-bypass test.
 - Sync automation landed: each consumer also vendors the protocol sidecar (`policy-conformance.meta.json`) and runs a SHA-256 drift-guard test, so a stale or hand-edited vendored manifest now fails the consumer's normal test command. The protocol exposes `npm run export:conformance -- <dir>` and the root `scripts/sync-conformance.sh` to refresh copies; `npm run sync:meta` regenerates the sidecar after a manifest change.
 
-### L - `sorrel-core` lanes and stacks
+### L - `sorrel-core` lanes and stacks (COMPLETE / already merged)
 
-Goal:
+Done before this orchestration pass: `sorrel-core/src/lane_stack.rs` (on `sorrel-core/main` at `66aaa9f`) already implements Lane and Stack objects on top of Change and Snapshot, including owner principal, visibility, policy refs, grant refs, touched resources (derived from change touched paths), and audit hooks, with serialization and tests. No merge logic, as planned. Root pointer already at the lane/stack-inclusive commit. This section was stale; recorded as done.
 
-- Implement Lane and Stack objects on top of Change and Snapshot after the permission spine exists.
-- Include owner principal, visibility, policy refs, grant refs, touched resources, and audit hooks from the start.
-- Focus on metadata, serialization, touched paths/resources, and tests.
-- Do not implement merge logic yet.
+### M - `sorrel-runners` workflow file parser (DONE / PR #5 open)
 
-Depends on:
+Done:
 
-- Change model completed in `sorrel-core`; latest verified `sorrel-core/main` is `ca82981`.
-- Core permission spine compatibility pass.
+- `src/workflow.rs`: `WorkflowFile::from_yaml` / `to_bundle` parse a simple `sorrel.workflow.yml` (version, named workflows, jobs with command/needs/inputs/platform/env) and convert a selected workflow into the existing portable `JobBundle` in deterministic topological order.
+- Bundle declares `runner.use` + `workflow.run` and sets the workflow `ObjectRef`, so the existing Core authorization path gates execution; jobs run through `LocalProcessRunner`. Container-runtime jobs are representable but not executed. Secret refs stay as `EnvValue::SecretRef`, never raw values.
+- `WorkflowError` covers empty/invalid file, unknown workflow, empty command, cyclic/unknown/duplicate needs.
+- `tests/workflow_parser.rs` (9 tests) incl. an end-to-end run through `LocalProcessRunner`. `cargo test` pass, fmt + clippy clean.
+- Adds `serde_yaml` dependency. PR #5 merged to `sorrel-runners/main` at `307b018`; root pointer advanced.
 
-### M - `sorrel-runners` workflow file parser
+### N - `sorrel-vault` CLI/dev integration (DONE / PR #4 open)
 
-Goal:
+Done:
 
-- Add parsing for a simple `sorrel.workflow.yml`.
-- Execute jobs through the existing `LocalProcessRunner`.
-- Preserve portable JobBundle model.
-
-Depends on:
-
-- F / runner prototype.
-- CLI integration completed in `sorrel-cli` PR #1 if CLI will expose the parser immediately.
-
-### N - `sorrel-vault` CLI/dev integration
-
-Goal:
-
-- Add a small CLI or library API for:
-  - importing `.env`
-  - listing refs
-  - granting access
-  - redacting logs
-
-Depends on:
-
-- D / vault local backend.
+- `scripts/vault-cli.mjs` + testable `scripts/lib/cli.mjs` compose the existing libs (no reimplementation) to provide:
+  - `import` a `.env` into the local backend (keys only, persists nothing)
+  - `list` `SecretRef` declarations and their environments (values never shown)
+  - `grant` evaluate a Core-grant decision (allow / deny / needs_grant) for a principal/secret/action
+  - `redact` text from a file or stdin via the spec's resolved secrets + redaction policy
+- Additive `npm run vault` script; docs updated; `tests/vault-cli.test.mjs` covers list/grant/import/redact. `npm test` 13/13, `npm run validate` ok. No raw secret values printed/persisted; no runtime deps added. PR #4 merged to `sorrel-vault/main` at `1299b8b`; root pointer advanced.
 
 ## Backlog sequence
 
@@ -131,8 +115,8 @@ Depends on:
 | 1 | Policy evaluator unification pass | `sorrel-core`, `sorrel-cli`, `sorrel-hub`, `sorrel-runners`, `sorrel-vault` | DONE. Drift now guarded by conformance tests; CLI rotation drift fixed. |
 | 2 | Protocol/Core compatibility test vectors | `sorrel-protocol`, `sorrel-core`, JS consumers | DONE. `sorrel-protocol/conformance/policy-conformance.json` is canonical; vendored into all consumers. |
 | 2a | Automate conformance manifest sync | `sorrel-protocol` + consumers | DONE. Sidecar checksum/version + per-consumer drift-guard tests + export/sync helpers. A published shared package (npm/crate) could later replace vendoring entirely. |
-| 3 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | `sorrel-runners` parser/execution is complete; `sorrel-cli` integration is in draft PR #5. Review/merge it, then update the root pointer. |
-| 4 | Vault CLI/dev API on Core grants | `sorrel-vault` | Vault backend complete; map grants/redaction to Core policy. |
+| 3 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | `sorrel-runners` DONE (PR #5 merged, `307b018`): `sorrel.workflow.yml` -> JobBundle uses Core workflow.run/runner.use authorization. `sorrel-cli` integration is in draft PR #5 — review/merge, then update the root pointer. |
+| 4 | Vault CLI/dev API on Core grants | `sorrel-vault` | DONE (PR #4 merged, `1299b8b`). import/list/grant/redact CLI over existing libs; grants/redaction map to Core policy decisions. |
 | 5 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `aae580a`; policy should be Core-owned. |
 | 6 | Agent control plane | `sorrel-agents` | Lanes/stacks + Core policy model. |
 | 7 | Git bridge | `sorrel-core` / `sorrel-cli` | Change + lanes basics. |
@@ -213,3 +197,8 @@ git push origin main
 | 2026-06-25 | `sorrel-hub` PR #4 (`b8fd035`, `npm test` 16/16) and `sorrel-vault` PR #3 (`a4ec2af`, `npm test` + validate ok) add `node:crypto` sidecar drift-guard tests. |
 | 2026-06-25 | Root PR #29 merged (`ad8674a`): added `scripts/sync-conformance.sh` (export + `--check`) and advanced root pointers protocol `ac865ff`, core `66aaa9f`, cli `31030b8`, runners `9ce2177`, hub `b8fd035`, vault `a4ec2af`. Verified `scripts/sync-conformance.sh --check` reports all consumers in sync. |
 | 2026-06-25 09:00 | `sorrel-cli` draft PR #5 opened for workflow file support: `workflow validate`, `workflow run <job-name>`, JSON output, local execution through `LocalProcessRunner`, and policy denial coverage. Important follow-up: replace temporary workspace `crates/sorrel-runners` mirror with the standalone `sorrel-runners` crate once consumable. |
+| 2026-06-25 | Orchestration pass. Fixed `sorrel-web` working-tree checkout drift (was on `e403e4a`, now `main`/`db12183`); root pointer was already correct. Verified all six policy submodules clean against `origin/main`. |
+| 2026-06-25 | Found Lane L (lanes/stacks) already implemented and merged in `sorrel-core/src/lane_stack.rs` (`66aaa9f`); the "Next planned agents" L section was stale and is now marked done. |
+| 2026-06-25 | Lane M complete: `sorrel-runners` `sorrel.workflow.yml` parser -> `JobBundle` (topo order, Core-gated). `cargo test` 9 new pass, fmt + clippy clean. Opened submodule PR #5 `feature/workflow-file-parser`. |
+| 2026-06-25 | Lane N complete: `sorrel-vault` dev CLI (import/list/grant/redact) composing existing libs, no raw secrets exposed. `npm test` 13/13, validate ok. Opened submodule PR #4 `feature/vault-cli`. |
+| 2026-06-26 | Merged submodule PRs: `sorrel-runners` #5 (`307b018`) and `sorrel-vault` #4 (`1299b8b`). Fast-forwarded both submodule mains, advanced root pointers, and opened root pointer/progress PR #32. Note: the standalone `sorrel-runners` crate now ships the parser, so `sorrel-cli` draft PR #5's temporary `crates/sorrel-runners` mirror can be replaced with the real crate. Remaining near-term: merge CLI draft (#3), then Hub proposal/review expansion (#5) and `sorrel-agents` control plane (#6). |
