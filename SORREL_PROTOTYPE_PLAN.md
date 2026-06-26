@@ -224,3 +224,18 @@ and retire the `cli_*` compat modules.
 - Deferred to P0-5 (as planned): real working-tree dirty detection.
 - Note for P0-4: `materialize_snapshot` has no exclusion, so real working-tree snapshots must stage
   the tree minus `.sorrel/` (e.g. copy to a scratch dir, or add an exclude to the engine).
+
+### P0-4/P0-5 status: DONE (2026-06-26)
+`sorrel-cli` PR #8 (`16e6e14`). Real `change create` + dirty `status`:
+- `change create -m "..."` stages the working tree (minus `.sorrel/`) into a scratch dir,
+  materializes a snapshot, diffs against HEAD, records a real `Change`, and advances HEAD. Rejects
+  empty changes and uninitialized workspaces. Args are now `-m/--message` + optional `--description`.
+- `status` snapshots the tree and reports real dirty state (added/modified/deleted) vs HEAD with a
+  `clean`/`dirty` label + `worktree` block.
+- `repo.rs` gained `ScratchDir` + `copy_tree_excluding_sorrel` staging helpers (also used by `init`).
+- The demo now runs end to end: init -> edit -> status(dirty) -> change create -> status(clean) ->
+  edit -> status(modified), all persisted; HEAD advances per change.
+- Tests: real change-create + advance-HEAD, empty-change rejection, dirty detection. `json_output`
+  20 pass; clippy + fmt clean.
+- Perf debt (Phase A): exclusion is copy-to-scratch O(tree) per command; replace with engine-level
+  exclusion + a stat-cache that skips re-hashing unchanged files.
