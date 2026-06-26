@@ -4,13 +4,19 @@ Sorrel is an agent-native version-control system split across submodules.
 
 The root repository coordinates architecture and submodule pointers. Most implementation work lives in submodules:
 
-- sorrel-protocol: schemas, examples, and validation
-- sorrel-core: Rust object store, snapshots, and future VCS primitives
-- sorrel-cli: Rust CLI
-- sorrel-vault: secrets/environment specs and local backend
-- sorrel-runners: local/container workflow runners
+- sorrel-protocol: schemas, examples, and the policy-conformance manifest
+- sorrel-core: Rust engine — object store, snapshots, changes, lanes, policy spine
+- sorrel-cli: the `sorrel` CLI (persistent local VCS over the engine)
+- sorrel-vault: secrets/environment spec, local backend, and dev CLI
+- sorrel-runners: local/container workflow runners + workflow-file parser
 - sorrel-slices: TypeScript/JavaScript slice manifest generator
-- sorrel-hub: collaboration product, just starting
+- sorrel-hub: collaboration **API server** (JSON over HTTP; no UI)
+- sorrel-hub-web: Hub **web interface** (browser frontend for the Hub API)
+- sorrel-web: public marketing/landing site (static)
+- sorrel-agents, sorrel-sdk-js, sorrel-sdk-rust: planned (not started)
+
+Hub is split: `sorrel-hub` is the API server, `sorrel-hub-web` is its web
+interface, and `sorrel-web` is the unrelated public landing page.
 
 ## Rust toolchain
 
