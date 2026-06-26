@@ -191,3 +191,22 @@ Order: P0-1 (git-dep unfragmentation) → P0-2/3 (real init + HEAD) → P0-4/5 (
 P0-6 (line diff) → P0-7 (log) → P0-8 (on-disk + CLI E2E tests) → P0-9 (DEMO.md + --json).
 Each `sorrel-core`/`sorrel-cli` change merges to its submodule `main`, then the root pointer is
 advanced. Desktop/mobile remain parked until Phases A–D are solid.
+
+### P0-1 status: DONE (2026-06-26)
+Full reconciliation landed. The CLI's vendored crates were independent, divergent implementations
+(not stale mirrors), so rather than break the working `policy`/`workflow` commands, the CLI-facing
+APIs were ported into the standalone crates as additive compat modules:
+- `sorrel-core` PR #5 (`c9ebdfb`): new `cli_policy` module (ported vendored policy API); root-level
+  re-exports for non-colliding names; engine policy types stay at root. Tests/clippy/fmt clean.
+- `sorrel-runners` PR #6 (`39ad503`): new `cli_runner` module (`parse_workflow_file`,
+  context-based `CorePermissionEvaluator`, `PolicyGateError`, `LocalProcessRunner`, `RunOutcome`,
+  `ParsedWorkflow`, ...); `sorrel-core` added as a git dep. Tests/clippy/fmt clean.
+- `sorrel-cli` PR #6 (`199483d`): switched to git deps pinned at the above SHAs, deleted both
+  vendored crates, repointed imports to `sorrel_core::cli_policy` / `sorrel_runners::cli_runner`.
+  `cargo test --workspace` green (json_output 16 unchanged, workflow_cli 7, conformance), clippy +
+  fmt clean. **The CLI now transitively links the real engine** (`FileObjectStore`,
+  `materialize_snapshot`, `create_change`, `snapshot_diff`, ... are importable) — ready for P0-2+.
+
+Follow-up debt: there are now duplicate policy/runner type families at crate root (engine) vs
+`cli_*` modules (CLI). A later cleanup should converge the CLI onto the engine's native policy API
+and retire the `cli_*` compat modules.
