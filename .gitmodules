@@ -31,3 +31,6 @@
 [submodule "sorrel-sdk-rust"]
 	path = sorrel-sdk-rust
 	url = https://github.com/MGRAFF2006/sorrel-sdk-rust.git
+[submodule "sorrel-hub-web"]
+	path = sorrel-hub-web
+	url = https://github.com/MGRAFF2006/sorrel-hub-web.git
