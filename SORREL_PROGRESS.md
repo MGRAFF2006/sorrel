@@ -31,10 +31,10 @@ Conformance manifest synchronization is now **automated** so vendored copies can
 | Module | Status | Latest known work | Notes |
 | --- | --- | --- | --- |
 | `sorrel-protocol` | Done / merged | Canonical conformance manifest + sync tooling; richer AGENTS/README | Root points to `sorrel-protocol/main` at `02b9167`; `npm test` 8/8, `npm run validate` ok. |
-| `sorrel-core` | Done / merged | VCS engine (store/snapshot/change/lanes) + policy/authority + `cli_policy` compat | Root points to `sorrel-core/main` at `42f253b`; `cargo test` all pass; fmt + clippy clean. |
-| `sorrel-cli` | Done / merged | **P0 complete**: persistent `init`/`status`/`change create`/`diff`/`log` on git-dep engine | Root points to `sorrel-cli/main` at `99aea9e`; full local VCS demo persists on disk; line-level diff; snapshot-DAG log; `cargo test --workspace` all pass; fmt + clippy clean. See `sorrel-cli/DEMO.md`. |
+| `sorrel-core` | Done / merged | VCS engine (store/snapshot/change/lanes) + policy/authority + `cli_policy` compat + `materialize_snapshot_excluding` | Root points to `sorrel-core/main` at `8bcde61`; `cargo test` all pass; fmt + clippy clean. |
+| `sorrel-cli` | Done / merged | **All commands real & persistent**: `init`/`status`/`change create`+`list`/`diff`/`log`/`lane create`/`slice create`/`grant create`+`list`/`secret refs` on git-dep engine | Root points to `sorrel-cli/main` at `18789d4`; engine-level `.sorrel` exclusion (no copy-to-scratch); no `mocked:true` outputs remain; `.sorrel/{lanes,grants,secrets,slices}` registries; `cargo test --workspace` all pass (json_output 25); fmt + clippy clean. See `sorrel-cli/DEMO.md`. |
 | `sorrel-vault` | Done / merged | Vault dev CLI (import/list/grant/redact) over existing libs | Root points to `sorrel-vault/main` at `40af00d`; `npm test` 13/13, `npm run validate` ok. |
-| `sorrel-runners` | Done / merged | Workflow parser + `cli_runner` compat surface for the CLI | Root points to `sorrel-runners/main` at `3b2ca69`; `cargo test` pass, fmt + clippy clean. |
+| `sorrel-runners` | Done / merged | Workflow parser + `cli_runner` compat surface for the CLI | Root points to `sorrel-runners/main` at `62e8bec`; `cargo test` pass, fmt + clippy clean. |
 | `sorrel-slices` | Done / merged | TS/JS slice manifest prototype | Root points to `sorrel-slices/main` at `bd820c9`. |
 | `sorrel-web` | Public landing page / merged | Static marketing site (Nord theme) + AGENTS | Root points to `sorrel-web/main` at `6786303` (drift resolved; advanced past `db12183`). Public marketing only — NOT the Hub UI. |
 | `sorrel-hub` | Done / merged | Collaboration **API server** (JSON; no UI) + Core policy admin guard | Root points to `sorrel-hub/main` at `0ead81c`; `npm test` 16/16. README/AGENTS now clarify it is the backend, not the UI. |
@@ -160,6 +160,9 @@ git push origin main
 
 | Time UTC | Event |
 | --- | --- |
+| 2026-06-26 | New management pass started. Goal: finish partial work to a clean state, then make Hub a push/pull server (decided model: Hub as a **Core object transport + ref store**, gated by Core policy; not a new authority). Tracked cleanups A (engine `.sorrel` exclusion), B (retire `cli_*` compat), C (make all mocked CLI commands real), D (perf benches), then Phase R (push/pull). |
+| 2026-06-26 | Cleanup A DONE. `sorrel-core` PR/merge `8bcde61`: `materialize_snapshot_excluding` / `write_tree_from_directory_excluding` (skip root names like `.sorrel`; nested same-names kept). `sorrel-runners` `62e8bec`: bump core rev (single engine version). `sorrel-cli` `d2269b5`: snapshot working tree in place, removed `ScratchDir`/`copy_tree_excluding_sorrel` O(tree) copy; init builds empty initial snapshot from an empty tree object. All green. Root pointers advanced (`2fc2b84`). |
+| 2026-06-26 | Cleanup C DONE. `sorrel-cli` `18789d4`: all previously mocked commands are now real & persistent — `change list` (DAG walk), `lane create` (real engine Lane to `.sorrel/lanes/`), `slice create` non-JS (real generic manifest), `grant create` (real Core decision + persist to `.sorrel/grants/`), `grant list`/`secret refs` (read `.sorrel` registries). Dropped all `mock_*` builders; no `mocked:true` outputs remain. Tests assert real behavior (json_output 25); clippy + fmt clean. Remaining cleanups: B (retire `cli_*` compat), D (perf benches). |
 | 2026-06-24 08:52 | `sorrel-protocol` completed and merged: initial protocol/spec package. |
 | 2026-06-24 09:00 | `sorrel-core` object store foundation completed and merged. |
 | 2026-06-24 09:24 | `sorrel-cli` mocked CLI skeleton completed and merged. |
