@@ -210,3 +210,17 @@ APIs were ported into the standalone crates as additive compat modules:
 Follow-up debt: there are now duplicate policy/runner type families at crate root (engine) vs
 `cli_*` modules (CLI). A later cleanup should converge the CLI onto the engine's native policy API
 and retire the `cli_*` compat modules.
+
+### P0-2/P0-3 status: DONE (2026-06-26)
+`sorrel-cli` PR #7 (`a40b34f`). `init` and `status` are now real and persistent:
+- `init` opens a `FileObjectStore` at `.sorrel`, materializes an initial (empty/unborn) snapshot,
+  and writes a real `manifest.json` (`repoId`, `createdAt`, `defaultLane`) + an atomically-written
+  `HEAD` pointer (`{lane, snapshot}`). Idempotent (`already_initialized`, never clobbers).
+- `status` reads the persisted manifest + HEAD and reports real `repoId`/lane/HEAD.
+- New `src/repo.rs` with the on-disk layout + manifest/HEAD load/write helpers (reused by
+  P0-4..P0-7), `repoId` generation, and dependency-light RFC3339 formatting.
+- Tests: `json_output` init/status now assert stable shapes; a persistence-across-processes test
+  proves init then a separate status report the same `repoId` + HEAD. clippy + fmt clean.
+- Deferred to P0-5 (as planned): real working-tree dirty detection.
+- Note for P0-4: `materialize_snapshot` has no exclusion, so real working-tree snapshots must stage
+  the tree minus `.sorrel/` (e.g. copy to a scratch dir, or add an exclude to the engine).
