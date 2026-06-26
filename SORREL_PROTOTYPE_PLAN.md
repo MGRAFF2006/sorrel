@@ -239,3 +239,25 @@ and retire the `cli_*` compat modules.
   20 pass; clippy + fmt clean.
 - Perf debt (Phase A): exclusion is copy-to-scratch O(tree) per command; replace with engine-level
   exclusion + a stat-cache that skips re-hashing unchanged files.
+
+### P0-6/P0-7/P0-8/P0-9 status: DONE (2026-06-26) — P0 COMPLETE
+`sorrel-cli` PR #9 (`81058ae`):
+- **P0-6 `diff`**: line-level unified hunks vs HEAD via a new dependency-free `src/linediff.rs`
+  (LCS edit script -> hunks with context). Binary/non-UTF8 -> `"binary": true`. Human + `--json`.
+- **P0-7 `log`**: walks the snapshot DAG from HEAD to the initial snapshot; `change create` now
+  links the resulting snapshot's parent to the prior HEAD so the first-parent chain is walkable.
+  `--limit` + `--json`.
+- **P0-8 tests**: diff line-hunk + clean cases, log ordering/root/limit, linediff unit tests.
+  `cargo test --workspace` all pass (json_output 24, lib 8); clippy + fmt clean.
+- **P0-9 `DEMO.md`**: end-to-end persistent walkthrough; README updated; all new commands honor
+  `--json`.
+
+**The P0 Quick Advance Goal is complete.** `init -> edit -> status -> change create -> diff -> log`
+all work and persist on disk across processes, with no mocks in that path.
+
+Open follow-ups before/with Phase A:
+- Perf: engine-level `.sorrel` exclusion + stat-cache (replace copy-to-scratch); criterion benches
+  + CI perf budget.
+- Debt: converge CLI onto engine-native policy API and retire the `cli_*` compat modules.
+- `log` can show change ids/authors once a richer change-graph index exists.
+- `sorrel-web` pointer drift (root `db12183` vs its main `18b6ec3`) — unrelated, still open.
