@@ -1,39 +1,31 @@
 # Sorrel Prototype Plan
 
-Last updated: 2026-06-26 UTC
+Last updated: 2026-07-01 UTC
 
 This plan defines (1) a **Quick Advance Goal** — the smallest persistent, local, single-user
 prototype we can demo soon — and (2) the **broadened long-term scope** including desktop and
-mobile apps and a hard performance bar. It is grounded in an assessment of the current code, not
-aspiration.
+mobile apps and a hard performance bar.
 
-## TL;DR
+## TL;DR (current)
 
-- The hard engine already exists and is tested: content-addressed `FileObjectStore`, `materialize_snapshot`, `create_change`, `snapshot_diff`, lanes/stacks (in `sorrel-core/src/`).
-- The CLI does **not** use it. `sorrel-cli` links a vendored **policy-only** core (`sorrel-cli/crates/sorrel-core` has only `policy/`), so `init/status/change/lane/grant/secret` are mostly **mocked** and nothing persists to disk.
-- Therefore the prototype is mostly a **wiring + plumbing** job, plus two small net-new pieces (a persistent HEAD pointer and a history/DAG walk).
-- Desktop apps come **after** a solid CLI + core engine + a stable library/IPC surface. Mobile comes **last**. Performance is a first-class requirement throughout.
+- **P0 is done:** persistent local CLI VCS (`sorrel-cli/DEMO.md`).
+- **Phase R is done:** push/pull sync (spec, core transport, hub API, CLI commands; `SYNC.md`).
+- **Engine** lives in `sorrel-core` (store, snapshots, changes, lanes, policy, transport, stat-cache).
+- **CLI** uses real `sorrel-core` via git dependency (no vendored engine).
+- **Next:** Phase A hardening (stat-cache in CLI, merge/conflicts, perf) then Git bridge or Hub persistence.
+- Desktop/mobile remain **last**. See [`SORREL_PROGRESS.md`](SORREL_PROGRESS.md) for live priorities.
 
-## Current reality (assessment summary)
+## Current reality (brief)
 
-What is REAL today:
-- `sorrel-core/src/store.rs`: `FileObjectStore` (content-addressed, fanout, atomic writes, digest-verified reads) and `InMemoryObjectStore`. Tested.
-- `sorrel-core/src/snapshot.rs`: `materialize_snapshot` (dir -> tree -> blobs), `read/write_snapshot`, `restore_snapshot_to_directory`. Deterministic IDs. Tested (in-memory).
-- `sorrel-core/src/change.rs`: `create_change`, `read_change`, `snapshot_diff` (path-level add/mod/delete). `apply_change` validates but does not patch/merge. Conflict type is a placeholder.
-- `sorrel-core/src/lane_stack.rs`: Lane/Stack objects with owner/visibility/policy/grant refs, touched resources, audit hooks. Tested (in-memory).
-- `sorrel-runners`: real local process execution + Core policy gate + redaction + `sorrel.workflow.yml` parsing. Strongest E2E coverage in the repo.
-- `sorrel-cli`: REAL commands are `workflow validate`, `workflow run <job>`, `policy evaluate`, `policy change apply`, and JS/TS `slice create` (persists to `.sorrel/slices/`).
+| Area | State |
+| --- | --- |
+| Core engine | Content-addressed store, snapshots, changes, diff, lanes/stacks, policy spine, sync transport helpers, stat-cache API |
+| CLI | Real persistent commands; `remote`/`push`/`pull`; workflow + policy commands |
+| Hub | JSON API + in-memory sync object/ref store; collaboration skeleton |
+| Protocol | Schemas, conformance manifest, `docs/sync-transport.md` |
+| Runners / Vault / Slices | Workflow parser, vault dev CLI, slice manifests — integrated with Core policy |
 
-What is MOCKED / MISSING:
-- `sorrel-cli` `init` writes a **static mock** `.sorrel/manifest.json`; `status`, `change create/list`, `lane create`, `grant`, `secret` print hardcoded JSON and persist nothing.
-- The CLI links the **policy-only** vendored core, so it cannot reach store/snapshot/change/lane.
-- No persistent HEAD/lane pointer on disk.
-- No `diff`, `log`, `history`, `commit`, `checkout` subcommands.
-- No history/DAG traversal anywhere (parents are stored but never walked).
-- No Git import/export/colocated bridge anywhere.
-- No content-level diff/merge; conflicts are a placeholder.
-
-Root cause of fragmentation: the multi-repo submodule layout means `sorrel-cli` vendors copies of `sorrel-core`/`sorrel-runners` (path deps in its own Cargo workspace) instead of sharing one workspace. The vendored core was only ever populated with the policy module.
+Historical assessment (pre-P0 wiring) is obsolete; see git history if needed.
 
 ---
 
@@ -192,72 +184,12 @@ P0-6 (line diff) → P0-7 (log) → P0-8 (on-disk + CLI E2E tests) → P0-9 (DEM
 Each `sorrel-core`/`sorrel-cli` change merges to its submodule `main`, then the root pointer is
 advanced. Desktop/mobile remain parked until Phases A–D are solid.
 
-### P0-1 status: DONE (2026-06-26)
-Full reconciliation landed. The CLI's vendored crates were independent, divergent implementations
-(not stale mirrors), so rather than break the working `policy`/`workflow` commands, the CLI-facing
-APIs were ported into the standalone crates as additive compat modules:
-- `sorrel-core` PR #5 (`c9ebdfb`): new `cli_policy` module (ported vendored policy API); root-level
-  re-exports for non-colliding names; engine policy types stay at root. Tests/clippy/fmt clean.
-- `sorrel-runners` PR #6 (`39ad503`): new `cli_runner` module (`parse_workflow_file`,
-  context-based `CorePermissionEvaluator`, `PolicyGateError`, `LocalProcessRunner`, `RunOutcome`,
-  `ParsedWorkflow`, ...); `sorrel-core` added as a git dep. Tests/clippy/fmt clean.
-- `sorrel-cli` PR #6 (`199483d`): switched to git deps pinned at the above SHAs, deleted both
-  vendored crates, repointed imports to `sorrel_core::cli_policy` / `sorrel_runners::cli_runner`.
-  `cargo test --workspace` green (json_output 16 unchanged, workflow_cli 7, conformance), clippy +
-  fmt clean. **The CLI now transitively links the real engine** (`FileObjectStore`,
-  `materialize_snapshot`, `create_change`, `snapshot_diff`, ... are importable) — ready for P0-2+.
+### P0 status: **COMPLETE** (2026-06-26)
 
-Follow-up debt: there are now duplicate policy/runner type families at crate root (engine) vs
-`cli_*` modules (CLI). A later cleanup should converge the CLI onto the engine's native policy API
-and retire the `cli_*` compat modules.
+All items P0-1 … P0-9 landed. Demo: `init` → edit → `status` → `change create` → `diff` → `log`,
+persistent across processes. See `sorrel-cli/DEMO.md`.
 
-### P0-2/P0-3 status: DONE (2026-06-26)
-`sorrel-cli` PR #7 (`a40b34f`). `init` and `status` are now real and persistent:
-- `init` opens a `FileObjectStore` at `.sorrel`, materializes an initial (empty/unborn) snapshot,
-  and writes a real `manifest.json` (`repoId`, `createdAt`, `defaultLane`) + an atomically-written
-  `HEAD` pointer (`{lane, snapshot}`). Idempotent (`already_initialized`, never clobbers).
-- `status` reads the persisted manifest + HEAD and reports real `repoId`/lane/HEAD.
-- New `src/repo.rs` with the on-disk layout + manifest/HEAD load/write helpers (reused by
-  P0-4..P0-7), `repoId` generation, and dependency-light RFC3339 formatting.
-- Tests: `json_output` init/status now assert stable shapes; a persistence-across-processes test
-  proves init then a separate status report the same `repoId` + HEAD. clippy + fmt clean.
-- Deferred to P0-5 (as planned): real working-tree dirty detection.
-- Note for P0-4: `materialize_snapshot` has no exclusion, so real working-tree snapshots must stage
-  the tree minus `.sorrel/` (e.g. copy to a scratch dir, or add an exclude to the engine).
+Remaining perf/product debt moved to Phase A (stat-cache CLI wire, merge/conflicts, Git bridge).
+Per-PR execution notes removed from this doc; see submodule git history.
 
-### P0-4/P0-5 status: DONE (2026-06-26)
-`sorrel-cli` PR #8 (`16e6e14`). Real `change create` + dirty `status`:
-- `change create -m "..."` stages the working tree (minus `.sorrel/`) into a scratch dir,
-  materializes a snapshot, diffs against HEAD, records a real `Change`, and advances HEAD. Rejects
-  empty changes and uninitialized workspaces. Args are now `-m/--message` + optional `--description`.
-- `status` snapshots the tree and reports real dirty state (added/modified/deleted) vs HEAD with a
-  `clean`/`dirty` label + `worktree` block.
-- `repo.rs` gained `ScratchDir` + `copy_tree_excluding_sorrel` staging helpers (also used by `init`).
-- The demo now runs end to end: init -> edit -> status(dirty) -> change create -> status(clean) ->
-  edit -> status(modified), all persisted; HEAD advances per change.
-- Tests: real change-create + advance-HEAD, empty-change rejection, dirty detection. `json_output`
-  20 pass; clippy + fmt clean.
-- Perf debt (Phase A): exclusion is copy-to-scratch O(tree) per command; replace with engine-level
-  exclusion + a stat-cache that skips re-hashing unchanged files.
-
-### P0-6/P0-7/P0-8/P0-9 status: DONE (2026-06-26) — P0 COMPLETE
-`sorrel-cli` PR #9 (`81058ae`):
-- **P0-6 `diff`**: line-level unified hunks vs HEAD via a new dependency-free `src/linediff.rs`
-  (LCS edit script -> hunks with context). Binary/non-UTF8 -> `"binary": true`. Human + `--json`.
-- **P0-7 `log`**: walks the snapshot DAG from HEAD to the initial snapshot; `change create` now
-  links the resulting snapshot's parent to the prior HEAD so the first-parent chain is walkable.
-  `--limit` + `--json`.
-- **P0-8 tests**: diff line-hunk + clean cases, log ordering/root/limit, linediff unit tests.
-  `cargo test --workspace` all pass (json_output 24, lib 8); clippy + fmt clean.
-- **P0-9 `DEMO.md`**: end-to-end persistent walkthrough; README updated; all new commands honor
-  `--json`.
-
-**The P0 Quick Advance Goal is complete.** `init -> edit -> status -> change create -> diff -> log`
-all work and persist on disk across processes, with no mocks in that path.
-
-Open follow-ups before/with Phase A:
-- Perf: engine-level `.sorrel` exclusion + stat-cache (replace copy-to-scratch); criterion benches
-  + CI perf budget.
-- Debt: converge CLI onto engine-native policy API and retire the `cli_*` compat modules.
-- `log` can show change ids/authors once a richer change-graph index exists.
-- `sorrel-web` pointer drift (root `db12183` vs its main `18b6ec3`) — unrelated, still open.
+---
