@@ -47,12 +47,12 @@ Submodules are a **publish** layout, not a **work** layout. Agents should use th
 **root checkout as one workspace**: edit files under `sorrel-core/`, `sorrel-cli/`,
 etc. directly from the parent tree. You do not need separate sessions per submodule.
 
-See **[`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md)** for the full rules:
-cross-repo edits, `git -C <submodule>` commits, pointer updates, conformance sync,
-and what not to do (stubs, fake core revs, committing submodule files only in root).
+See **[`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md)** — first-party modules
+are **branch-tracked** (`branch = main` in `.gitmodules`, `submodule update
+--remote`); **commit pins** are for foreign consumers and release snapshots only.
 
 ## Submodules
 
-Some submodules may be private. If `git submodule update --init --recursive` fails with "Repository not found", ensure the agent has access to the private Sorrel repos.
-
-After merging submodule work to that repo's `main`, update the parent repository's submodule pointer and commit that pointer change in the root repository.
+First-party `sorrel-*` repos are monorepo members on **`main`**, not frozen foreign
+deps. After merging submodule work, optionally snapshot root gitlinks with
+`./scripts/sync-submodule-pointers.sh` (see agent workspace doc).

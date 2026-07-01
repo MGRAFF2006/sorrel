@@ -17,16 +17,19 @@ play-by-plays or agent handoffs here.
 - Merge implementation to each submodule's `main`, then advance the root submodule pointer.
 - Conformance: `sorrel-protocol/conformance/policy-conformance.json` is canonical;
   `./scripts/sync-conformance.sh` refreshes consumers.
+- Submodule pointers: optional auto-sync via `./scripts/sync-submodule-pointers.sh`
+  (floating workspace mode — see `docs/AGENT_WORKSPACE.md`).
 
 ## Milestones reached
 
 | Milestone | Summary |
 | --- | --- |
-| **Foundation** | Protocol schemas, core engine, policy/authority spine, conformance manifest + drift guards |
+| **Foundation** | Protocol schemas, core engine, policy spine, conformance; **`Workspace.componentLinks`** (member/dependency) |
 | **P0** | Persistent local CLI VCS (`init` … `log`); see `sorrel-cli/DEMO.md` |
 | **Integrations** | Runners workflow YAML, vault dev CLI, hub skeleton, hub-web scaffold |
 | **Phase R** | Sync transport spec + core `transport` + hub object/ref API + CLI `remote`/`push`/`pull` |
-| **Phase A (partial)** | Stat-cache in core; sync policy in conformance — integration in flight |
+| **A1 / A1b** | Stat-cache in core (PR #7, `3a8f3be`) **and wired into the CLI** (`status`/`change create` persist `.sorrel/stat-cache.json`) |
+| **A2 / A3** | Sync policy conformance (`repo.object.write`/`repo.ref.write`, protocol PR #5 `c2ac9cc`) vendored into every consumer; `sorrel-core-stub` removed and CLI sync client fixed against the real engine |
 
 ## Module snapshot
 
@@ -46,22 +49,25 @@ play-by-plays or agent handoffs here.
 
 ## Current focus
 
-1. **Post–A1/A2 integration** — CLI stat-cache wire, conformance vendoring, remove any core stub;
-   correct `sorrel-core` git pin in `sorrel-cli`.
-2. **Phase A** — stat-cache in daily CLI paths; engine perf; merge/conflicts (see prototype plan).
-3. **Next product fork** — Hub persistent sync store **or** Git bridge (pick one).
+1. **Post–A1/A2 integration** — DONE. CLI stat-cache wired, A2/A3 conformance vendored into all
+   consumers, `sorrel-core-stub` + `[patch]` removed, CLI sync client fixed against the real engine,
+   `sorrel-cli` pins `sorrel-core` at `sorrel-core/main` (`7a5d7f6`).
+2. **Next product fork (pick one)** — **Hub filesystem object store** (persist sync objects/refs
+   across restarts) **or** the **Git bridge** (`init --git-colocated`, import/export).
+3. **Phase A tail** — engine perf tuning; 3-way merge / conflict objects.
 
 ## Backlog (ordered)
 
 | # | Work | Where |
 | --- | --- | --- |
-| 1 | Stat-cache CLI wire + core pin | `sorrel-cli`, `sorrel-core` |
-| 2 | Conformance export after protocol changes | `scripts/sync-conformance.sh` |
+| 1 | ~~Stat-cache CLI wire + core pin~~ **DONE (A1b)** | `sorrel-cli`, `sorrel-core` |
+| 2 | ~~Sync policy conformance vendoring (A2/A3)~~ **DONE** | `sorrel-protocol` + all consumers |
 | 3 | Hub filesystem object store (survive restart) | `sorrel-hub` |
 | 4 | Git bridge (`init --git-colocated`, import/export) | `sorrel-core`, `sorrel-cli` |
 | 5 | 3-way merge + conflict objects | `sorrel-core` |
 | 6 | Hub proposals/reviews | `sorrel-hub`, `sorrel-hub-web` |
 | 7 | Agent control plane | `sorrel-agents` |
+| 8 | Wire local grant registry into `grantRefs` on CLI push (mutating-body contract) | `sorrel-cli` |
 
 ## Not yet
 
@@ -81,6 +87,7 @@ Use `GIT_FS_MONITOR_ENABLED=false` if `git add` on submodules hangs.
 
 | Date | Event |
 | --- | --- |
+| 2026-07-01 | **Post-A1/A2 integration complete.** A1b: stat-cache wired into CLI `status`/`change create` (`.sorrel/stat-cache.json`, atomic). Removed `sorrel-core-stub` + `[patch]`; CLI sync client rewritten for the real engine (correct `/{repoId}/...` paths, array `want`/`have`, closure-seeded push, verified pull). A2 sync policy conformance (protocol PR #5) vendored via `scripts/sync-conformance.sh` into core/cli/hub/vault/runners; `--check` clean. Merge SHAs: protocol `545835d`, core `7a5d7f6`, cli `14ccdee` (PR #13), hub `b04a7e0`, vault `b710fff`, runners `e8effa2`. Root pointers advanced. **Next: Hub FS store or Git bridge.** |
 | 2026-07-01 | Phase R merged; root pointers advanced; agent workspace doc added |
 | 2026-06-26 | P0 complete; engine cleanups; Phase R started |
 | 2026-06-24–25 | Policy conformance + authority hardening across modules |
