@@ -92,6 +92,8 @@ npm run validate    # protocol/vault
 
 ## Working with submodules
 
-Some submodules are private. After making changes inside a submodule, merge them
-into that submodule's `main`, then update and commit the parent repository's
-submodule pointer. See `AGENTS.md` for the full operating rules.
+Some submodules are private. **Agents:** use this root repo as a single workspace
+— edit `sorrel-cli/`, `sorrel-core/`, etc. in place. See
+[`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md). After merging submodule
+changes to each repo's `main`, update and commit the parent submodule pointer.
+See `AGENTS.md` for toolchain and checks.
