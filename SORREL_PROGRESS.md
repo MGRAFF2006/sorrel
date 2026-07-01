@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-06-26 UTC (orchestration pass: lanes L/M/N merged; CLI workflow draft tracked)
+Last updated: 2026-07-01 UTC (Phase R sync transport merged; root pointers advanced)
 
 This is the root overview for Sorrel orchestration. Update this file whenever an agent reports completion, a PR is merged, or the execution plan changes.
 
@@ -30,14 +30,14 @@ Conformance manifest synchronization is now **automated** so vendored copies can
 
 | Module | Status | Latest known work | Notes |
 | --- | --- | --- | --- |
-| `sorrel-protocol` | Done / merged | Canonical conformance manifest + sync tooling; richer AGENTS/README | Root points to `sorrel-protocol/main` at `02b9167`; `npm test` 8/8, `npm run validate` ok. |
-| `sorrel-core` | Done / merged | VCS engine (store/snapshot/change/lanes) + native policy/authority + `materialize_snapshot_excluding` + perf benches; `cli_policy` compat removed | Root points to `sorrel-core/main` at `047b13b`; `cargo test`/`cargo bench` pass; fmt + clippy clean. |
-| `sorrel-cli` | Done / merged | **All commands real & persistent**; now **lib+bin** owning `cli_policy`/`cli_runner` (compat retired from engine crates) | Root points to `sorrel-cli/main` at `052ebde`; engine-level `.sorrel` exclusion; no `mocked:true` outputs; `.sorrel/{lanes,grants,secrets,slices}` registries; only `sorrel-core` git dep (dropped `sorrel-runners`); `cargo test --workspace` all pass (lib 18, json_output 25, conformance 2, workflow 7); fmt + clippy clean. See `sorrel-cli/DEMO.md`. |
+| `sorrel-protocol` | Done / merged | **Phase R:** canonical `docs/sync-transport.md` + `examples/sync/push-flow.json` | Root points to `sorrel-protocol/main` at `62bd44a`; `npm test` 8/8, `npm run validate` ok. |
+| `sorrel-core` | Done / merged | **Phase R:** `src/transport.rs` (closure, missing, transfer, `is_descendant`) + prior engine/benches | Root points to `sorrel-core/main` at `198fe2d`; `cargo test`/`cargo bench` pass; fmt + clippy clean. |
+| `sorrel-cli` | Done / merged | **Phase R:** `remote`/`push`/`pull` + `src/sync.rs` + `SYNC.md`; `ureq` HTTP client | Root points to `sorrel-cli/main` at `59296a2`; `cargo test --workspace` 58 pass (incl. `tests/sync.rs` mock-server round-trip); fmt + clippy clean. See `DEMO.md` + `SYNC.md`. |
 | `sorrel-vault` | Done / merged | Vault dev CLI (import/list/grant/redact) over existing libs | Root points to `sorrel-vault/main` at `40af00d`; `npm test` 13/13, `npm run validate` ok. |
 | `sorrel-runners` | Done / merged | Native workflow parser + runner model; `cli_runner` compat + `sorrel-core` dep removed | Root points to `sorrel-runners/main` at `51e7c29`; `cargo test` pass, fmt + clippy clean. |
 | `sorrel-slices` | Done / merged | TS/JS slice manifest prototype | Root points to `sorrel-slices/main` at `bd820c9`. |
 | `sorrel-web` | Public landing page / merged | Static marketing site (Nord theme) + AGENTS | Root points to `sorrel-web/main` at `6786303` (drift resolved; advanced past `db12183`). Public marketing only — NOT the Hub UI. |
-| `sorrel-hub` | Done / merged | Collaboration **API server** (JSON; no UI) + Core policy admin guard | Root points to `sorrel-hub/main` at `0ead81c`; `npm test` 16/16. README/AGENTS now clarify it is the backend, not the UI. |
+| `sorrel-hub` | Done / merged | **Phase R:** sync transport API (`/{repoId}/refs`, `/objects`, `/objects/missing`) + vendored BLAKE3 | Root points to `sorrel-hub/main` at `9404f66`; `npm test` 23/23. Collaboration API server (no UI). |
 | `sorrel-hub-web` | Scaffolded / merged | Hub **web interface** (browser frontend for the Hub API) | New submodule at `sorrel-hub-web/main`; framework-free HTML/CSS/ES modules + dev server proxying `/api/*` to Hub; `npm test` 4/4. Read-only Projects + Administration views. |
 | `sorrel-agents` | Not started | Agent policy/control plane | Start after lanes/claims are clearer. AGENTS/README fleshed out. |
 | `sorrel-sdk-js` | Not started | TypeScript SDK | Start after protocol/embedding surface stabilizes. AGENTS/README fleshed out. |
@@ -49,7 +49,7 @@ Reported running by user:
 
 | Agent | Target | Goal | Dependency notes |
 | --- | --- | --- | --- |
-| None active | - | - | CLI workflow integration (`sorrel-cli` PR #5) merged at `e04aaa6` and root pointer advanced. Lanes M (runners) and N (vault) merged with pointers advanced. |
+| None active | - | - | Phase R (protocol/core/hub/cli sync transport) merged; root pointers advanced 2026-07-01. |
 
 ## Blocked handoffs
 
@@ -71,6 +71,25 @@ When an active agent reports completion, verify and record:
 ## Next planned agents
 
 These are ready for agents working directly in the submodule repos after verifying each submodule `main`.
+
+### R - Phase R sync transport (COMPLETE)
+
+Done (merged 2026-06-30):
+
+- `sorrel-protocol` PR #4 (`62bd44a`): `docs/sync-transport.md` + `examples/sync/push-flow.json`.
+- `sorrel-core` PR #6 (`198fe2d`): `transport` module (`collect_closure`, `missing_objects`, `missing_in_target`, `transfer_objects`, `is_descendant`).
+- `sorrel-hub` PR #5 (`9404f66`): in-memory object/ref store + five sync endpoints; vendored `src/blake3.js`; 7 new sync tests.
+- `sorrel-cli` PR #10 (`59296a2`): `remote add/list`, `push`, `pull`, `src/sync.rs`, `SYNC.md`; mock HTTP server hang fixed (Content-Length body read, `Connection: close`, thread join on drop).
+
+Follow-up debt: align `repo.sync.write` (spec) vs `repo.object.write` (Hub) in a conformance pass (agent A2); optional `sorrel-hub-web` sync status UI later.
+
+### A1 - `sorrel-core` stat-cache (NEXT)
+
+Add size+mtime stat-cache so `status`/`change create` skip re-hashing unchanged files. CLI wiring is a separate `sorrel-cli` follow-up after core lands.
+
+### A2 - `sorrel-protocol` sync policy conformance (NEXT)
+
+Add `repo.object.write` / `repo.ref.write` to `policy-conformance.json`; document `grantRefs` on mutate bodies; align spec action names with Hub.
 
 ### O - unify Core policy evaluator usage across consumers (COMPLETE)
 
@@ -118,10 +137,13 @@ Done:
 | 2a | Automate conformance manifest sync | `sorrel-protocol` + consumers | DONE. Sidecar checksum/version + per-consumer drift-guard tests + export/sync helpers. A published shared package (npm/crate) could later replace vendoring entirely. |
 | 3 | Workflow file parser with policy inputs | `sorrel-runners` / `sorrel-cli` | DONE. `sorrel-runners` PR #5 (`307b018`) ships the parser; `sorrel-cli` PR #5 (`e04aaa6`) adds `workflow validate`/`workflow run`. Follow-up: dedupe the CLI's temporary `crates/sorrel-runners` mirror against the real crate. |
 | 4 | Vault CLI/dev API on Core grants | `sorrel-vault` | DONE (PR #4 merged, `1299b8b`). import/list/grant/redact CLI over existing libs; grants/redaction map to Core policy decisions. |
-| 5 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Hub skeleton verified on `sorrel-hub/main` at `aae580a`; policy should be Core-owned. |
-| 6 | Agent control plane | `sorrel-agents` | Lanes/stacks + Core policy model. |
-| 7 | Git bridge | `sorrel-core` / `sorrel-cli` | Change + lanes basics. |
-| 8 | Merge/conflict model | `sorrel-core` | Change + lanes basics. |
+| 5 | **Phase R sync transport** | `sorrel-protocol`, `sorrel-core`, `sorrel-hub`, `sorrel-cli` | **DONE** (merged; root pointers `62bd44a` / `198fe2d` / `9404f66` / `59296a2`). |
+| 5a | Stat-cache (perf) | `sorrel-core` / `sorrel-cli` | Phase R done. |
+| 5b | Sync policy conformance | `sorrel-protocol` / `sorrel-hub` | Phase R done; action-name drift (`repo.sync.write` vs `repo.object.write`). |
+| 6 | Hub proposal/review expansion consuming Core policy | `sorrel-hub` | Sync transport landed; policy Core-owned. |
+| 7 | Agent control plane | `sorrel-agents` | Lanes/stacks + Core policy model. |
+| 8 | Git bridge | `sorrel-core` / `sorrel-cli` | Change + lanes + sync basics. |
+| 9 | Merge/conflict model | `sorrel-core` | Change + lanes basics. |
 
 ## Do not start yet
 
@@ -160,6 +182,7 @@ git push origin main
 
 | Time UTC | Event |
 | --- | --- |
+| 2026-07-01 | **Phase R COMPLETE.** Merged sync transport: `sorrel-protocol` #4 (`62bd44a`), `sorrel-core` #6 (`198fe2d`), `sorrel-hub` #5 (`9404f66`), `sorrel-cli` #10 (`59296a2`). Root submodule pointers advanced. CLI mock-server test hang fixed. Next: Phase A stat-cache (core), sync policy conformance (protocol). |
 | 2026-06-26 | New management pass started. Goal: finish partial work to a clean state, then make Hub a push/pull server (decided model: Hub as a **Core object transport + ref store**, gated by Core policy; not a new authority). Tracked cleanups A (engine `.sorrel` exclusion), B (retire `cli_*` compat), C (make all mocked CLI commands real), D (perf benches), then Phase R (push/pull). |
 | 2026-06-26 | Cleanup A DONE. `sorrel-core` PR/merge `8bcde61`: `materialize_snapshot_excluding` / `write_tree_from_directory_excluding` (skip root names like `.sorrel`; nested same-names kept). `sorrel-runners` `62e8bec`: bump core rev (single engine version). `sorrel-cli` `d2269b5`: snapshot working tree in place, removed `ScratchDir`/`copy_tree_excluding_sorrel` O(tree) copy; init builds empty initial snapshot from an empty tree object. All green. Root pointers advanced (`2fc2b84`). |
 | 2026-06-26 | Cleanup C DONE. `sorrel-cli` `18789d4`: all previously mocked commands are now real & persistent — `change list` (DAG walk), `lane create` (real engine Lane to `.sorrel/lanes/`), `slice create` non-JS (real generic manifest), `grant create` (real Core decision + persist to `.sorrel/grants/`), `grant list`/`secret refs` (read `.sorrel` registries). Dropped all `mock_*` builders; no `mocked:true` outputs remain. Tests assert real behavior (json_output 25); clippy + fmt clean. Remaining cleanups: B (retire `cli_*` compat), D (perf benches). |
