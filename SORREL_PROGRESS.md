@@ -42,8 +42,9 @@ plan changes.
   `sorrel-cli/SYNC.md`.
 - **Sync**: protocol spec + Core transport + Hub endpoints
   (`/{repoId}/refs`, `/objects`, `/objects/missing`) + CLI push/pull all
-  landed and conformance-covered. Hub object/ref storage is currently
-  **in-memory only** (first item on the roadmap).
+  landed and conformance-covered. Hub sync objects/refs now persist to disk
+  by default (FS-backed store, 2026-07-17); product metadata (projects,
+  proposals, ...) is still in-memory.
 - **Policy spine**: unified across core, cli, hub, runners, vault via vendored
   protocol fixtures with automated drift guards. One real drift (CLI authority
   rotation) was surfaced and fixed by this machinery.
@@ -66,7 +67,7 @@ plan changes.
 | `sorrel-vault` | Active | `b710fff` (main) | Secrets spec, local backend, dev CLI (import/list/grant/redact); Core-grant gated; 13 tests. |
 | `sorrel-runners` | Active | `e8effa2` (main) | Local/container runner model + `sorrel.workflow.yml` parser; Core policy gate + redaction. |
 | `sorrel-slices` | Active | `bd820c9` (main) | TS/JS slice manifest generator prototype. |
-| `sorrel-hub` | Active | `b04a7e0` (main) | Collaboration API server; sync transport endpoints; storage in-memory only (roadmap #1). 23 tests. |
+| `sorrel-hub` | Active | `e926caf` (main) | Collaboration API server; sync transport endpoints; FS-backed sync store (objects/refs persist across restarts; `SORREL_HUB_DATA_DIR`). 32 tests. |
 | `sorrel-hub-web` | Scaffolded | `c1a9a88` (main) | Framework-free browser frontend proxying `/api/*` to Hub; read-only views; 4 tests. |
 | `sorrel-web` | Done for now | `6786303` (main) | Public marketing/landing site (static, Nord theme). Not the Hub UI. |
 | `sorrel-agents` | Not started | scaffold | Agent control plane; starts once lanes/claims semantics settle. |
@@ -78,11 +79,11 @@ plan changes.
 | Agent | Target | Goal | Notes |
 | --- | --- | --- | --- |
 | (user-reported, 2026-07-17) | `sorrel-core` | Assess/clean/re-plan `sorrel-core` | Do not advance the root `sorrel-core` pointer or start conflicting core work until it reports. |
-| This pass | root, `sorrel-hub` | Root cleanup + roadmap; Hub FS-backed object/ref store | See `ROADMAP.md` item 1. |
+| This pass | root, `sorrel-protocol`, `sorrel-hub` | Root cleanup + roadmap; protocol schema fix; Hub FS-backed sync store | Roadmap item 1 shipped (`sorrel-hub` `e926caf`). |
 
 ## Known debt / follow-ups
 
-- Hub object/ref storage is in-memory; sync state is lost on restart (roadmap #1, in progress).
+- Hub product metadata (projects, proposals, admin collections) is still in-memory; only sync objects/refs persist.
 - `apply_change` validates but does not patch/merge; conflicts are a placeholder type (roadmap #2).
 - No Git bridge anywhere yet (roadmap #3).
 - CLI `log` shows snapshot-DAG entries; change ids/authors need a richer change-graph index.
@@ -136,3 +137,4 @@ detail remains in this file's git history (see revisions before this date).
 | 2026-07-01 | Post-A1/A2 integration: core stat-cache (A1) wired into CLI status/change (A1b); sync policy conformance vectors (A2) vendored everywhere (A3); `sorrel-core-stub` removed; root pointers advanced (root PR #40). |
 | 2026-07-01 | Protocol `Workspace` object with `componentLinks` (member vs dependency) — PR #6 `8a37620`. |
 | 2026-07-17 | Root cleanup: removed the legacy pre-submodule `crates/sorrel-core` root workspace, retired the completed `SORREL_PROTOTYPE_PLAN.md`, consolidated this dashboard, added `ROADMAP.md`. Found + fixed a broken `npm test` on `sorrel-protocol/main` (Workspace componentLinks schema failed ajv strict mode; fix `7240252`, tests 8/8, validate ok). Protocol pointer advanced to `7240252`. |
+| 2026-07-17 | **Roadmap item 1 shipped — Hub FS-backed sync store.** `sorrel-hub` `e926caf` (merge of `3f1a97e`): `src/fs-sync-store.js` drop-in for the in-memory `RepoSyncStore` — content-addressed fanout mirroring core's `FileObjectStore`, atomic temp+rename writes, digest-verified reads, percent-encoded repo/ref path segments; server persists to `SORREL_HUB_DATA_DIR` (default `./data/sync`), `SORREL_HUB_SYNC_STORE=memory` opts out; tests stay in-memory. New tests incl. an end-to-end push → restart → pull flow; `npm test` 32/32. Root `sorrel-hub` pointer advanced. |

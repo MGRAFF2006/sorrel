@@ -24,15 +24,15 @@ features; prove the engine and a stable embedding surface before any GUI.
 Items in different repos can run as parallel agent lanes when their "needs"
 are met.
 
-### 1. Hub persistence — FS-backed object/ref store (`sorrel-hub`) — IN PROGRESS
+### 1. Hub persistence — FS-backed object/ref store (`sorrel-hub`) — DONE (2026-07-17)
 
-The sync endpoints work but hold everything in memory, so a Hub restart loses
-all pushed objects and refs. Add a filesystem-backed store (content-addressed
-fanout layout mirroring core's `FileObjectStore` semantics: atomic
-write-then-rename, digest-verified reads; refs as small JSON files with atomic
-replace), selectable via configuration and defaulting to disk for the server,
-in-memory for tests. No new authority semantics — policy checks stay as they
-are. Needs: nothing (Hub-only).
+Shipped in `sorrel-hub` `e926caf`: `FsRepoSyncStore`, a drop-in for the
+in-memory sync store — content-addressed fanout layout mirroring core's
+`FileObjectStore` semantics (atomic write-then-rename, digest-verified reads,
+refs as small JSON files with atomic replace), default-on for the server
+(`SORREL_HUB_DATA_DIR`, opt out with `SORREL_HUB_SYNC_STORE=memory`),
+in-memory for tests. No new authority semantics. Follow-up: persist Hub
+product metadata (projects/proposals) the same way when item 5 needs it.
 
 ### 2. Merge/conflict model (`sorrel-core`, then `sorrel-cli`)
 
