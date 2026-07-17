@@ -9,8 +9,8 @@ identity/permission/policy spine, a Git bridge, and a collaboration product on
 top.
 
 See [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md)
-for the full architecture, and [`SORREL_PROTOTYPE_PLAN.md`](SORREL_PROTOTYPE_PLAN.md)
-for the current build plan. Live orchestration status lives in
+for the full architecture, and [`ROADMAP.md`](ROADMAP.md) for the current
+build plan. Live orchestration status lives in
 [`SORREL_PROGRESS.md`](SORREL_PROGRESS.md).
 
 ## Repository layout
