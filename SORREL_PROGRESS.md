@@ -76,7 +76,7 @@ plan changes.
 | `sorrel-slices` | Active | `bd820c9` (main) | TS/JS slice manifest generator prototype. |
 | `sorrel-hub` | Active | `d8119b7` (main) | Collaboration API server; sync transport endpoints; FS-backed sync store AND FS-backed product metadata; `GET /admin/sync-repos`. 44 tests. |
 | `sorrel-hub-web` | Active | `5cc7137` (main) | Framework-free browser frontend proxying `/api/*` to Hub; Projects, Administration, and read-only Sync views. 6 tests. |
-| `sorrel-web` | Done for now | `6786303` (main) | Public marketing/landing site (static, Nord theme). Not the Hub UI. |
+| `sorrel-web` | Active | `c35cb04` (main) | Public site: landing page + `docs/` subpages (Core, CLI, Hub, workflows, API) + generated rustdoc pipeline (`scripts/build-api-docs.sh`, Pages deploy workflow — needs `SORREL_CORE_TOKEN` secret + Pages source "GitHub Actions"). Not the Hub UI. |
 | `sorrel-agents` | Not started | scaffold | Agent control plane; starts once lanes/claims semantics settle. |
 | `sorrel-sdk-js` | Not started | scaffold | Starts after the embedding surface (roadmap) stabilizes. |
 | `sorrel-sdk-rust` | Not started | scaffold | Starts after core APIs settle. |
@@ -85,17 +85,21 @@ plan changes.
 
 | Agent | Target | Goal | Notes |
 | --- | --- | --- | --- |
-| None active | - | - | Task-pack wave (PROTO-1, CORE-1..4, CLI-1..3, HUB-1/2, WEB-1) merged 2026-07-17; pointers advanced. CI-1/CI-2 workflows were not found on any main — re-dispatch if wanted. |
+| None active | - | - | Wave 1 merged 2026-07-17; pointers advanced. Wave 2 prompts ready in `SORREL_AGENT_TASKS.md`: PROTO-2 → CORE-5, CLI-4, HUB-3 → CLI-5, plus still-open CI-1/CI-2. |
 
 ## Known debt / follow-ups
 
-- No CI on any repo (the CI-1/CI-2 task-pack workflows never landed — re-dispatch).
-- Conflict resolution flow: `sorrel merge` leaves markers + `MERGE_STATE` and supports `--abort`, but there is no `resolve`/`--continue` yet.
+Wave 2 tasks exist for the first four (see `SORREL_AGENT_TASKS.md`):
+
+- **Out-of-the-box CLI→Hub push is denied (403)**: `src/server.js` never configures trusted grants and the CLI sends no `grantRefs` on mutating calls (verified end to end 2026-07-17). Fix = HUB-3 (grants file via `SORREL_HUB_TRUSTED_GRANTS`) + CLI-5 (send grantRefs).
+- **Schema drift:** engine `Conflict` omits required `repoId`/`ours`/`theirs`; `MergeResult` omits `repoId` + snapshot ids; protocol `ConflictHunk.baseLines` is an integer count while the engine stores base lines as content. Fix = PROTO-2 (baseLines → string array) then CORE-5 (align serialization).
+- Conflicted merges support `--abort` only; `merge --continue` = CLI-4.
+- No CI on any repo (CI-1/CI-2 never landed — re-dispatch as written).
 - Stored engine `Change` objects carry no timestamp; CLI `log` falls back to the snapshot's `createdAt`.
 - No Git bridge anywhere yet (roadmap #3).
 - Vendored conformance copies could later be replaced by a published shared package (npm/crate).
 - `sorrel-hub-web` is read-only; no write flows yet.
-- **Schema drift:** the engine's stored `Conflict` objects omit `repoId`/`ours`/`theirs`, which the protocol schema marks *required* (`MergeResult` similarly omits `repoId` and the three snapshot ids). Engine output would not validate against the protocol schema — align in a small follow-up (engine side or schema side, decide deliberately).
+- Site deploy needs one-time repo setup: Pages source = "GitHub Actions" on `sorrel-web`, plus a fine-grained read PAT as `SORREL_CORE_TOKEN` secret for the rustdoc build.
 
 ## Completion checklist (when an agent reports done)
 
@@ -146,4 +150,6 @@ detail remains in this file's git history (see revisions before this date).
 | 2026-07-17 | Root cleanup: removed the legacy pre-submodule `crates/sorrel-core` root workspace, retired the completed `SORREL_PROTOTYPE_PLAN.md`, consolidated this dashboard, added `ROADMAP.md`. Found + fixed a broken `npm test` on `sorrel-protocol/main` (Workspace componentLinks schema failed ajv strict mode; fix `7240252`, tests 8/8, validate ok). Protocol pointer advanced to `7240252`. |
 | 2026-07-17 | **Roadmap item 1 shipped — Hub FS-backed sync store.** `sorrel-hub` `e926caf` (merge of `3f1a97e`): `src/fs-sync-store.js` drop-in for the in-memory `RepoSyncStore` — content-addressed fanout mirroring core's `FileObjectStore`, atomic temp+rename writes, digest-verified reads, percent-encoded repo/ref path segments; server persists to `SORREL_HUB_DATA_DIR` (default `./data/sync`), `SORREL_HUB_SYNC_STORE=memory` opts out; tests stay in-memory. New tests incl. an end-to-end push → restart → pull flow; `npm test` 32/32. Root `sorrel-hub` pointer advanced. |
 | 2026-07-17 | **Task-pack wave merged** (user dispatched + merged all task PRs). Protocol: Conflict/MergeResult schemas + examples + docs (PR #7 `082e86f`). Core: merge_base/merge_bases over the snapshot DAG (PR #9), dependency-free merge3 (PR #10), Conflict/MergeResult objects (PR #11), snapshot-level merge_snapshots (PR #12) → main `eed47d0`, 94 tests. CLI: per-lane heads + lane list/switch (PR #15), snapshot→change index for log (PR #14), `sorrel merge` ff/3-way/--abort (PR #16). Hub: FS metadata store (PR #6), GET /admin/sync-repos (PR #7) → `d8119b7`, 44 tests. Hub-web: read-only Sync view (PR #1) → `5cc7137`, 6 tests. |
+| 2026-07-17 | **End-to-end verification (orchestrator):** full local flow proven on the merged mains — init → changes → lane create/switch → conflicted `merge` (markers written, HEAD unmoved) → `--abort` (clean restore) all work across processes. Hub sync verified separately: HTTP endpoints + FS persistence work, but **CLI push against a default server is denied 403** (no trusted-grants config on the server, no `grantRefs` from the CLI) — recorded as debt, wave-2 tasks HUB-3/CLI-5 written. |
+| 2026-07-17 | **sorrel-web expanded** (`c35cb04`): `docs/` subpages (docs hub, Core, CLI, Hub, Workflows/Vault/Slices, API) sharing the Nord theme; landing page nav/status/roadmap refreshed to current reality; generated API reference — `scripts/build-api-docs.sh` builds rustdoc from `sorrel-core` doc comments into gitignored `api/`, and `.github/workflows/deploy-pages.yml` deploys site + fresh rustdoc to GitHub Pages (needs `SORREL_CORE_TOKEN` secret; degrades to site-only without it). All pages + local links verified over a static server. Wave-2 task prompts added (PROTO-2, CORE-5, CLI-4, CLI-5, HUB-3). |
 | 2026-07-17 | **Integration fix (orchestrator):** the CLI merge work (CLI-3) had been built against a reintroduced local `sorrel-core-stub` whose API drifted from the real engine. Ported `merge` to the real API (MergeOptions; MergeResult fields; conflict markers now regenerated from stored Conflict objects via merge3; log falls back to snapshot `createdAt` since engine Changes carry no timestamp), re-pinned `sorrel-core` to `eed47d0`, deleted the stub + `[patch]` table. `sorrel-cli` main `5340f75`; `cargo test --workspace` 74 pass, clippy + fmt clean. All root pointers advanced. CI-1/CI-2 workflows were NOT found on any main. |

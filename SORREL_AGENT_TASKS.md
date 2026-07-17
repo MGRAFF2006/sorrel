@@ -13,6 +13,11 @@ has read anything else.
 > `sorrel-cli` `5340f75`; the stub is deleted again — future CLI tasks must
 > not reintroduce one). CI-1 and CI-2 did **not** land (no `.github/workflows/`
 > on any main) and can be re-dispatched as written.
+>
+> **Wave 2 (added 2026-07-17):** PROTO-2 → CORE-5 (protocol/engine conflict
+> alignment), CLI-4 (merge --continue), HUB-3 → CLI-5 (authorized push, fixes
+> the current out-of-the-box push 403). Dependency order within each arrow;
+> the two chains and CLI-4 are mutually independent. CI-1/CI-2 remain open.
 
 ## How to use this pack
 
@@ -31,11 +36,16 @@ has read anything else.
 ## Dependency map
 
 ```
+Wave 1 (merged 2026-07-17):
 PROTO-1 ──> CORE-3
 CORE-1 ──> CORE-2 ──> CORE-3 ──> CORE-4 ──> CLI-3
 CLI-1 ──> CLI-2                  (CLI-1/2 independent of CORE lane)
 HUB-1 ──> HUB-2 ──> WEB-1
-CI-1, CI-2: independent, anytime
+
+Wave 2 (open):
+PROTO-2 ──> CORE-5 ──> CLI-4    (CLI-4 needs MergeResult snapshot ids)
+HUB-3 ──> CLI-5                 (authorized push)
+CI-1, CI-2: independent, anytime (still not landed)
 ```
 
 ---
@@ -394,6 +404,237 @@ cargo fmt --all -- --check. Add a merge section to DEMO.md.
 
 Deliver: one branch, do not merge yourself. Report: branch name, final commit
 SHA, test/clippy/fmt output, and the sorrel-core rev you pinned.
+```
+
+---
+
+## Wave 2 — Lane PROTOCOL
+
+### PROTO-2 — Conflict hunks carry base content; align example
+
+```text
+Repository: https://github.com/MGRAFF2006/sorrel-protocol (work only in this repo)
+
+Context: Sorrel is an agent-native version-control system. This repo holds the
+canonical JSON Schemas in schemas/sorrel-object.schema.json plus examples/.
+Read AGENTS.md first. Ajv runs in STRICT mode (inside if/then blocks, declare
+"type" and referenced "properties" inline or compilation fails).
+
+Background: the Rust engine's merge (already shipped) stores Conflict objects
+whose hunks carry the BASE LINES AS CONTENT (array of strings), because an
+agent resolving a conflict needs the base text without fetching the base blob.
+The schema's ConflictHunk currently types "baseLines" as an integer count —
+that mismatch blocks engine/schema conformance.
+
+Task:
+1. In $defs.ConflictHunk change "baseLines" to an array of strings (the base
+   lines covered by the hunk, no trailing newlines), keeping "baseStart" as a
+   0-based integer. Update the description comments accordingly.
+2. Update examples/conflict.json to the new shape (baseLines as an array).
+3. Check docs/merge-conflicts.md and update the hunk field description there.
+4. Add one invalid example under examples/invalid/ (a Conflict whose
+   baseLines is a number) if a similar one does not already exist.
+5. Do NOT touch conformance/policy-conformance.json or its sidecar.
+
+Validate: npm install, then npm test and npm run validate must pass.
+
+Deliver: one branch, do not merge yourself. Report: branch name, final commit
+SHA, npm test + validate output.
+```
+
+---
+
+## Wave 2 — Lane CORE (repo: sorrel-core — needs PROTO-2 merged)
+
+### CORE-5 — Align stored Conflict/MergeResult with the protocol schema
+
+```text
+Repository: https://github.com/MGRAFF2006/sorrel-core (work only in this repo)
+
+Context: Sorrel is an agent-native version-control system; this repo is its
+Rust engine. Read AGENTS.md first. src/conflict.rs stores Conflict and
+MergeResult objects (serde, camelCase, schemaVersion "sorrel.protocol.v0");
+src/merge.rs (merge_snapshots) creates them. The canonical JSON shapes live in
+the sorrel-protocol repo: schemas/sorrel-object.schema.json ($defs Conflict,
+MergeResult, ConflictHunk, ContentObjectRef) and examples/conflict.json /
+examples/merge-result.json — fetch them from
+https://github.com/MGRAFF2006/sorrel-protocol (main branch) and match them
+EXACTLY. No new dependencies.
+
+Problem: the engine's stored objects omit fields the schema marks required.
+- Conflict is missing: repoId, ours, theirs (each { "object": "<64-hex>" }
+  blob refs; base is optional and should be present except for add/add).
+- MergeResult is missing: repoId, baseSnapshot, oursSnapshot, theirsSnapshot
+  (64-hex snapshot ids).
+
+Task:
+1. Extend the Conflict struct + StoredConflict serialization with repo (as
+   protocol "repoId"), and optional base / required ours / theirs blob object
+   refs. merge_snapshots already knows all three blob ids per conflicted path
+   (base/our/their file entries) — populate them; for add_add leave base
+   absent; for modify_delete the deleted side's ref is absent (make ours and
+   theirs Option internally if needed, but serialize per schema: ours/theirs
+   are REQUIRED, so for modify_delete use the surviving side's blob for the
+   side that still exists and the base blob for the deleted side, and note
+   this rule in a doc comment).
+2. Extend MergeResult + StoredMergeResult with repoId, baseSnapshot,
+   oursSnapshot, theirsSnapshot. merge_snapshots fills them from its inputs
+   plus MergeOptions.repo.
+3. Update the conflict_from_hunks/conflict_with_type constructors and every
+   caller/test; keep read_* backward-tolerant (missing new fields on old
+   objects read as None/empty — do not hard-fail on objects written before
+   this change).
+4. Tests: serialize one Conflict and one MergeResult and assert the exact JSON
+   key set matches the protocol examples (fetch-free: hardcode the expected
+   keys); round-trips; merge_snapshots populates the new fields end to end.
+
+Validate: cargo test, cargo clippy --all-targets (no warnings),
+cargo fmt --all -- --check.
+
+Deliver: one branch, do not merge yourself. Report: branch name, final commit
+SHA, test/clippy/fmt output. Note: sorrel-cli pins this repo by rev; the
+orchestrator will bump the pin — do not touch sorrel-cli.
+```
+
+---
+
+## Wave 2 — Lane CLI (repo: sorrel-cli)
+
+### CLI-4 — `sorrel merge --continue` (resolve conflicted merges)
+
+```text
+Repository: https://github.com/MGRAFF2006/sorrel-cli (work only in this repo)
+
+Context: Sorrel is an agent-native version-control system; this repo is the
+`sorrel` CLI over the sorrel-core engine (git dependency pinned by rev in
+Cargo.toml — do NOT reintroduce any local stub/patch of the engine; build
+against the pinned rev). Read AGENTS.md first. Current merge behavior
+(src/main.rs merge_lane_output + merge_abort_output, helpers in src/repo.rs):
+a conflicted `sorrel merge <lane>` writes Git-style conflict markers into the
+affected files, records the MergeResult id in .sorrel/MERGE_STATE (JSON:
+{ "mergeResult": "<64-hex>" }), does not advance HEAD, and exits nonzero.
+`sorrel merge --abort` restores the pre-merge tree. There is no way to FINISH
+a conflicted merge yet.
+
+Task: add `sorrel merge --continue` (with --json), mirroring --abort's
+structure:
+1. Error clearly when no merge is in progress (no MERGE_STATE).
+2. Load MERGE_STATE, read the stored MergeResult and its Conflict objects
+   (sorrel_core::read_merge_result / read_conflict) to know the conflicted
+   paths and the theirs snapshot (MergeResult carries it after CORE-5; if the
+   field is absent on older objects, error with a clear message).
+3. Verify no conflicted file still contains conflict markers ("<<<<<<<",
+   "=======", ">>>>>>>" at line starts). If any do, list them and exit
+   nonzero without changing anything.
+4. Snapshot the working tree (same staging path change create uses), create a
+   merge Change with message "merge <lane> (resolved)" whose base is the
+   pre-merge HEAD, advance HEAD + the active lane head, append to
+   .sorrel/changes.index, and remove MERGE_STATE.
+   IMPORTANT: link the resulting snapshot's parents to BOTH the pre-merge
+   HEAD and the theirs snapshot so future merge_base calls see the merge.
+5. Store the resolved blob ids: for each Conflict that has a resolution field
+   concept in the protocol, this CLI step may skip writing resolutions for
+   now — keep scope to completing the merge.
+
+Tests (tests/json_output.rs style): conflicted merge -> edit files to remove
+markers -> --continue succeeds, HEAD advanced, MERGE_STATE gone, log shows
+the merge change, and a follow-up `sorrel merge <same-lane>` reports nothing
+to merge (fast-forward/equal) proving the DAG link; --continue with markers
+still present fails and lists the file; --continue without a merge in
+progress fails.
+
+Validate: cargo test --workspace, cargo clippy --all-targets (no warnings),
+cargo fmt --all -- --check. Update DEMO.md's merge section.
+
+Deliver: one branch, do not merge yourself. Report: branch name, final commit
+SHA, test/clippy/fmt output, and the sorrel-core rev you built against.
+```
+
+### CLI-5 — Send grantRefs on mutating sync calls (needs HUB-3 merged)
+
+```text
+Repository: https://github.com/MGRAFF2006/sorrel-cli (work only in this repo)
+
+Context: Sorrel is an agent-native version-control system; this repo is the
+`sorrel` CLI. Read AGENTS.md and SYNC.md first. The sync client (src/sync.rs)
+pushes/pulls content-addressed objects against a sorrel-hub server. Mutating
+Hub endpoints (POST /{repoId}/objects and POST /{repoId}/refs/{name})
+evaluate Core policy and expect a `grantRefs` array in the request body:
+[{ "id": "<grant-id>", "source": "core" }]. The CLI currently sends NO
+grantRefs, so pushes against a Hub with policy grants configured are denied
+with 403 (verified). The Hub side (HUB-3, already merged) loads trusted
+grants from a JSON file via SORREL_HUB_TRUSTED_GRANTS.
+
+Task:
+1. Add optional grant refs to remotes: `sorrel remote add <name> <url>
+   [--grant-ref <id>]...` stores grantRefs in .sorrel/remotes.json alongside
+   url/repoId; `remote list` shows them.
+2. push/pull mutating requests include those grantRefs in the body
+   (grantRefs: [] stays valid when none are configured, preserving current
+   open-Hub behavior).
+3. Add `--grant-ref <id>` (repeatable) to push as a per-invocation override.
+4. Update tests/sync.rs: the mock server asserts the grantRefs array arrives
+   on objects-upload and ref-advance bodies; add a denied-push test (mock
+   returns 403 policy_denied with a decision body) asserting the CLI surfaces
+   a clear error including the decision reason.
+5. Update SYNC.md: document --grant-ref and the HUB-3 server setup
+   (SORREL_HUB_TRUSTED_GRANTS) in the walkthrough, replacing the paragraph
+   that says the Hub "does not yet enforce grant hydration".
+
+Do NOT reintroduce any local stub/patch of sorrel-core.
+
+Validate: cargo test --workspace, cargo clippy --all-targets (no warnings),
+cargo fmt --all -- --check.
+
+Deliver: one branch, do not merge yourself. Report: branch name, final commit
+SHA, test/clippy/fmt output.
+```
+
+---
+
+## Wave 2 — Lane HUB (repo: sorrel-hub)
+
+### HUB-3 — Configurable trusted grants so real pushes can be authorized
+
+```text
+Repository: https://github.com/MGRAFF2006/sorrel-hub (work only in this repo)
+
+Context: Sorrel Hub is the collaboration API server for the Sorrel
+version-control system — Node >= 22, ES modules, ZERO runtime dependencies.
+Read AGENTS.md and README.md first. Mutating sync endpoints (src/routes/
+sync.js) evaluate Core policy through evaluateWithTrustedGrants(...,
+context.trustedGrantsById, ...). createApp accepts a trustedGrantsById map
+(tests use it), but src/server.js never provides one — so on a real server
+EVERY push is denied 403 (verified with the CLI). There is no way to
+configure grants without editing code.
+
+Task:
+1. Support a SORREL_HUB_TRUSTED_GRANTS environment variable pointing at a
+   JSON file: { "grants": [ <grant objects> ] } where each grant has the
+   shape the tests already use (id, source, principal {type,id}, action,
+   resource {kind,id}). Load it at startup in src/server.js into
+   trustedGrantsById (keyed by grant id) and pass it to createApp.
+2. Validate the file: unreadable file or malformed JSON is a fatal startup
+   error with a clear message (better to fail loudly than run with no
+   grants); an entry missing id/action/resource is rejected with its index.
+3. Log at startup how many trusted grants were loaded (ids only, never more).
+4. Add an example file docs/trusted-grants.example.json with two grants
+   (repo.object.write + repo.ref.write for one principal on one repo) and a
+   README section "Authorizing pushes" showing the full flow: start the Hub
+   with SORREL_HUB_TRUSTED_GRANTS, then push from the CLI with matching
+   grantRefs.
+5. Keep createApp() defaults unchanged (tests unaffected).
+
+Tests: loading a valid file yields working pushes end to end over HTTP (spawn
+the app with the loaded map, reuse test/sync-transport.test.js helpers);
+malformed file -> loader function throws (test the exported loader directly,
+not the process exit); missing env var -> empty map, server still works
+read-only.
+
+Validate: npm test (all existing tests must stay green).
+
+Deliver: one branch, do not merge yourself. Report: branch name, final commit
+SHA, npm test output.
 ```
 
 ---
