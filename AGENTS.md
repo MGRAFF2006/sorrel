@@ -18,6 +18,10 @@ The root repository coordinates architecture and submodule pointers. Most implem
 Hub is split: `sorrel-hub` is the API server, `sorrel-hub-web` is its web
 interface, and `sorrel-web` is the unrelated public landing page.
 
+Key root documents: `ROADMAP.md` (forward plan), `SORREL_PROGRESS.md` (live
+status; check its "Active agents" table before starting submodule work), and
+`AGENT_NATIVE_VERSION_CONTROL_REPORT.md` (architecture).
+
 ## Rust toolchain
 
 Rust modules require stable Rust 1.85+ with clippy and rustfmt because they use edition2024 / modern Cargo metadata. If the base image has an older Rust version, run:
