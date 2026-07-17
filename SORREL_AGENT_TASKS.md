@@ -7,6 +7,13 @@ Each task below is written as a **complete prompt you can paste to an agent
 verbatim** — it carries all the context the agent needs and does not assume it
 has read anything else.
 
+> **Status 2026-07-17:** PROTO-1, CORE-1..4, CLI-1..3, HUB-1/2, and WEB-1 are
+> **merged** (see `SORREL_PROGRESS.md`). CLI-3 needed an orchestrator fix: it
+> was built against a local core stub instead of the real engine (fixed in
+> `sorrel-cli` `5340f75`; the stub is deleted again — future CLI tasks must
+> not reintroduce one). CI-1 and CI-2 did **not** land (no `.github/workflows/`
+> on any main) and can be re-dispatched as written.
+
 ## How to use this pack
 
 - **One agent per task, one task at a time per repository.** Tasks in

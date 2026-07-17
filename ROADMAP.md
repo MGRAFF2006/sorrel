@@ -34,14 +34,16 @@ refs as small JSON files with atomic replace), default-on for the server
 in-memory for tests. No new authority semantics. Follow-up: persist Hub
 product metadata (projects/proposals) the same way when item 5 needs it.
 
-### 2. Merge/conflict model (`sorrel-core`, then `sorrel-cli`)
+### 2. Merge/conflict model (`sorrel-core`, then `sorrel-cli`) — DONE (2026-07-17)
 
-`apply_change` currently validates but cannot patch; `Conflict` is a
-placeholder. Build: three-way content merge for text blobs, first-class
-conflict objects (stored, addressable, resolvable), common-ancestor
-computation over the snapshot DAG, and reusable resolutions. Then CLI
-`merge`/`resolve` surfaces. Needs: coordination with the agent currently
-working in `sorrel-core`.
+Shipped via the task pack: `history::merge_base(s)` (BFS over snapshot
+parents, deterministic tie-break), `merge3` (dependency-free three-way line
+merge with Git-style markers), content-addressed `Conflict`/`MergeResult`
+objects, `merge::merge_snapshots` (path-level three-way merge), and CLI
+`sorrel merge <lane>` (fast-forward + three-way, conflict markers,
+`MERGE_STATE`, `--abort`). Remaining follow-ups: `resolve`/`--continue` flow,
+and aligning stored Conflict/MergeResult fields with the protocol schema's
+required `repoId`/`ours`/`theirs` (see SORREL_PROGRESS known debt).
 
 ### 3. Git bridge (`sorrel-core` + `sorrel-cli`)
 
@@ -50,19 +52,20 @@ The adoption path: `sorrel git import` (Git repo → snapshots/changes),
 try Sorrel without leaving Git. Start with one-way import; export and
 colocated mirror after. Needs: merge model helps but import can start first.
 
-### 4. Lanes as real workflows (`sorrel-cli` + `sorrel-core`)
+### 4. Lanes as real workflows (`sorrel-cli` + `sorrel-core`) — MOSTLY DONE (2026-07-17)
 
-Lanes/stacks exist as objects but the CLI has a single implicit lane. Add
-`lane switch/list/submit`, per-lane HEADs, and stacked changes — the
-foundation for parallel agent work. Needs: merge model (2) for lane
-integration.
+Shipped via the task pack: per-lane heads (`.sorrel/heads/`), `lane
+list`/`lane switch` (dirty-tree protection, worktree restore), independent
+lane histories, and `merge <lane>` integration. Remaining: `lane submit` and
+stacked changes (later, with Hub proposals).
 
-### 5. Hub collaboration surface (`sorrel-hub` + `sorrel-hub-web`)
+### 5. Hub collaboration surface (`sorrel-hub` + `sorrel-hub-web`) — PARTIAL
 
-Proposals/reviews consuming Core policy (a proposal references a lane/stack
+Landed 2026-07-17: FS-backed product metadata (records survive restarts),
+`GET /admin/sync-repos`, and a read-only hub-web Sync view. Remaining:
+proposals/reviews consuming Core policy (a proposal references a lane/stack
 pushed via sync), approval state as signed records, and hub-web write flows
-(create proposal, review, see sync status). Needs: 1 (persistence) and 4
-(lanes) for anything beyond a skeleton.
+(create proposal, review).
 
 ### 6. Stable embedding surface (`sorrel-core`)
 
