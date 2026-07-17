@@ -94,6 +94,12 @@ conflict-resolution UI. These wait until 1–5 have a stable integration path.
 - Next perf items (with 2/3): packfiles + indexes for many-small-object repos,
   chunked storage for large/binary blobs, lazy fetch on sync.
 
+## Task pack
+
+Items 2, 4, and parts of 5 are broken into small, paste-ready agent work
+orders in [`SORREL_AGENT_TASKS.md`](SORREL_AGENT_TASKS.md) (lanes PROTO /
+CORE / CLI / HUB / HUB-WEB / CI with an explicit dependency map).
+
 ## Working agreement for agents
 
 - One agent lane per submodule at a time; check "Active agents" in

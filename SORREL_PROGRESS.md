@@ -3,8 +3,9 @@
 Last updated: 2026-07-17 UTC (repo cleanup pass: legacy root `crates/` workspace removed, notes consolidated, `ROADMAP.md` added, protocol pointer advanced)
 
 This is the single live status document for Sorrel orchestration. The forward
-plan lives in [`ROADMAP.md`](ROADMAP.md); the full architecture lives in
-[`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md).
+plan lives in [`ROADMAP.md`](ROADMAP.md); ready-to-dispatch agent work orders
+live in [`SORREL_AGENT_TASKS.md`](SORREL_AGENT_TASKS.md); the full architecture
+lives in [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md).
 Update this file whenever an agent reports completion, a PR is merged, or the
 plan changes.
 
