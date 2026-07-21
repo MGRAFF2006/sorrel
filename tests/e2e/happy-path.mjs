@@ -239,6 +239,32 @@ async function main() {
   assert.equal(readFileSync(join(workA, 'b.txt'), 'utf8'), 'feature\n');
   log('cli lanes + merge');
 
+  // Conflicted merge → resolve markers → --continue
+  const conflictLane = sorrelJson(workA, ['lane', 'create', '--name', 'conflict']);
+  const conflictLaneId = conflictLane.object.id;
+  writeFileSync(join(workA, 'c.txt'), 'main-c\n');
+  sorrel(workA, ['change', 'create', '-m', 'main adds c']);
+  sorrel(workA, ['lane', 'switch', conflictLaneId]);
+  writeFileSync(join(workA, 'c.txt'), 'feature-c\n');
+  sorrel(workA, ['change', 'create', '-m', 'feature adds c']);
+  sorrel(workA, ['lane', 'switch', 'lane_main']);
+  const conflicted = spawnSync(join(CLI_DIR, 'target/debug/sorrel'), ['merge', conflictLaneId, '--json'], {
+    cwd: workA,
+    encoding: 'utf8',
+  });
+  assert.notEqual(conflicted.status, 0, 'conflicted merge must fail');
+  writeFileSync(join(workA, 'c.txt'), 'resolved-c\n');
+  const continued = sorrelJson(workA, ['merge', '--continue']);
+  assert.equal(continued.status, 'merged');
+  assert.equal(continued.continued, true);
+  assert.equal(readFileSync(join(workA, 'c.txt'), 'utf8'), 'resolved-c\n');
+  log('cli merge --continue');
+
+  const stack = sorrelJson(workA, ['stack', 'create', '--name', 'stack/e2e']);
+  assert.equal(stack.status, 'created');
+  assert.equal(stack.object.kind, 'Stack');
+  log('cli stack create');
+
   const grant = sorrelJson(workA, ['grant', 'create', '--action', 'workflow.run']);
   assert.equal(grant.status, 'allow');
   assert.ok(grant.object.id.startsWith('grant_'));
@@ -383,6 +409,12 @@ jobs:
   assert.ok(imported.commits.length >= 1);
   assert.equal(readFileSync(join(gitDir, 'readme.txt'), 'utf8'), 'from-git\n');
   log('cli git import');
+
+  const exportDir = mkdtempSync(join(tmpdir(), 'sorrel-e2e-export-'));
+  const exported = sorrelJson(gitDir, ['git', 'export', exportDir, '--branch', 'export-main']);
+  assert.equal(exported.status, 'exported');
+  assert.ok(exported.createdCommits >= 1 || exported.exportedCommits >= 1);
+  log('cli git export');
 
   const { HubClient } = await import(join(SDK_JS_DIR, 'src/index.js'));
   const sdk = new HubClient({ baseUrl: hubUrl });

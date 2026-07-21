@@ -9,39 +9,36 @@ stack, see [GETTING_STARTED.md](GETTING_STARTED.md). The forward plan is
 ## Snapshot
 
 Sorrel already has a **working local VCS loop** (init → change → lanes → merge →
-push/pull) on a real content-addressed engine, plus **one-way Git import**, a
-deployable Hub API, and a read-only Hub UI. The public landing site is live.
+push/pull) on a real content-addressed engine, plus **Git import/export**, a
+deployable Hub API, and a writable Hub UI companion. The public landing site is live.
 A root **no-mock E2E** (`npm test`) wires every active module together. Still
-ahead: Git export/colocated mirror, Hub write flows, richer agents/SDKs, and CI.
+ahead: colocated Git mirror, production auth, richer agents/SDKs, and apps.
 
 ## Working
 
 | Area | What you can do |
 | --- | --- |
 | **Protocol** | Canonical object schemas, examples, sync-transport spec, policy conformance manifest + checksum drift guards. |
-| **Engine (`sorrel-core`)** | Content-addressed object store, snapshots, changes, path/line-level diff helpers, lanes/stacks, policy/authority spine, sync closure helpers, stat-cache, three-way merge + conflict objects, **one-way `git_import`**. |
-| **CLI (`sorrel-cli`)** | Persistent `.sorrel/` workspace: `init`, `status`, `change create`/`list`, `diff`, `log`, `lane create`/`list`/`switch`, `merge` / `merge --abort`, **`git import`**, `grant`, `slice create`, `workflow validate`/`run`, `remote add`/`list`, `push`, `pull` (restores working tree). No core stub — pins real `sorrel-core` by git rev. |
-| **Git import** | `sorrel git import [PATH]` walks a Git ref into Sorrel snapshots/changes; writes `.sorrel/git-map.json`. See `sorrel-cli/GIT.md`. |
+| **Engine (`sorrel-core`)** | Content-addressed object store, snapshots, changes, path/line-level diff helpers, lanes/stacks, policy/authority spine, sync closure helpers, stat-cache, three-way merge + conflict objects, **`git_import` / `git_export`**. |
+| **CLI (`sorrel-cli`)** | Persistent `.sorrel/` workspace: `init`, `status`, `change create`/`list`, `diff`, `log`, `lane create`/`list`/`switch`/`submit`, `stack create`/`list`/`show`, `merge` / `merge --abort` / **`merge --continue`**, **`git import` / `git export`**, `grant`, `slice create`, `workflow validate`/`run`, `remote add`/`list`, `push`, `pull`. |
+| **Git bridge** | `sorrel git import` and `sorrel git export`; `.sorrel/git-map.json` links SHAs ↔ snapshots. See `sorrel-cli/GIT.md`. |
 | **Sync** | CLI ↔ Hub over HTTP sync transport; Hub FS-backed object/ref store; local bootstrap grants so `user:local` can push/pull out of the box. |
 | **Vault** | Secrets schema, local backend, dev CLI (`import` / `list` / `grant` / `redact`), Core-grant gated. |
-| **Runners** | Local/container runner model, `sorrel.workflow.yml` → `JobBundle` parser, Core policy gate + log redaction. |
+| **Runners** | Local + container runners (ContainerRunner tested), `sorrel.workflow.yml` → `JobBundle` parser, Core policy gate + log redaction. |
 | **Slices** | TS/JS slice manifest generator (prototype). |
 | **Hub API** | JSON HTTP server: health, projects, admin collections with GET/PATCH, proposals/reviews lifecycle, lane-submit collaboration endpoint, sync endpoints, FS persistence. |
-| **Hub UI** | Framework-free browser companion: Projects (create), Administration (proposals + review comments with mutations), Sync (read-only); proxies `/api/*` to Hub. |
+| **Hub UI** | Framework-free Nord companion: Projects, Reviews (proposal detail + comment thread + workflow status), Sync; proxies `/api/*` to Hub. |
 | **Landing (`sorrel-web`)** | Static marketing site (Nord theme). Production deploy is Cloudflare Pages; local Docker is optional preview only. |
-| **Root E2E** | `npm test` runs `tests/e2e/happy-path.mjs`: live Hub + hub-web + CLI VCS/sync/git-import/workflow/slice + vault + slices + sdk-js/sdk-rust + agents. No mocks. |
+| **Root E2E / CI** | `npm test` E2E; `.github/workflows/ci.yml` on root, hub, and hub-web. |
 
 ## Missing / not ready
 
 | Area | Gap |
 | --- | --- |
-| **Git export / colocated** | One-way import works; export and bidirectional/colocated mirror are still ahead (roadmap item 3). |
-| **Merge continue** | Conflicts write markers + `MERGE_STATE` and support `--abort`; no `resolve` / `--continue`. |
-| **Hub write UI** | Proposal create + status transitions and review comments are writable in hub-web; richer review UX and auth still ahead. |
+| **Colocated Git sync** | One-way import/export work; bidirectional/colocated mirror still ahead. |
 | **Production auth** | Hub skeleton has no real login, SSO, or signed client identity beyond acting-principal headers + trusted grants. |
-| **Agents control plane** | Minimal register/claim/active-work surface shipped; no instruction overlays or Hub write UI yet. |
+| **Agents control plane** | Minimal register/claim/active-work surface shipped; no instruction overlays yet. |
 | **SDKs** | Minimal Hub JS client + Rust `Workspace` wrapper shipped; embedding surface (C ABI / N-API / WASM / daemon) not shipped. |
-| **CI** | No GitHub Actions on module mains yet. Root `npm test` E2E covers the happy path locally. |
 | **Schema alignment** | Engine-stored `Conflict` / `MergeResult` fields still drift from some protocol-required properties. |
 | **Apps** | No desktop/mobile clients (intentionally after embedding surface). |
 
