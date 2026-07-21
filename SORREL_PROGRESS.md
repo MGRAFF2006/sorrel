@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-07-17 UTC (task-pack wave merged: merge/conflict model in core, CLI lanes/log/merge, Hub metadata persistence + sync-repo listing, hub-web Sync view; all root pointers advanced)
+Last updated: 2026-07-21 UTC (happy-path sync/docs/compose landed on submodule mains; Git import next)
 
 This is the single live status document for Sorrel orchestration. The forward
 plan lives in [`ROADMAP.md`](ROADMAP.md); ready-to-dispatch agent work orders
@@ -29,54 +29,40 @@ plan changes.
   `scripts/sync-conformance.sh` (verify with `--check`) after any manifest
   change.
 
-## Where the system stands (2026-07-17)
+## Where the system stands (2026-07-21)
 
 - **Engine (`sorrel-core`)**: real and tested — content-addressed
   `FileObjectStore`, snapshots, changes, path-level diff, lanes/stacks, policy
-  and authority spine, sync transport closure helpers, stat-cache, and (new
-  2026-07-17) the **merge/conflict model**: `history::merge_base(s)` over the
-  snapshot DAG, `merge3` (dependency-free three-way line merge),
-  content-addressed `Conflict`/`MergeResult` objects, and
-  `merge::merge_snapshots` (path-level three-way merge; clean merges write a
-  snapshot with parents [ours, theirs], conflicted merges store Conflict
-  objects). 94 tests, fmt/clippy clean. Perf benches with coarse budgets.
-- **CLI (`sorrel-cli`)**: a persistent, single-user local VCS over the real
-  engine. `init / status / change create / diff (line-level) / log (with
-  change ids/authors via .sorrel/changes.index) / lane create|list|switch
-  (per-lane heads) / merge <lane> (fast-forward + three-way, conflict markers
-  + MERGE_STATE + --abort) / grant / slice create / workflow validate|run /
-  remote add / push / pull` are all real and persist under `.sorrel/`. Pins
-  `sorrel-core` by git rev (`eed47d0`); the dev stub is gone again. See
-  `sorrel-cli/DEMO.md` and `sorrel-cli/SYNC.md`.
-- **Sync**: protocol spec + Core transport + Hub endpoints
-  (`/{repoId}/refs`, `/objects`, `/objects/missing`) + CLI push/pull all
-  landed and conformance-covered. Hub sync objects/refs now persist to disk
-  by default (FS-backed store, 2026-07-17); product metadata (projects,
-  proposals, ...) is still in-memory.
-- **Policy spine**: unified across core, cli, hub, runners, vault via vendored
-  protocol fixtures with automated drift guards. One real drift (CLI authority
-  rotation) was surfaced and fixed by this machinery.
-- **Hub split**: `sorrel-hub` is the JSON API server (no UI), `sorrel-hub-web`
-  the browser frontend (read-only Projects + Administration views),
-  `sorrel-web` the unrelated public landing page.
-- **Protocol**: `Workspace` object with `componentLinks` (PR #6 + strict-mode
-  fix `7240252`), and now `Conflict` + `MergeResult` object schemas with
-  examples and `docs/merge-conflicts.md` (PR #7, `082e86f`) backing the core
-  merge model.
+  and authority spine, sync transport closure helpers, stat-cache, and the
+  **merge/conflict model** (`merge_base`, `merge3`, Conflict/MergeResult,
+  `merge_snapshots`). 94 tests, fmt/clippy clean. **Git import (roadmap #3)
+  is the next engine/CLI item.**
+- **CLI (`sorrel-cli`)**: persistent local VCS over the real engine. Commands
+  include init/status/change/diff/log/lane/merge(--abort)/grant/slice/workflow/
+  remote/push/pull. Pull restores the working tree; Hub sync sends bootstrap
+  `grantRefs` and parses refs as a protocol array. Pins `sorrel-core` by git
+  rev (`eed47d0`); no stub. See `sorrel-cli/DEMO.md` and `sorrel-cli/SYNC.md`.
+- **Sync**: CLI ↔ Hub happy path works with Hub bootstrap grants for
+  `user:local`, Core/protocol closure shapes, and FS-backed Hub storage.
+- **Hub split**: `sorrel-hub` API (Dockerized), `sorrel-hub-web` deployable
+  static+proxy UI (read-only), `sorrel-web` public landing on Cloudflare with
+  `/docs/` (STATUS + GETTING_STARTED + HTML guides).
+- **Root**: `docs/STATUS.md`, `docs/GETTING_STARTED.md`, `docker-compose.yml`
+  for hub + hub-web (+ optional landing preview).
 
 ## Module status
 
 | Module | Status | Root pointer | Notes |
 | --- | --- | --- | --- |
 | `sorrel-protocol` | Active | `082e86f` (main) | Schemas incl. Workspace + Conflict/MergeResult, sync-transport spec, policy conformance manifest + sidecar. `npm test` 8/8, `npm run validate` ok. |
-| `sorrel-core` | Active | `eed47d0` (main) | Full engine incl. transport, stat-cache, and merge/conflict model (merge_base, merge3, Conflict/MergeResult, merge_snapshots). 94 tests, clippy + fmt clean. |
-| `sorrel-cli` | Active | `5340f75` (main) | All commands real + persistent; per-lane heads, lane list/switch, change index in log, `merge` (ff + 3-way + --abort); pins core `eed47d0`, stub removed. 74 workspace tests. |
+| `sorrel-core` | Active | `eed47d0` (main) | Full engine incl. transport, stat-cache, merge/conflict model. 94 tests. Git import next. |
+| `sorrel-cli` | Active | `ba83dfa` (main) | Happy-path Hub sync: grantRefs, refs array, worktree restore on pull. Pins core `eed47d0`. 74 workspace tests. |
 | `sorrel-vault` | Active | `b710fff` (main) | Secrets spec, local backend, dev CLI (import/list/grant/redact); Core-grant gated; 13 tests. |
 | `sorrel-runners` | Active | `e8effa2` (main) | Local/container runner model + `sorrel.workflow.yml` parser; Core policy gate + redaction. |
 | `sorrel-slices` | Active | `bd820c9` (main) | TS/JS slice manifest generator prototype. |
-| `sorrel-hub` | Active | `d8119b7` (main) | Collaboration API server; sync transport endpoints; FS-backed sync store AND FS-backed product metadata; `GET /admin/sync-repos`. 44 tests. |
-| `sorrel-hub-web` | Active | `5cc7137` (main) | Framework-free browser frontend proxying `/api/*` to Hub; Projects, Administration, and read-only Sync views. 6 tests. |
-| `sorrel-web` | Done for now | `6786303` (main) | Public marketing/landing site (static, Nord theme). Not the Hub UI. |
+| `sorrel-hub` | Active | `f9028fc` (main) | Bootstrap local sync grants; Core protocol closure walk; Dockerize. 51 tests. |
+| `sorrel-hub-web` | Active | `bb71023` (main) | Deployable static+proxy (`HOST` 0.0.0.0); Dockerfile. Read-only UI. 6 tests. |
+| `sorrel-web` | Live | `422eed3` (main) | Cloudflare Pages; docs hub + STATUS/GETTING_STARTED guides viewer. |
 | `sorrel-agents` | Not started | scaffold | Agent control plane; starts once lanes/claims semantics settle. |
 | `sorrel-sdk-js` | Not started | scaffold | Starts after the embedding surface (roadmap) stabilizes. |
 | `sorrel-sdk-rust` | Not started | scaffold | Starts after core APIs settle. |
@@ -85,14 +71,14 @@ plan changes.
 
 | Agent | Target | Goal | Notes |
 | --- | --- | --- | --- |
-| None active | - | - | Task-pack wave (PROTO-1, CORE-1..4, CLI-1..3, HUB-1/2, WEB-1) merged 2026-07-17; pointers advanced. CI-1/CI-2 workflows were not found on any main — re-dispatch if wanted. |
+| Auto (this session) | `sorrel-core` + `sorrel-cli` | Roadmap #3 one-way `sorrel git import` | Phase A happy-path landed; implementing import next. |
 
 ## Known debt / follow-ups
 
 - No CI on any repo (the CI-1/CI-2 task-pack workflows never landed — re-dispatch).
 - Conflict resolution flow: `sorrel merge` leaves markers + `MERGE_STATE` and supports `--abort`, but there is no `resolve`/`--continue` yet.
 - Stored engine `Change` objects carry no timestamp; CLI `log` falls back to the snapshot's `createdAt`.
-- No Git bridge anywhere yet (roadmap #3).
+- Git bridge: one-way import in progress; export / colocated still ahead (roadmap #3).
 - Vendored conformance copies could later be replaced by a published shared package (npm/crate).
 - `sorrel-hub-web` is read-only; no write flows yet.
 - **Schema drift:** the engine's stored `Conflict` objects omit `repoId`/`ours`/`theirs`, which the protocol schema marks *required* (`MergeResult` similarly omits `repoId` and the three snapshot ids). Engine output would not validate against the protocol schema — align in a small follow-up (engine side or schema side, decide deliberately).
@@ -147,3 +133,4 @@ detail remains in this file's git history (see revisions before this date).
 | 2026-07-17 | **Roadmap item 1 shipped — Hub FS-backed sync store.** `sorrel-hub` `e926caf` (merge of `3f1a97e`): `src/fs-sync-store.js` drop-in for the in-memory `RepoSyncStore` — content-addressed fanout mirroring core's `FileObjectStore`, atomic temp+rename writes, digest-verified reads, percent-encoded repo/ref path segments; server persists to `SORREL_HUB_DATA_DIR` (default `./data/sync`), `SORREL_HUB_SYNC_STORE=memory` opts out; tests stay in-memory. New tests incl. an end-to-end push → restart → pull flow; `npm test` 32/32. Root `sorrel-hub` pointer advanced. |
 | 2026-07-17 | **Task-pack wave merged** (user dispatched + merged all task PRs). Protocol: Conflict/MergeResult schemas + examples + docs (PR #7 `082e86f`). Core: merge_base/merge_bases over the snapshot DAG (PR #9), dependency-free merge3 (PR #10), Conflict/MergeResult objects (PR #11), snapshot-level merge_snapshots (PR #12) → main `eed47d0`, 94 tests. CLI: per-lane heads + lane list/switch (PR #15), snapshot→change index for log (PR #14), `sorrel merge` ff/3-way/--abort (PR #16). Hub: FS metadata store (PR #6), GET /admin/sync-repos (PR #7) → `d8119b7`, 44 tests. Hub-web: read-only Sync view (PR #1) → `5cc7137`, 6 tests. |
 | 2026-07-17 | **Integration fix (orchestrator):** the CLI merge work (CLI-3) had been built against a reintroduced local `sorrel-core-stub` whose API drifted from the real engine. Ported `merge` to the real API (MergeOptions; MergeResult fields; conflict markers now regenerated from stored Conflict objects via merge3; log falls back to snapshot `createdAt` since engine Changes carry no timestamp), re-pinned `sorrel-core` to `eed47d0`, deleted the stub + `[patch]` table. `sorrel-cli` main `5340f75`; `cargo test --workspace` 74 pass, clippy + fmt clean. All root pointers advanced. CI-1/CI-2 workflows were NOT found on any main. |
+| 2026-07-21 | **Happy-path sync + docs/compose landed.** CLI PR #17 `ba83dfa` (grantRefs, refs array, worktree restore on pull). Hub PR #8 `f9028fc` (bootstrap grants, Core protocol closures, Docker). Hub-web PR #2 `bb71023` (deployable static+proxy). Web PR #2 `422eed3` (STATUS/GETTING_STARTED guides + landing refresh; Cloudflare Pages). Root: `docs/`, `docker-compose.yml`, README rewrite, pointers advanced. Next: roadmap #3 one-way Git import. |
