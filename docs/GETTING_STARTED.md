@@ -128,7 +128,15 @@ $SORREL pull origin   # downloads objects and restores the working tree
 
 ## Validate modules
 
-Rust (`sorrel-core`, `sorrel-cli`, `sorrel-runners`):
+From the repo root, run the full-stack E2E (real Hub + CLI + vault + slices +
+hub-web + SDKs + agents — **no mocks**):
+
+```sh
+npm test              # tests/e2e/happy-path.mjs
+npm run test:modules  # each submodule's own suite
+```
+
+Rust (`sorrel-core`, `sorrel-cli`, `sorrel-runners`, `sorrel-sdk-rust`):
 
 ```sh
 cargo test
@@ -136,7 +144,8 @@ cargo clippy --all-targets
 cargo fmt --all -- --check
 ```
 
-Node (`sorrel-protocol`, `sorrel-hub`, `sorrel-hub-web`, `sorrel-vault`, `sorrel-slices`):
+Node (`sorrel-protocol`, `sorrel-hub`, `sorrel-hub-web`, `sorrel-vault`,
+`sorrel-slices`, `sorrel-sdk-js`, `sorrel-agents`):
 
 ```sh
 npm test
@@ -153,5 +162,4 @@ npm run validate   # where defined (protocol, vault)
 
 - [STATUS.md](STATUS.md) — working vs missing
 - [ROADMAP.md](../ROADMAP.md) — sequenced plan
-- [SORREL_PROGRESS.md](../SORREL_PROGRESS.md) — live orchestration dashboard
 - [AGENT_NATIVE_VERSION_CONTROL_REPORT.md](../AGENT_NATIVE_VERSION_CONTROL_REPORT.md) — architecture

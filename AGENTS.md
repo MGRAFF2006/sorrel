@@ -2,7 +2,8 @@
 
 Sorrel is an agent-native version-control system split across submodules.
 
-The root repository coordinates architecture and submodule pointers. Most implementation work lives in submodules:
+The root repository coordinates architecture and submodule pointers. Most
+implementation work lives in submodules:
 
 - sorrel-protocol: schemas, examples, and the policy-conformance manifest
 - sorrel-core: Rust engine — object store, snapshots, changes, lanes, policy spine
@@ -13,40 +14,37 @@ The root repository coordinates architecture and submodule pointers. Most implem
 - sorrel-hub: collaboration **API server** (JSON over HTTP; no UI)
 - sorrel-hub-web: Hub **web interface** (browser frontend for the Hub API)
 - sorrel-web: public marketing/landing site (static)
-- sorrel-agents, sorrel-sdk-js, sorrel-sdk-rust: planned (not started)
+- sorrel-agents: minimal agent control plane (register / claim / active work)
+- sorrel-sdk-js: Hub HTTP client
+- sorrel-sdk-rust: thin Rust SDK over `sorrel-core`
 
 Hub is split: `sorrel-hub` is the API server, `sorrel-hub-web` is its web
 interface, and `sorrel-web` is the unrelated public landing page.
 
-Key root documents: `ROADMAP.md` (forward plan), `SORREL_PROGRESS.md` (live
-status; check its "Active agents" table before starting submodule work), and
-`AGENT_NATIVE_VERSION_CONTROL_REPORT.md` (architecture).
+Key docs: [`docs/STATUS.md`](docs/STATUS.md), [`ROADMAP.md`](ROADMAP.md),
+[`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md).
 
 ## Rust toolchain
 
-Rust modules require stable Rust 1.85+ with clippy and rustfmt because they use edition2024 / modern Cargo metadata. If the base image has an older Rust version, run:
+Rust modules require stable Rust 1.85+ with clippy and rustfmt. If needed:
 
+```sh
 rustup toolchain install stable --profile minimal -c clippy -c rustfmt
 rustup default stable
 cargo fetch
+```
 
 ## Common checks
 
-From Rust repos/workspaces:
+Root E2E (no mocks, all active modules): `npm test`
 
-cargo build
-cargo test
-cargo clippy --all-targets
-cargo fmt --all -- --check
+All submodule suites: `npm run test:modules`
 
-Node/npm modules may use:
+Rust: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --all -- --check`
 
-npm test
-npm run lint
-npm run validate
+Node: `npm test` (+ `npm run validate` where defined)
 
 ## Submodules
 
-Some submodules may be private. If `git submodule update --init --recursive` fails with "Repository not found", ensure the agent has access to the private Sorrel repos.
-
-After making changes inside a submodule, update the parent repository's submodule pointer and commit that pointer change in the root repository.
+Some submodules may be private. After changes inside a submodule, merge to that
+repo’s `main`, then advance and commit the pointer in this root repository.

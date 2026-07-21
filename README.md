@@ -13,7 +13,6 @@ product on top.
 | [`docs/STATUS.md`](docs/STATUS.md) | **What works / what is missing** |
 | [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | **How to clone and run everything** |
 | [`ROADMAP.md`](ROADMAP.md) | Sequenced forward plan |
-| [`SORREL_PROGRESS.md`](SORREL_PROGRESS.md) | Live orchestration dashboard |
 | [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md) | Full architecture |
 
 The same status and getting-started docs are published on the landing site
@@ -77,9 +76,9 @@ implementation lives in submodules:
 | `sorrel-hub` | Collaboration **API server** | Active |
 | `sorrel-hub-web` | Hub **web UI** (read-only) | Active |
 | `sorrel-web` | Public landing (Cloudflare) | Live |
-| `sorrel-agents` | Agent control plane | Planned |
-| `sorrel-sdk-js` | TypeScript/JavaScript SDK | Planned |
-| `sorrel-sdk-rust` | Rust SDK | Planned |
+| `sorrel-agents` | Agent control plane (minimal) | Active |
+| `sorrel-sdk-js` | Hub HTTP client SDK | Active |
+| `sorrel-sdk-rust` | Rust SDK over `sorrel-core` | Active |
 
 Hub is split three ways: `sorrel-hub` (API), `sorrel-hub-web` (product UI),
 `sorrel-web` (marketing landing — **not** the Hub UI).
@@ -97,6 +96,10 @@ rustup default stable
 ## Common checks
 
 ```sh
+# Full-stack E2E (no mocks) — from repo root
+npm test
+npm run test:modules
+
 # Rust modules
 cargo test && cargo clippy --all-targets && cargo fmt --all -- --check
 
