@@ -1,0 +1,49 @@
+# Local / demo deploy of Sorrel web surfaces.
+#
+#   docker compose up --build
+#
+# Services:
+#   hub      — collaboration API       http://localhost:3000
+#   hub-web  — Hub UI (proxies /api)   http://localhost:5180
+#   web      — landing preview only    http://localhost:4173
+#
+# Production landing is Cloudflare Pages (sorrel-web). The `web` service here
+# is an optional local mirror and does not replace that deploy.
+
+services:
+  hub:
+    build: ./sorrel-hub
+    ports:
+      - "3000:3000"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      SORREL_HUB_DATA_DIR: /app/data/sync
+      SORREL_HUB_METADATA_DIR: /app/data/metadata
+    volumes:
+      - hub-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  hub-web:
+    build: ./sorrel-hub-web
+    ports:
+      - "5180:5180"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "5180"
+      HUB_API_URL: http://hub:3000
+    depends_on:
+      hub:
+        condition: service_healthy
+
+  web:
+    build: ./sorrel-web
+    ports:
+      - "4173:80"
+
+volumes:
+  hub-data:
