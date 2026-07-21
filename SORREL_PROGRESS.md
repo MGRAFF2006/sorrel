@@ -1,6 +1,6 @@
 # Sorrel Progress Dashboard
 
-Last updated: 2026-07-21 UTC (happy-path sync/docs/compose landed on submodule mains; Git import next)
+Last updated: 2026-07-21 UTC (roadmap #3 one-way Git import shipped in core+cli; happy-path sync/docs/compose on mains)
 
 This is the single live status document for Sorrel orchestration. The forward
 plan lives in [`ROADMAP.md`](ROADMAP.md); ready-to-dispatch agent work orders
@@ -33,15 +33,15 @@ plan changes.
 
 - **Engine (`sorrel-core`)**: real and tested — content-addressed
   `FileObjectStore`, snapshots, changes, path-level diff, lanes/stacks, policy
-  and authority spine, sync transport closure helpers, stat-cache, and the
-  **merge/conflict model** (`merge_base`, `merge3`, Conflict/MergeResult,
-  `merge_snapshots`). 94 tests, fmt/clippy clean. **Git import (roadmap #3)
-  is the next engine/CLI item.**
+  and authority spine, sync transport closure helpers, stat-cache, the
+  **merge/conflict model**, and **one-way `git_import`** (libgit2 → snapshots/
+  changes + Git SHA map). 97 tests, fmt/clippy clean.
 - **CLI (`sorrel-cli`)**: persistent local VCS over the real engine. Commands
-  include init/status/change/diff/log/lane/merge(--abort)/grant/slice/workflow/
-  remote/push/pull. Pull restores the working tree; Hub sync sends bootstrap
-  `grantRefs` and parses refs as a protocol array. Pins `sorrel-core` by git
-  rev (`eed47d0`); no stub. See `sorrel-cli/DEMO.md` and `sorrel-cli/SYNC.md`.
+  include init/status/change/diff/log/lane/merge(--abort)/**git import**/grant/
+  slice/workflow/remote/push/pull. Pull restores the working tree; Hub sync
+  sends bootstrap `grantRefs` and parses refs as a protocol array. Pins
+  `sorrel-core` by git rev (`6b5b611`); no stub. See `sorrel-cli/DEMO.md`,
+  `SYNC.md`, `GIT.md`.
 - **Sync**: CLI ↔ Hub happy path works with Hub bootstrap grants for
   `user:local`, Core/protocol closure shapes, and FS-backed Hub storage.
 - **Hub split**: `sorrel-hub` API (Dockerized), `sorrel-hub-web` deployable
@@ -55,14 +55,14 @@ plan changes.
 | Module | Status | Root pointer | Notes |
 | --- | --- | --- | --- |
 | `sorrel-protocol` | Active | `082e86f` (main) | Schemas incl. Workspace + Conflict/MergeResult, sync-transport spec, policy conformance manifest + sidecar. `npm test` 8/8, `npm run validate` ok. |
-| `sorrel-core` | Active | `eed47d0` (main) | Full engine incl. transport, stat-cache, merge/conflict model. 94 tests. Git import next. |
-| `sorrel-cli` | Active | `ba83dfa` (main) | Happy-path Hub sync: grantRefs, refs array, worktree restore on pull. Pins core `eed47d0`. 74 workspace tests. |
+| `sorrel-core` | Active | `6b5b611` (main) | Full engine + `git_import` (PR #13). 97 tests, clippy + fmt clean. |
+| `sorrel-cli` | Active | `226ddce` (main) | `sorrel git import` + Hub sync happy path; pins core `6b5b611`. Workspace tests green. |
 | `sorrel-vault` | Active | `b710fff` (main) | Secrets spec, local backend, dev CLI (import/list/grant/redact); Core-grant gated; 13 tests. |
 | `sorrel-runners` | Active | `e8effa2` (main) | Local/container runner model + `sorrel.workflow.yml` parser; Core policy gate + redaction. |
 | `sorrel-slices` | Active | `bd820c9` (main) | TS/JS slice manifest generator prototype. |
 | `sorrel-hub` | Active | `f9028fc` (main) | Bootstrap local sync grants; Core protocol closure walk; Dockerize. 51 tests. |
 | `sorrel-hub-web` | Active | `bb71023` (main) | Deployable static+proxy (`HOST` 0.0.0.0); Dockerfile. Read-only UI. 6 tests. |
-| `sorrel-web` | Live | `422eed3` (main) | Cloudflare Pages; docs hub + STATUS/GETTING_STARTED guides viewer. |
+| `sorrel-web` | Live | `9c1feba` (main) | Cloudflare Pages; STATUS/GETTING_STARTED document Git import. |
 | `sorrel-agents` | Not started | scaffold | Agent control plane; starts once lanes/claims semantics settle. |
 | `sorrel-sdk-js` | Not started | scaffold | Starts after the embedding surface (roadmap) stabilizes. |
 | `sorrel-sdk-rust` | Not started | scaffold | Starts after core APIs settle. |
@@ -71,14 +71,14 @@ plan changes.
 
 | Agent | Target | Goal | Notes |
 | --- | --- | --- | --- |
-| Auto (this session) | `sorrel-core` + `sorrel-cli` | Roadmap #3 one-way `sorrel git import` | Phase A happy-path landed; implementing import next. |
+| None active | - | - | Phase A happy-path + Phase B one-way Git import merged 2026-07-21. |
 
 ## Known debt / follow-ups
 
 - No CI on any repo (the CI-1/CI-2 task-pack workflows never landed — re-dispatch).
 - Conflict resolution flow: `sorrel merge` leaves markers + `MERGE_STATE` and supports `--abort`, but there is no `resolve`/`--continue` yet.
 - Stored engine `Change` objects carry no timestamp; CLI `log` falls back to the snapshot's `createdAt`.
-- Git bridge: one-way import in progress; export / colocated still ahead (roadmap #3).
+- Git bridge: **one-way import shipped**; export / colocated still ahead (roadmap #3).
 - Vendored conformance copies could later be replaced by a published shared package (npm/crate).
 - `sorrel-hub-web` is read-only; no write flows yet.
 - **Schema drift:** the engine's stored `Conflict` objects omit `repoId`/`ours`/`theirs`, which the protocol schema marks *required* (`MergeResult` similarly omits `repoId` and the three snapshot ids). Engine output would not validate against the protocol schema — align in a small follow-up (engine side or schema side, decide deliberately).
@@ -133,4 +133,5 @@ detail remains in this file's git history (see revisions before this date).
 | 2026-07-17 | **Roadmap item 1 shipped — Hub FS-backed sync store.** `sorrel-hub` `e926caf` (merge of `3f1a97e`): `src/fs-sync-store.js` drop-in for the in-memory `RepoSyncStore` — content-addressed fanout mirroring core's `FileObjectStore`, atomic temp+rename writes, digest-verified reads, percent-encoded repo/ref path segments; server persists to `SORREL_HUB_DATA_DIR` (default `./data/sync`), `SORREL_HUB_SYNC_STORE=memory` opts out; tests stay in-memory. New tests incl. an end-to-end push → restart → pull flow; `npm test` 32/32. Root `sorrel-hub` pointer advanced. |
 | 2026-07-17 | **Task-pack wave merged** (user dispatched + merged all task PRs). Protocol: Conflict/MergeResult schemas + examples + docs (PR #7 `082e86f`). Core: merge_base/merge_bases over the snapshot DAG (PR #9), dependency-free merge3 (PR #10), Conflict/MergeResult objects (PR #11), snapshot-level merge_snapshots (PR #12) → main `eed47d0`, 94 tests. CLI: per-lane heads + lane list/switch (PR #15), snapshot→change index for log (PR #14), `sorrel merge` ff/3-way/--abort (PR #16). Hub: FS metadata store (PR #6), GET /admin/sync-repos (PR #7) → `d8119b7`, 44 tests. Hub-web: read-only Sync view (PR #1) → `5cc7137`, 6 tests. |
 | 2026-07-17 | **Integration fix (orchestrator):** the CLI merge work (CLI-3) had been built against a reintroduced local `sorrel-core-stub` whose API drifted from the real engine. Ported `merge` to the real API (MergeOptions; MergeResult fields; conflict markers now regenerated from stored Conflict objects via merge3; log falls back to snapshot `createdAt` since engine Changes carry no timestamp), re-pinned `sorrel-core` to `eed47d0`, deleted the stub + `[patch]` table. `sorrel-cli` main `5340f75`; `cargo test --workspace` 74 pass, clippy + fmt clean. All root pointers advanced. CI-1/CI-2 workflows were NOT found on any main. |
-| 2026-07-21 | **Happy-path sync + docs/compose landed.** CLI PR #17 `ba83dfa` (grantRefs, refs array, worktree restore on pull). Hub PR #8 `f9028fc` (bootstrap grants, Core protocol closures, Docker). Hub-web PR #2 `bb71023` (deployable static+proxy). Web PR #2 `422eed3` (STATUS/GETTING_STARTED guides + landing refresh; Cloudflare Pages). Root: `docs/`, `docker-compose.yml`, README rewrite, pointers advanced. Next: roadmap #3 one-way Git import. |
+| 2026-07-21 | **Happy-path sync + docs/compose landed.** CLI PR #17 `ba83dfa` (grantRefs, refs array, worktree restore on pull). Hub PR #8 `f9028fc` (bootstrap grants, Core protocol closures, Docker). Hub-web PR #2 `bb71023` (deployable static+proxy). Web PR #2 `422eed3` (STATUS/GETTING_STARTED guides + landing refresh; Cloudflare Pages). Root: `docs/`, `docker-compose.yml`, README rewrite, pointers advanced. |
+| 2026-07-21 | **Roadmap item 3 started — one-way Git import.** Core PR #13 `6b5b611` (`git_import` via libgit2). CLI PR #18 `226ddce` (`sorrel git import`, pin core, `GIT.md`, exclude `.git` from worktree snapshots). Export/colocated still ahead. |

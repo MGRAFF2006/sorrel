@@ -56,7 +56,23 @@ $SORREL merge <feature-lane-id>
 ```
 
 Longer walkthrough: [`sorrel-cli/DEMO.md`](../sorrel-cli/DEMO.md).  
-Sync (push/pull) against Hub: [`sorrel-cli/SYNC.md`](../sorrel-cli/SYNC.md).
+Sync (push/pull) against Hub: [`sorrel-cli/SYNC.md`](../sorrel-cli/SYNC.md).  
+Git import: [`sorrel-cli/GIT.md`](../sorrel-cli/GIT.md).
+
+## Import an existing Git repo
+
+```sh
+cd /path/to/git-checkout
+# from a built CLI:
+/path/to/sorrel-cli/target/debug/sorrel git import
+# optional: --ref main --limit 20 --json
+sorrel log
+sorrel status
+```
+
+Creates `.sorrel/` if needed, imports commits reachable from `HEAD` as Sorrel
+snapshots/changes, writes `.sorrel/git-map.json`, and restores the working tree
+to the tip. Export / colocated sync are not implemented yet.
 
 ## Hub API + Hub UI
 
