@@ -24,13 +24,14 @@ The same status and getting-started docs are published on the landing site
 **Working today**
 
 - Real engine + persistent CLI: init, status, change, diff, log, lanes, merge, push/pull
+- **One-way Git import** (`sorrel git import`) — Git commits → Sorrel snapshots/changes
 - Policy/conformance spine across protocol, core, CLI, hub, runners, vault
 - Hub API with FS-backed sync + metadata; Hub UI (read-only) + Docker Compose deploy
 - Vault, runners, slices prototypes; public landing site live on Cloudflare
 
 **Still missing**
 
-- Git bridge (import/export)
+- Git export / colocated mirror
 - Merge `resolve` / `--continue`
 - Hub write UI and production auth
 - Agents control plane, JS/Rust SDKs, embedding surface
