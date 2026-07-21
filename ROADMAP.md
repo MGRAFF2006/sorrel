@@ -45,12 +45,12 @@ objects, `merge::merge_snapshots` (path-level three-way merge), and CLI
 and aligning stored Conflict/MergeResult fields with the protocol schema's
 required `repoId`/`ours`/`theirs` (see SORREL_PROGRESS known debt).
 
-### 3. Git bridge (`sorrel-core` + `sorrel-cli`)
+### 3. Git bridge (`sorrel-core` + `sorrel-cli`) — PARTIAL (import DONE 2026-07-21)
 
 The adoption path: `sorrel git import` (Git repo → snapshots/changes),
 `sorrel git export`, and a colocated mode with SHA mapping tables so teams can
-try Sorrel without leaving Git. Start with one-way import; export and
-colocated mirror after. Needs: merge model helps but import can start first.
+try Sorrel without leaving Git. **One-way import shipped** (`sorrel-core`
+`6b5b611`, `sorrel-cli` `226ddce`). Export and colocated mirror next.
 
 ### 4. Lanes as real workflows (`sorrel-cli` + `sorrel-core`) — MOSTLY DONE (2026-07-17)
 
