@@ -1,6 +1,6 @@
 # Sorrel status
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 What works today, what does not, and where to look next. For how to run the
 stack, see [GETTING_STARTED.md](GETTING_STARTED.md). The forward plan is
@@ -19,7 +19,7 @@ ahead: colocated Git mirror, production auth, richer agents/SDKs, and apps.
 | Area | What you can do |
 | --- | --- |
 | **Protocol** | Canonical object schemas, examples, sync-transport spec, policy conformance manifest + checksum drift guards. |
-| **Engine (`sorrel-core`)** | Content-addressed object store, snapshots, changes, path/line-level diff helpers, lanes/stacks, policy/authority spine, sync closure helpers, stat-cache, three-way merge + conflict objects, **`git_import` / `git_export`**. |
+| **Engine (`sorrel-core`)** | Content-addressed object store, snapshots, changes, path/line-level diff helpers, lanes/stacks, policy/authority spine, sync closure helpers, stat-cache, three-way merge + protocol-aligned conflict/merge-result objects, **`git_import` / `git_export`**. |
 | **CLI (`sorrel-cli`)** | Persistent `.sorrel/` workspace: `init`, `status`, `change create`/`list`, `diff`, `log`, `lane create`/`list`/`switch`/`submit`, `stack create`/`list`/`show`, `merge` / `merge --abort` / **`merge --continue`**, **`git import` / `git export`**, `grant`, `slice create`, `workflow validate`/`run`, `remote add`/`list`, `push`, `pull`. |
 | **Git bridge** | `sorrel git import` and `sorrel git export`; `.sorrel/git-map.json` links SHAs ↔ snapshots. See `sorrel-cli/GIT.md`. |
 | **Sync** | CLI ↔ Hub over HTTP sync transport; Hub FS-backed object/ref store; local bootstrap grants so `user:local` can push/pull out of the box. |
@@ -39,7 +39,6 @@ ahead: colocated Git mirror, production auth, richer agents/SDKs, and apps.
 | **Production auth** | Hub skeleton has no real login, SSO, or signed client identity beyond acting-principal headers + trusted grants. |
 | **Agents control plane** | Minimal register/claim/active-work surface shipped; no instruction overlays yet. |
 | **SDKs** | Minimal Hub JS client + Rust `Workspace` wrapper shipped; embedding surface (C ABI / N-API / WASM / daemon) not shipped. |
-| **Schema alignment** | Engine-stored `Conflict` / `MergeResult` fields still drift from some protocol-required properties. |
 | **Apps** | No desktop/mobile clients (intentionally after embedding surface). |
 
 ## Module map

@@ -1,6 +1,6 @@
 # Sorrel Roadmap
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 Forward plan for the multi-repo Sorrel project. Live status:
 [`docs/STATUS.md`](docs/STATUS.md). Architecture:
@@ -15,9 +15,9 @@ FS-backed sync store and product metadata; default-on for the server.
 ### 2. Merge/conflict model (`sorrel-core`, then `sorrel-cli`) — DONE
 
 `merge_base` / `merge3` / Conflict / MergeResult / `merge_snapshots`, plus CLI
-`sorrel merge` (fast-forward + three-way, markers, `--abort`). Still missing:
-`resolve` / `--continue`, and aligning stored Conflict fields with the protocol
-schema.
+`sorrel merge` (fast-forward + three-way, markers, `--abort`, `--continue`).
+Stored Conflict / MergeResult objects now match the protocol schema (repoId,
+base/ours/theirs refs, resolution slot, bare-hex merge-result ids).
 
 ### 3. Git bridge (`sorrel-core` + `sorrel-cli`) — PARTIAL
 
