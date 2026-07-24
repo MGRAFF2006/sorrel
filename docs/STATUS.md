@@ -60,6 +60,6 @@ ahead: colocated Git mirror, production auth, richer agents/SDKs, and apps.
 
 ## Next up (from roadmap)
 
-1. Git export + colocated mirror (import shipped).
-2. Hub collaboration write path (proposals/reviews + hub-web mutations).
+1. Colocated Git mirror (import + export shipped).
+2. Production auth + richer review UX for the Hub.
 3. Stable embedding surface, then agents + SDKs.
