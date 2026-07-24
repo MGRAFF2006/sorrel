@@ -1,6 +1,6 @@
 # Sorrel status
 
-Last updated: 2026-07-22
+Last updated: 2026-07-24
 
 What works today, what does not, and where to look next. For how to run the
 stack, see [GETTING_STARTED.md](GETTING_STARTED.md). The forward plan is
@@ -29,7 +29,7 @@ ahead: colocated Git mirror, production auth, richer agents/SDKs, and apps.
 | **Hub API** | JSON HTTP server: health, projects, admin collections with GET/PATCH, proposals/reviews lifecycle, lane-submit collaboration endpoint, sync endpoints, FS persistence. |
 | **Hub UI** | Framework-free Nord companion: Projects, Reviews (proposal detail + comment thread + workflow status), Sync; proxies `/api/*` to Hub. |
 | **Landing (`sorrel-web`)** | Static marketing site (Nord theme). Production deploy is Cloudflare Pages; local Docker is optional preview only. |
-| **Root E2E / CI** | `npm test` E2E; `.github/workflows/ci.yml` on root, hub, and hub-web. |
+| **Root E2E / CI** | `npm test` E2E; `.github/workflows/ci.yml` on root, hub, and hub-web. Root CI needs the `SUBMODULES_TOKEN` Actions secret (PAT with read access to the private submodules) for submodule checkout. |
 
 ## Missing / not ready
 
