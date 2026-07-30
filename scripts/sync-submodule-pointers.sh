@@ -31,7 +31,8 @@ drift=0
 while IFS= read -r path; do
   [[ -z "$path" ]] && continue
 
-  if ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
+  module_root="$(git -C "$path" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ "$module_root" != "$ROOT_DIR/$path" ]]; then
     if [[ "$no_fetch" -eq 1 ]]; then
       echo "error  $path: submodule is not initialized" >&2
       drift=1
