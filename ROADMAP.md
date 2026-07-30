@@ -1,6 +1,6 @@
 # Sorrel Roadmap
 
-Last updated: 2026-07-24
+Last updated: 2026-07-30
 
 Forward plan for the multi-repo Sorrel project. Live status:
 [`docs/STATUS.md`](docs/STATUS.md). Architecture:
@@ -19,10 +19,12 @@ FS-backed sync store and product metadata; default-on for the server.
 Stored Conflict / MergeResult objects now match the protocol schema (repoId,
 base/ours/theirs refs, resolution slot, bare-hex merge-result ids).
 
-### 3. Git bridge (`sorrel-core` + `sorrel-cli`) — PARTIAL
+### 3. Git bridge (`sorrel-core` + `sorrel-cli`) — DONE
 
-**`sorrel git import` and `sorrel git export` shipped** (`.sorrel/git-map.json`
-SHA mapping). Colocated mirror is next.
+**`sorrel git import`, `sorrel git export`, and colocated `sorrel git sync`
+shipped** (`.sorrel/git-map.json` SHA mapping). Sync incrementally fast-forwards
+whichever side moved; true divergence is imported onto a `git/<branch>` lane
+for the normal Sorrel merge flow, then exported on the next sync.
 
 ### 4. Lanes as real workflows (`sorrel-cli` + `sorrel-core`) — MOSTLY DONE
 
