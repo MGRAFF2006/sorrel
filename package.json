@@ -1,0 +1,15 @@
+{
+  "name": "sorrel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sorrel monorepo coordinator — run the full-stack E2E happy path.",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/e2e/happy-path.mjs",
+    "test:e2e": "node tests/e2e/happy-path.mjs",
+    "test:modules": "node tests/e2e/run-module-tests.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

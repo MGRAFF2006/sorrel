@@ -1,78 +1,77 @@
 #!/usr/bin/env bash
 #
-# Sync first-party submodule checkouts to origin/main and optionally stage root
-# gitlink updates. Sorrel treats sorrel-* submodules as monorepo members tracked
-# on branch main (see .gitmodules), not as frozen foreign dependency pins.
+# Compare root gitlinks with each submodule's origin/main, or stage updates.
+# Active submodule branches and working trees are never changed.
 #
 # Usage:
-#   scripts/sync-submodule-pointers.sh              # --remote + stage drift
-#   scripts/sync-submodule-pointers.sh --check      # report drift only
-#   scripts/sync-submodule-pointers.sh --no-fetch   # compare local HEAD to root gitlink
-#
-# Git note: the root tree always records a commit SHA per submodule. With
-# branch = main in .gitmodules, this script follows branch tips; you commit the
-# updated SHAs when you want root main to record a snapshot.
+#   scripts/sync-submodule-pointers.sh
+#   scripts/sync-submodule-pointers.sh --check
+#   scripts/sync-submodule-pointers.sh --no-fetch [--check]
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-CHECK_ONLY=0
-NO_FETCH=0
+check_only=0
+no_fetch=0
 for arg in "$@"; do
   case "$arg" in
-    --check) CHECK_ONLY=1 ;;
-    --no-fetch) NO_FETCH=1 ;;
-    *) echo "unknown arg: $arg" >&2; exit 2 ;;
+    --check) check_only=1 ;;
+    --no-fetch) no_fetch=1 ;;
+    *)
+      echo "unknown argument: $arg" >&2
+      exit 2
+      ;;
   esac
 done
 
-if [[ "$NO_FETCH" -eq 0 && "$CHECK_ONLY" -eq 0 ]]; then
-  git submodule sync --recursive
-  git submodule update --init --recursive
-  git submodule update --remote --recursive
-elif [[ "$NO_FETCH" -eq 0 && "$CHECK_ONLY" -eq 1 ]]; then
-  git submodule foreach 'git fetch origin main 2>/dev/null || git fetch origin 2>/dev/null || true'
-fi
-
 drift=0
 
-while IFS= read -r name; do
-  [[ -z "$name" ]] && continue
-  if [[ ! -d "$name" ]]; then
-    echo "skip $name (missing)"
+while IFS= read -r path; do
+  [[ -z "$path" ]] && continue
+
+  if ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
+    if [[ "$no_fetch" -eq 1 ]]; then
+      echo "error  $path: submodule is not initialized" >&2
+      drift=1
+      continue
+    fi
+    git submodule update --init --recursive -- "$path"
+  fi
+
+  if [[ "$no_fetch" -eq 0 ]]; then
+    git -C "$path" fetch --quiet origin \
+      "main:refs/remotes/origin/main"
+  fi
+
+  if ! target_sha="$(git -C "$path" rev-parse refs/remotes/origin/main 2>/dev/null)"; then
+    echo "error  $path: origin/main is unavailable" >&2
+    drift=1
     continue
   fi
 
-  local_sha="$(git -C "$name" rev-parse HEAD)"
-  root_sha="$(git ls-tree HEAD "$name" 2>/dev/null | awk '{print $3}')"
-
-  if [[ -z "$root_sha" ]]; then
-    echo "drift $name: not recorded in root"
-    drift=1
-    [[ "$CHECK_ONLY" -eq 0 ]] && GIT_FS_MONITOR_ENABLED=false git update-index --cacheinfo "160000,$local_sha,$name"
+  root_sha="$(git ls-tree HEAD -- "$path" | awk '{print $3}')"
+  if [[ "$root_sha" == "$target_sha" ]]; then
+    echo "ok     $path @ ${target_sha:0:7}"
     continue
   fi
 
-  if [[ "$local_sha" != "$root_sha" ]]; then
-    echo "drift $name: root=${root_sha:0:7} local=${local_sha:0:7}"
-    drift=1
-    [[ "$CHECK_ONLY" -eq 0 ]] && GIT_FS_MONITOR_ENABLED=false git update-index --cacheinfo "160000,$local_sha,$name"
-  else
-    echo "ok     $name @ ${local_sha:0:7}"
+  echo "drift  $path: root=${root_sha:0:7} main=${target_sha:0:7}"
+  drift=1
+  if [[ "$check_only" -eq 0 ]]; then
+    git update-index --cacheinfo "160000,$target_sha,$path"
   fi
-done < <(git config --file .gitmodules --get-regexp path | awk '{ print $2 }')
+done < <(git config --file .gitmodules --get-regexp path | awk '{print $2}')
 
-if [[ "$CHECK_ONLY" -eq 1 ]]; then
+if [[ "$check_only" -eq 1 ]]; then
   exit "$drift"
 fi
 
 if [[ "$drift" -eq 1 ]]; then
-  echo ""
-  echo "Staged gitlink updates (branch-tracked snapshot). Review: git diff --cached"
+  echo
+  echo "Staged gitlink updates. Review with:"
+  echo "  git diff --cached --submodule=short"
 else
-  echo "Root gitlinks match submodule HEAD."
+  echo "Root gitlinks already match all origin/main branches."
 fi
-
-exit 0

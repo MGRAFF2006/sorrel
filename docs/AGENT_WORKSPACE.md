@@ -1,170 +1,88 @@
-# Agent workspace model (unified checkout)
+# Agent workspace model
 
-Sorrel uses **git submodules** for publishing (each component has its own repo and
-`main` branch), but agents should treat the **root checkout as one workspace**.
+Sorrel is coordinated from one root checkout, but implementation lives in
+independent `sorrel-*` Git repositories mounted as submodules.
 
-**Canonical protocol spec:** [`sorrel-protocol/docs/workspace-links.md`](../sorrel-protocol/docs/workspace-links.md)
-defines `Workspace.componentLinks` — **`member`** (branch-tracked) vs
-**`dependency`** (revision/tag-pinned). This file maps that model to git/Cargo
-workflows in the umbrella repo.
+## Two layers
 
-You do **not** need a separate agent session per submodule. Edit any file under
-`sorrel-protocol/`, `sorrel-core/`, `sorrel-cli/`, etc. from the parent tree.
-Paths are normal files on disk.
-
-## What “one workspace” means
-
-| Layer | Role |
+| Layer | Responsibility |
 | --- | --- |
-| **Root `sorrel/`** | Orchestration: architecture docs, progress dashboard, `scripts/`, submodule **pointers** |
-| **`sorrel-*` directories** | Real implementation (each is a nested git repo) |
+| Root `sorrel/` | Architecture/status docs, full-stack tests, submodule pointers |
+| `sorrel-*` submodules | Implementation, module tests, module branches and releases |
 
-**Publishing** is still per submodule (separate remotes). **Editing** is from the
-root tree.
+Agents can edit any submodule from the root filesystem workspace; separate
+clones are unnecessary. Git operations still belong to the owning repository:
 
-## Monorepo members vs foreign dependencies
-
-Sorrel uses two linking models. They are **not** the same thing.
-
-| Kind | Protocol `role` | Examples | Git / Cargo analogue | Update model |
-| --- | --- | --- | --- | --- |
-| **Monorepo member** | **`member`** | `sorrel-core`, `sorrel-cli`, … | Submodule **`branch = main`**; Cargo **`path`** / `[patch]` | `tracking.mode: branch` — see protocol spec |
-| **Foreign dependency** | **`dependency`** | Published CLI engine pin | Cargo **`git` + `rev`**; fixed submodule commit | `tracking.mode: revision` or `tag` |
-
-You are right: first-party modules should behave like parts of one product (follow a
-branch). External consumers need frozen versions (pin a commit).
-
-### Git caveat (honest)
-
-The root repo **always stores a commit SHA** per submodule in its tree — git has no
-“branch pointer” slot in the parent. The counterpart to “pin to branch not commit”
-is:
-
-1. **`branch = main` in `.gitmodules`** — tells git which branch tip to use with
-   `--remote`.
-2. **`git submodule update --remote`** — moves checkouts to `origin/main`.
-3. **Commit in root** — records that snapshot when you choose to (CI/release), not
-   after every edit.
-
-Day to day, submodule dirs stay on **`main`**; root pointer updates are periodic,
-not per agent task. The Sorrel protocol expresses the same distinction as
-[`componentLinks`](../sorrel-protocol/docs/workspace-links.md) on a `Workspace`
-(`role: member` → branch tracking, `role: dependency` → revision pin).
-
-A **true** single-repo monorepo (no submodules) would drop gitlinks entirely;
-that is a larger migration. Until then, branch-tracked submodules are the git-native
-version of “monorepo member.”
-
-### Foreign-style pins (when to use)
-
-- Publishing `sorrel-cli` for users who only clone `sorrel-cli` → `sorrel-core` git
-  **`rev`** in `Cargo.toml`.
-- Root **`main`** when you want a reproducible umbrella snapshot (release, CI on root).
-- **Not** for agents editing across `sorrel-core` + `sorrel-cli` in this checkout.
-
-### Workspace setup (monorepo member mode)
-
-```bash
-git submodule update --init --recursive
-git submodule update --remote --recursive   # follow branch = main from .gitmodules
-
-# CLI builds against sibling core (path dep), not a fetched git rev:
-# sorrel-cli/Cargo.toml (workspace only):
-#   [patch."https://github.com/MGRAFF2006/sorrel-core"]
-#   sorrel-core = { path = "../sorrel-core" }
+```sh
+git -C sorrel-cli status
+git -C sorrel-core status
+git status                 # root pointer/docs state
 ```
 
-Or use the helper:
+## Change workflow
 
-```bash
-./scripts/sync-submodule-pointers.sh          # --remote + stage gitlink drift
-./scripts/sync-submodule-pointers.sh --check  # verify only
+1. Create a feature branch in each affected submodule.
+2. Implement and run that module's checks.
+3. Commit, push, review, and merge the submodule branch into its `main`.
+4. Advance the corresponding root gitlink(s).
+5. Run `npm run test:modules` and `npm test` from the root.
+6. Commit the root pointer and documentation updates.
+
+Cross-repository changes must respect dependency order. For example, merge
+`sorrel-core` first, then update the exact `sorrel-core` revision in
+`sorrel-cli`, merge the CLI, and finally advance both root pointers.
+
+## Gitlink and branch behavior
+
+Git always stores an exact commit SHA for each submodule in the root tree.
+`branch = main` in `.gitmodules` declares the upstream branch used when looking
+for pointer updates; it does not make the root gitlink float automatically.
+
+Use the helper after submodule work is merged:
+
+```sh
+./scripts/sync-submodule-pointers.sh --check  # report root vs origin/main drift
+./scripts/sync-submodule-pointers.sh          # fetch and stage updated gitlinks
+git diff --cached --submodule=short
 ```
 
-### Release snapshot (optional pin)
+The helper stages `origin/main` pointers without switching active submodule
+branches or modifying their working trees.
 
-When root `main` should record exact versions: run the sync script, review
-`git diff --cached`, commit. Remove `[patch]` in `sorrel-cli` and set `rev` to the
-released core SHA for **external** CLI consumers.
+## Dependency pins
 
----
+First-party package dependencies remain reproducible exact revisions where
+declared (for example, `sorrel-cli` pins `sorrel-core` by Git revision). Do not
+replace those declarations with local path patches in committed code.
 
-## Agent rules (read this first)
+When an upstream module changes:
 
-1. **Work from the root** — `cd` to the root `sorrel` repo. Open and edit submodule
-   paths directly (`sorrel-cli/src/main.rs`, `sorrel-core/src/stat_cache.rs`, …).
-2. **Monorepo members track `main`** — sorrel-* submodules use `branch = main` in
-   `.gitmodules`. Use `git submodule update --remote`, not manual SHA hunting.
-   For CLI↔core, use `[patch] path = "../sorrel-core"` while developing (foreign
-   `rev` pin is for published CLI only).
-3. **Cross-repo changes in one task are normal** — e.g. protocol conformance export
-   + hub/cli vendored copies in a single agent run. Defer root pointer updates to
-   the end via `./scripts/sync-submodule-pointers.sh`.
-4. **Commit in two layers** when you change submodule code:
-   - **Inside each touched submodule:** commit on a branch, push, merge to that
-     submodule’s `main` (or open a PR).
-   - **In the root:** `git add <submodule>` (pointer) + any root files
-     (`SORREL_PROGRESS.md`, docs), commit, push.
-5. **Discover which git repo a path belongs to:**
-   ```bash
-   git -C sorrel-cli rev-parse --show-toplevel   # → .../sorrel-cli
-   git -C . rev-parse --show-toplevel            # → .../sorrel (root)
-   ```
-6. **Run checks in the module that owns the code** — `cargo test` in `sorrel-cli/`,
-   `npm test` in `sorrel-hub/`, etc. Root has no unified build.
-7. **Conformance sync from root** (when protocol manifest changes):
-   ```bash
-   ./scripts/sync-conformance.sh
-   ./scripts/sync-conformance.sh --check
-   ```
-   Then re-run each consumer’s tests.
+1. Merge and push the upstream module.
+2. Update the dependent module's revision and lockfile.
+3. Run the dependent module's full checks.
+4. Merge the dependent module.
+5. Advance the root pointers.
 
-## Submodule commit helper (from root)
+## Validation
 
-```bash
-# Example: commit CLI work without cd confusion
-git -C sorrel-cli status -sb
-git -C sorrel-cli add -A
-git -C sorrel-cli commit -m "cli: wire stat-cache"
-git -C sorrel-cli push origin HEAD
+From the root:
 
-# After submodule main is updated, advance root pointer
-git -C sorrel-cli checkout main && git -C sorrel-cli pull
-./scripts/sync-submodule-pointers.sh
-git commit -m "Point sorrel-cli at main (stat-cache wire)"
-git push origin main
+```sh
+npm run test:modules
+npm test
 ```
 
-If `git add sorrel-cli` hangs, use:
-`GIT_FS_MONITOR_ENABLED=false git add sorrel-cli`
+Within Rust modules:
 
-## What agents must not do
+```sh
+cargo build
+cargo test
+cargo clippy --all-targets
+cargo fmt --all -- --check
+```
 
-- Do not clone sibling repos elsewhere and edit copies — edit the submodule paths
-  in the root checkout.
-- Do not commit submodule **file** changes only in the root repo (root commits
-  only **pointer** SHAs for submodules, not the file contents).
-- Do not pin `sorrel-core` to a fake/placeholder `rev` when the real crate is
-  available in `sorrel-core/`.
+Within Node modules, run `npm test` plus `npm run validate` or `npm run lint`
+where defined.
 
-## Relationship to `sorrel-cli` git dependencies
-
-**Outside this monorepo:** `sorrel-cli` pins `sorrel-core` by git `rev` (reproducible).
-
-**Inside this workspace (floating):** prefer `[patch]` → `path = "../sorrel-core"`
-so CLI always builds against the sibling checkout. Remove `[patch]` and set `rev`
-to the merged core SHA before a release/root PR.
-
-If `[patch]` is unavailable (e.g. network-only clone), merge core to `main` then:
-`rev = "<SHA>"` and `cargo update -p sorrel-core` in `sorrel-cli/`.
-
-## Docs map
-
-| File | Purpose |
-| --- | --- |
-| `AGENTS.md` | Root agent entry + toolchain |
-| `SORREL_PROGRESS.md` | Live status and next work |
-| `SORREL_PROTOTYPE_PLAN.md` | Build phases |
-| `docs/AGENT_WORKSPACE.md` | This file — umbrella git/Cargo mapping |
-| `sorrel-protocol/docs/workspace-links.md` | **Protocol spec** — `member` vs `dependency` |
-| `<submodule>/AGENTS.md` | Module-specific checks and boundaries |
+See [`AGENTS.md`](../AGENTS.md) for the current module map and mandatory
+workspace rules.
