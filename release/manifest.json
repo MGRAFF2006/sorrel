@@ -4,7 +4,7 @@
   "scope": "local-first developer preview",
   "modules": {
     "sorrel-agents": "0b4805ec1cf61fedec02ef58c3e81e1b5be2df62",
-    "sorrel-cli": "4858a938a403a414e8433d6cef391a2d877336a7",
+    "sorrel-cli": "b68286e69b74cf365503b3455d0a477569de0ff3",
     "sorrel-core": "1cb289b2609f501ada8880574628da613ddc462a",
     "sorrel-hub": "d583210e43c6c8dd76d37b386ebe0793b7166e29",
     "sorrel-hub-web": "40d8ed4ac3b6513511dcb183712f247e61805c99",

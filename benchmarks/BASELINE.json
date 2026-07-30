@@ -20,7 +20,7 @@
     "logWalk500ChangesMs": 3.463
   },
   "cli": {
-    "commit": "4858a938a403a414e8433d6cef391a2d877336a7",
+    "commit": "b68286e69b74cf365503b3455d0a477569de0ff3",
     "warmStatus10000FilesMs": 231.814,
     "log1000ChangesMs": 49.403
   },
