@@ -154,16 +154,20 @@ async function main() {
   run('cargo', ['build'], { cwd: CLI_DIR });
   log('sorrel-cli + sorrel-core', 'built');
 
+  // Exercise the default durable Hub path, not only the in-memory test store.
+  const hubDataRoot = mkdtempSync(join(tmpdir(), 'sorrel-e2e-hub-'));
   const hub = await spawnReady('node', ['scripts/listen.mjs'], {
     cwd: HUB_DIR,
     env: {
       ...process.env,
-      SORREL_HUB_SYNC_STORE: 'memory',
+      SORREL_HUB_SYNC_STORE: 'fs',
+      SORREL_HUB_DATA_DIR: join(hubDataRoot, 'sync'),
+      SORREL_HUB_METADATA_DIR: join(hubDataRoot, 'metadata'),
       SORREL_HUB_BOOTSTRAP_GRANTS: '1',
     },
   });
   const hubUrl = hub.ready.url;
-  log('sorrel-hub', hubUrl);
+  log('sorrel-hub', `${hubUrl} (FS-backed)`);
 
   const health = await fetch(`${hubUrl}/healthz`).then((r) => r.json());
   assert.equal(health.status, 'ok');
@@ -405,10 +409,28 @@ jobs:
   writeFileSync(join(gitDir, 'readme.txt'), 'from-git\n');
   run('git', ['add', 'readme.txt'], { cwd: gitDir });
   run('git', ['commit', '-m', 'add readme'], { cwd: gitDir });
+  run('git', ['branch', '-M', 'main'], { cwd: gitDir });
   const imported = sorrelJson(gitDir, ['git', 'import']);
   assert.ok(imported.commits.length >= 1);
   assert.equal(readFileSync(join(gitDir, 'readme.txt'), 'utf8'), 'from-git\n');
   log('cli git import');
+
+  // Colocated mirror: pull a Git-side commit, then push a Sorrel-side change.
+  writeFileSync(join(gitDir, 'git-side.txt'), 'from-git-side\n');
+  run('git', ['add', 'git-side.txt'], { cwd: gitDir });
+  run('git', ['commit', '-m', 'git-side change'], { cwd: gitDir });
+  const gitPulled = sorrelJson(gitDir, ['git', 'sync', '--branch', 'main']);
+  assert.equal(gitPulled.status, 'pulled');
+
+  writeFileSync(join(gitDir, 'sorrel-side.txt'), 'from-sorrel-side\n');
+  sorrelJson(gitDir, ['change', 'create', '-m', 'sorrel-side change']);
+  const gitPushed = sorrelJson(gitDir, ['git', 'sync', '--branch', 'main']);
+  assert.equal(gitPushed.status, 'pushed');
+  const gitLog = run('git', ['log', '--format=%s', 'main'], {
+    cwd: gitDir,
+  }).stdout;
+  assert.match(gitLog, /sorrel-side change/);
+  log('cli git sync', 'colocated pull + push');
 
   const exportDir = mkdtempSync(join(tmpdir(), 'sorrel-e2e-export-'));
   const exported = sorrelJson(gitDir, ['git', 'export', exportDir, '--branch', 'export-main']);

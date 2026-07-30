@@ -1,6 +1,6 @@
 # Getting started
 
-Last updated: 2026-07-21
+Last updated: 2026-07-30
 
 How to clone Sorrel, run the local VCS demo, and start the Hub stack.
 
@@ -57,7 +57,7 @@ $SORREL merge <feature-lane-id>
 
 Longer walkthrough: [`sorrel-cli/DEMO.md`](../sorrel-cli/DEMO.md).  
 Sync (push/pull) against Hub: [`sorrel-cli/SYNC.md`](../sorrel-cli/SYNC.md).  
-Git import: [`sorrel-cli/GIT.md`](../sorrel-cli/GIT.md).
+Git import/export/sync: [`sorrel-cli/GIT.md`](../sorrel-cli/GIT.md).
 
 ## Import an existing Git repo
 
@@ -72,7 +72,9 @@ sorrel status
 
 Creates `.sorrel/` if needed, imports commits reachable from `HEAD` as Sorrel
 snapshots/changes, writes `.sorrel/git-map.json`, and restores the working tree
-to the tip. Export / colocated sync are not implemented yet.
+to the tip. Use `sorrel git export` for one-way export or `sorrel git sync` to
+incrementally keep colocated Git and Sorrel histories aligned. Divergence is
+parked on a normal `git/<branch>` lane for explicit merge resolution.
 
 ## Hub API + Hub UI
 
@@ -94,9 +96,9 @@ compose `web` service is an optional local mirror; it does not replace Cloudflar
 ### Without Docker
 
 ```sh
-# terminal 1 — API
+# terminal 1 — API (explicit insecure local bootstrap for the demo)
 cd sorrel-hub
-npm start          # http://0.0.0.0:3000
+SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start  # http://127.0.0.1:3000
 
 # terminal 2 — UI (proxies /api → Hub)
 cd sorrel-hub-web
@@ -107,7 +109,10 @@ Useful Hub env vars:
 
 - `SORREL_HUB_DATA_DIR` — sync store (default `./data/sync`)
 - `SORREL_HUB_METADATA_DIR` — product metadata (default `./data/metadata`)
-- `SORREL_HUB_BOOTSTRAP_GRANTS=0` — disable local push/pull bootstrap grants
+- `HOST` — listen address (default `127.0.0.1`; use `0.0.0.0` only in an
+  isolated container/network)
+- `SORREL_HUB_BOOTSTRAP_GRANTS=1` — explicitly enable broad local demo grants
+  (disabled by default)
 - `HUB_API_URL` — hub-web upstream (default `http://localhost:3000`)
 
 ## CLI ↔ Hub sync
@@ -125,6 +130,9 @@ $SORREL init
 $SORREL remote add origin http://127.0.0.1:3000 --repo-id <repoId-from-source>
 $SORREL pull origin   # downloads objects and restores the working tree
 ```
+
+The alpha Hub has no production authentication. Do not expose it to an
+untrusted network. See [`SECURITY.md`](../SECURITY.md).
 
 ## Validate modules
 

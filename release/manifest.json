@@ -1,0 +1,19 @@
+{
+  "release": "v0.1.0-alpha.1",
+  "protocol": "sorrel.protocol.v0",
+  "scope": "local-first developer preview",
+  "modules": {
+    "sorrel-agents": "0b4805ec1cf61fedec02ef58c3e81e1b5be2df62",
+    "sorrel-cli": "4858a938a403a414e8433d6cef391a2d877336a7",
+    "sorrel-core": "1cb289b2609f501ada8880574628da613ddc462a",
+    "sorrel-hub": "d583210e43c6c8dd76d37b386ebe0793b7166e29",
+    "sorrel-hub-web": "40d8ed4ac3b6513511dcb183712f247e61805c99",
+    "sorrel-protocol": "f3d6831264934f9fff215b1cb909bc481893e687",
+    "sorrel-runners": "b22ac102dbe4745fac11982df3573ca3bd1c5e45",
+    "sorrel-sdk-js": "b6ebd8c71a759821479f26fadb79683982b2fa98",
+    "sorrel-sdk-rust": "80d21b2e3874a86d03c631580531fd0a63ae9640",
+    "sorrel-slices": "9c821f927393fd3a47406dfa5b4c7d447d48890e",
+    "sorrel-vault": "0dcfcb9f1e11c5d84dc725f202cafe6d9bfc23e1",
+    "sorrel-web": "0227aa1896c3e472a276ba142676ccd101b7c750"
+  }
+}

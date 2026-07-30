@@ -8,6 +8,13 @@ Forward plan for the multi-repo Sorrel project. Live status:
 
 ## Sequenced plan
 
+### 0. `v0.1.0-alpha.1` stabilization — IN PROGRESS
+
+Freeze one coordinated module commit set, align Core dependency pins, make
+localhost/dev-only security boundaries explicit, add release/legal metadata,
+turn CI into a truthful gate, and record correctness/performance baselines.
+Optimization work starts from the resulting root release tag.
+
 ### 1. Hub persistence — FS-backed object/ref store (`sorrel-hub`) — DONE
 
 FS-backed sync store and product metadata; default-on for the server.
