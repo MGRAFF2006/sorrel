@@ -21,3 +21,12 @@ Use the same machine for before/after optimization comparisons.
 
 Correctness gates (`npm run validate:release`, conformance, module tests, root
 E2E) must pass before accepting a faster result.
+
+## Alpha baseline result
+
+On the reference machine recorded in `BASELINE.json`:
+
+- Core microbenchmarks are comfortably inside their coarse budgets.
+- CLI `log` over 1,000 changes is at the roadmap target (49.403 ms vs 50 ms).
+- Warm CLI `status` over 10,000 files is above the roadmap target
+  (231.814 ms vs 100 ms) and is the first measured optimization priority.

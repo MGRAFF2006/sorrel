@@ -1,0 +1,31 @@
+{
+  "release": "v0.1.0-alpha.1",
+  "measuredAt": "2026-07-30T11:49:59.053Z",
+  "machine": {
+    "os": "Linux 7.1.3-arch1-3 x86_64",
+    "cpu": "AMD Ryzen 5 5600G with Radeon Graphics",
+    "logicalCpus": 12,
+    "memoryGiB": 15,
+    "filesystem": "btrfs on NVMe",
+    "note": "Filesystem reported high allocation pressure; compare optimizations on this same machine."
+  },
+  "toolchain": {
+    "rustc": "1.97.1",
+    "node": "24.5.0"
+  },
+  "core": {
+    "commit": "1cb289b2609f501ada8880574628da613ddc462a",
+    "snapshot2000FilesMs": 26.009,
+    "diff2000Files20ModifiedMs": 9.911,
+    "logWalk500ChangesMs": 3.463
+  },
+  "cli": {
+    "commit": "4858a938a403a414e8433d6cef391a2d877336a7",
+    "warmStatus10000FilesMs": 231.814,
+    "log1000ChangesMs": 49.403
+  },
+  "roadmapTargets": {
+    "warmStatus10000FilesMs": 100,
+    "log1000ChangesMs": 50
+  }
+}
