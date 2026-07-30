@@ -9,9 +9,12 @@ assume it has read anything else.
 
 > **Status 2026-07-30:** Wave 1 and Wave 2 are **done and merged** (see the
 > completed ledger below); their prompts have been removed from this pack.
-> Only the CI tasks remain open, and CI-1 has shrunk: `sorrel-hub` and
+> Only CI work remains open. CI-1 has shrunk: `sorrel-hub` and
 > `sorrel-hub-web` got their workflows, so CI-1 now covers only
-> `sorrel-protocol`, `sorrel-vault`, and `sorrel-slices`.
+> `sorrel-protocol`, `sorrel-vault`, and `sorrel-slices`. Root CI exists but
+> cannot clone the private submodules until the repository has a
+> `SUBMODULES_TOKEN` secret and its workflow is updated with a credential that
+> has GitHub's `workflow` scope.
 
 ## Completed (crossed off — prompts removed)
 
@@ -40,8 +43,12 @@ assume it has read anything else.
   out-of-the-box push 403 is fixed: push/ref-advance send `grantRefs` for the
   Hub bootstrap grants; see `sorrel-cli/SYNC.md`. The per-remote
   `--grant-ref` flag variant was not needed and was not built.)
+- ~~Git bridge — colocated bidirectional mirror~~ (`sorrel git sync` now
+  incrementally fast-forwards whichever side moved; divergence is parked on a
+  `git/<branch>` lane for normal merge resolution; roadmap item 3 is complete)
 - ~~CI (partial) — `sorrel-hub` and `sorrel-hub-web`~~ (`.github/workflows/ci.yml`
-  on both mains; root repo CI also landed)
+  on both mains; root workflow exists but its private-checkout authentication
+  still needs the manual setup below)
 
 ## How to use this pack
 
@@ -56,12 +63,28 @@ assume it has read anything else.
 ## Dependency map
 
 ```
+CI-0: manual repository-admin prerequisite
 CI-1, CI-2: independent, anytime
 ```
 
 ---
 
-## Lane CI (independent, anytime — one task per repo, trivial)
+## CI
+
+### CI-0 — Unblock root CI private checkout (manual repository setup)
+
+This step needs a repository administrator and a credential with GitHub's
+`workflow` scope; a normal code agent cannot complete it:
+
+1. Create a fine-grained PAT with read-only Contents access to every private
+   `sorrel-*` repository.
+2. Add it to the root repository's Actions secrets as `SUBMODULES_TOKEN`.
+3. Update `.github/workflows/ci.yml` so `actions/checkout` uses that secret,
+   disables persisted credentials, and configures Git authentication for the
+   private `sorrel-core` Cargo dependencies.
+4. Re-run root CI and confirm both module suites and the no-mock E2E pass.
+
+### CI-1 — GitHub Actions for the remaining self-contained Node repos
 
 ### CI-1 — GitHub Actions for the remaining self-contained Node repos
 
@@ -123,8 +146,6 @@ local command output.
 
 ## Later (needs a stronger agent — not in this pack)
 
-- Colocated Git mirror (roadmap item 3; one-way `git import` / `git export`
-  already shipped).
 - Embedding surface / C ABI (roadmap item 6).
 - Production auth for the Hub (roadmap item 5 remainder).
 - CI for sorrel-cli / sorrel-runners: needs a PAT secret so Actions can fetch
