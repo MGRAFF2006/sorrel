@@ -44,7 +44,19 @@ Rust: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --al
 
 Node: `npm test` (+ `npm run validate` where defined)
 
+## Agent workspace (important)
+
+Use the **root checkout as one filesystem workspace**: edit files under
+`sorrel-core/`, `sorrel-cli/`, etc. directly from the parent tree. Each
+submodule remains an independent Git repository, so commit and push from the
+repository that owns the changed files.
+
+See **[`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md)** for the coordinated
+multi-repository workflow and pointer-sync helper.
+
 ## Submodules
 
 Some submodules may be private. After changes inside a submodule, merge to that
 repo’s `main`, then advance and commit the pointer in this root repository.
+`./scripts/sync-submodule-pointers.sh` can fetch every configured `main` and
+stage those gitlink updates without changing active submodule checkouts.

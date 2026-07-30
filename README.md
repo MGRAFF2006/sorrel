@@ -12,6 +12,7 @@ product on top.
 | --- | --- |
 | [`docs/STATUS.md`](docs/STATUS.md) | **What works / what is missing** |
 | [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | **How to clone and run everything** |
+| [`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md) | Coordinated multi-repository agent workflow |
 | [`ROADMAP.md`](ROADMAP.md) | Sequenced forward plan |
 | [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md) | Full architecture |
 
@@ -110,5 +111,8 @@ npm run validate   # protocol, vault
 
 ## Working with submodules
 
-After changing a submodule, merge to that repo’s `main`, then advance and commit
-the pointer in this root repository. See [`AGENTS.md`](AGENTS.md).
+Use the root checkout as one filesystem workspace, but commit changes in the
+submodule repository that owns them. After merging each change to that
+submodule’s `main`, advance and commit the pointer in this root repository.
+See [`AGENTS.md`](AGENTS.md) and
+[`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md).
