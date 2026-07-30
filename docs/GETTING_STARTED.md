@@ -84,6 +84,9 @@ parked on a normal `git/<branch>` lane for explicit merge resolution.
 docker compose up --build
 ```
 
+If a preview port is occupied, override it with `SORREL_HUB_PORT`,
+`SORREL_HUB_WEB_PORT`, or `SORREL_WEB_PORT` before running Compose.
+
 | Service | URL |
 | --- | --- |
 | Hub API | http://localhost:3000 |
