@@ -1,11 +1,16 @@
 # sorrel-vault
 
-Sorrel Vault defines the first draft of `sorrel.secrets.yml` and a local-only
+Sorrel Vault defines the draft `sorrel.secrets.yml` contract and a local Node
 development backend for resolving Sorrel secret handles.
 
-This package intentionally does **not** integrate with cloud secret managers yet.
-It models the contract that future providers can implement while keeping local
-development testable with committed fake `.env` fixtures.
+**Primary UX:** humans and agents should use `sorrel secret *` in `sorrel-cli`,
+which resolves through upstream [SecretSpec](https://github.com/cachix/secretspec)
+providers (`keyring`, `dotenv`, `env`, …) after Core `secret.read` /
+`secret.inject` grants. This package remains for schema, examples, and
+conformance tests — not the front door.
+
+Providers beyond the local Node backend are implemented by SecretSpec; do not
+add custom AWS/1Password adapters here.
 
 ## What is included
 

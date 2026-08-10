@@ -25,11 +25,11 @@ exposure.
 | --- | --- |
 | **Protocol** | Canonical object schemas, examples, sync-transport spec, policy conformance manifest + checksum drift guards. |
 | **Engine (`sorrel-core`)** | Content-addressed object store, snapshots, changes, path/line-level diff helpers, lanes/stacks, policy/authority spine, sync closure helpers, stat-cache, three-way merge + protocol-aligned conflict/merge-result objects, **incremental `git_import` / `git_export`**. |
-| **CLI (`sorrel-cli`)** | Persistent `.sorrel/` workspace: `init`, `status`, `change create`/`list`, `diff`, `log`, `lane create`/`list`/`switch`/`submit`, `stack create`/`list`/`show`, `merge` / `merge --abort` / **`merge --continue`**, **`git import` / `git export` / `git sync`**, `grant`, `slice create`, `workflow validate`/`run`, `remote add`/`list`, `push`, `pull`. |
+| **CLI (`sorrel-cli`)** | Persistent `.sorrel/` workspace: `init`, `status`, `change create`/`list`, `diff`, `log`, `lane create`/`list`/`switch`/`submit`, `stack create`/`list`/`show`, `merge` / `merge --abort` / **`merge --continue`**, **`git import` / `git export` / `git sync`**, `grant`, `slice create`, `workflow validate`/`run`, **`secret list|sync|check|get|set|run`**, **`env init|ensure|info|shell`**, **`run list|show|logs`**, `remote add`/`list`, `push`, `pull`. |
 | **Git bridge** | `sorrel git import`, `git export`, and colocated `git sync`; incremental fast-forwards in either direction, divergence parked on a normal Sorrel lane, `.sorrel/git-map.json` links SHAs ↔ snapshots. See `sorrel-cli/GIT.md`. |
 | **Sync** | CLI ↔ Hub over HTTP sync transport; Hub FS-backed object/ref store; isolated demos can opt into `user:local` bootstrap grants with `SORREL_HUB_BOOTSTRAP_GRANTS=1`. |
-| **Vault** | Secrets schema, local backend, dev CLI (`import` / `list` / `grant` / `redact`), Core-grant gated. |
-| **Runners** | Local + container runners (ContainerRunner tested), `sorrel.workflow.yml` → `JobBundle` parser, Core policy gate + log redaction. |
+| **Vault** | Secrets schema + local Node backend for tests. **Primary UX:** `sorrel secret *` resolves via upstream SecretSpec (`keyring` / `dotenv` / `env`) under Core grants; workflow jobs can inject authorized `secretRefs` with log redaction. |
+| **Runners** | Local + container runners (ContainerRunner tested), `sorrel.workflow.yml` → `JobBundle` parser, Core policy gate + log redaction. CLI prefers devenv when present (`backend: devenv`), else `local-fallback`. Structured logs under `.sorrel/runs/`. |
 | **Slices** | TS/JS slice manifest generator (prototype). |
 | **Hub API** | JSON HTTP server: health, projects, admin collections with GET/PATCH, proposals/reviews lifecycle, lane-submit collaboration endpoint, sync endpoints, FS persistence. |
 | **Hub UI** | Framework-free Nord companion: Projects, Reviews (proposal detail + comment thread + workflow status), Sync; proxies `/api/*` to Hub. |
@@ -45,6 +45,9 @@ exposure.
 | **Agents control plane** | Minimal register/claim/active-work surface shipped; no instruction overlays yet. |
 | **SDKs** | Minimal Hub JS client + Rust `Workspace` wrapper shipped; embedding surface (C ABI / N-API / WASM / daemon) not shipped. |
 | **Apps** | No desktop/mobile clients (intentionally after embedding surface). |
+| **Hub secret backend** | Optional hosted / BYO provider binding (Phase 4) not shipped; local keyring/dotenv remain default. |
+| **devenv task mapping** | Prefer devenv when present; full `sorrel.workflow.yml` → devenv tasks shim and remote runners are still thin. |
+| **Run log follow / Hub stream** | Local `.sorrel/runs/` + `run show|logs` shipped; `--follow` and Hub streaming are stubs. |
 
 ## Module map
 
@@ -70,7 +73,8 @@ dependencies and workspace Cargo commands from the repo root.
 
 ## Next up (from roadmap)
 
-1. Ship `v0.1.0-alpha.1` from the monorepo and keep CI green.
-2. Production auth + richer review UX for the Hub.
-3. Stable embedding surface, then agents + SDKs.
-4. Collapse intentional duplicates (`cli_policy` / `cli_runner`) once the alpha is stable.
+1. Secrets via SecretSpec under Sorrel policy (`sorrel secret *` + workflow inject).
+2. devenv-first `env` / workflow execution with local-process fallback.
+3. Structured run logs (`.sorrel/runs/`) and CLI `run show` / `run logs`.
+4. Ship `v0.1.0-alpha.1`; then Hub production auth, embedding surface, SDKs/apps.
+5. **DEBT-1:** collapse `cli_policy` / `cli_runner` only after secret injection lands.

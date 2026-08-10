@@ -8,10 +8,10 @@ Sorrel module: `sorrel-runners`.
 > injection is unsupported: secret references are modeled for policy and
 > redaction, but this crate never resolves or injects secret values.
 
-This repository contains the first portable workflow runner prototype for
-Sorrel. It is intentionally user-owned execution only: local host processes and
-a minimal Docker/Podman adapter. It does not provide hosted compute,
-Kubernetes, SSH, or secret injection.
+This package contains the first portable workflow runner prototype for Sorrel.
+It is intentionally user-owned execution only: local host processes and a
+minimal Docker/Podman adapter. It does not provide hosted compute, Kubernetes,
+SSH, or secret injection (SecretSpec injection lands in `sorrel-cli` first).
 
 The alpha workflow-file contract and compatibility limits are documented in
 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md). See

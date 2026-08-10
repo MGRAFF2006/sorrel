@@ -1,7 +1,8 @@
 # sorrel-hub-web
 
-The **web interface** for Sorrel Hub: a browser frontend for the
-[`sorrel-hub`](https://github.com/MGRAFF2006/sorrel-hub) collaboration API.
+The **web interface** for Sorrel Hub: a browser frontend for the sibling
+[`sorrel-hub`](../sorrel-hub) collaboration API in this monorepo
+([`MGRAFF2006/sorrel`](https://github.com/MGRAFF2006/sorrel)).
 
 > **Development-only alpha companion:** this UI relies on the Hub API's
 > development acting-principal mechanism. Neither this UI nor the alpha Hub
@@ -10,21 +11,21 @@ The **web interface** for Sorrel Hub: a browser frontend for the
 
 ## What this is (and is not)
 
-- **This repo is the Hub UI.** It renders projects, writable review and selected
-  administration flows, and read-only sync data by calling the `sorrel-hub`
-  HTTP API.
-- **`sorrel-hub` is the API server.** It owns the data model, in-memory store, and
-  Core policy administration guard. It has no UI of its own.
+- **This package is the Hub UI.** It renders projects, writable review and
+  selected administration flows, and read-only sync data by calling the
+  `sorrel-hub` HTTP API.
+- **`sorrel-hub` is the API server.** It owns the data model, store, and Core
+  policy administration guard. It has no UI of its own.
 - **`sorrel-web` is the public marketing/landing site.** It is unrelated to this
   development product UI.
 
 So the split is:
 
-| Repo            | Role                                            |
+| Package         | Role                                            |
 | --------------- | ----------------------------------------------- |
 | `sorrel-web`    | Public marketing landing page (static)          |
 | `sorrel-hub`    | Hub **API server** (JSON over HTTP)             |
-| `sorrel-hub-web`| Hub **web interface** (this repo)               |
+| `sorrel-hub-web`| Hub **web interface** (this package)            |
 
 This UI holds no authoritative state and defines **no permissions of its own** —
 identity, policy, grants, and decisions remain owned by Sorrel Core and surfaced

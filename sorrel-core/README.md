@@ -3,7 +3,7 @@
 The Rust engine at the heart of Sorrel, the agent-native version-control
 system. This crate owns the content-addressed object model and the headless
 policy/permission/authority semantics; the CLI, Hub, runners, and vault all
-consume it (the CLI as a git dependency).
+consume it (the CLI via a workspace path dependency).
 
 `0.1.0-alpha.1` is a pre-stable release. Read the
 [v0 compatibility policy](docs/COMPATIBILITY.md) before embedding the crate or

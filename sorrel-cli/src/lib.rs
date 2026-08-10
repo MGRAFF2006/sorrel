@@ -9,9 +9,13 @@
 
 pub mod cli_policy;
 pub mod cli_runner;
+pub mod env_cmd;
 pub mod hub;
 pub mod linediff;
 pub mod repo;
+pub mod run_log;
+pub mod secret_cmd;
+pub mod secretspec_bridge;
 pub mod sync;
 pub mod workflow_cmd;
 

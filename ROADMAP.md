@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-10
 
-Forward plan for the multi-repo Sorrel project. Live status:
+Forward plan for the Sorrel monorepo. Live status:
 [`docs/STATUS.md`](docs/STATUS.md). Architecture:
 [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md).
 
@@ -10,10 +10,10 @@ Forward plan for the multi-repo Sorrel project. Live status:
 
 ### 0. `v0.1.0-alpha.1` stabilization — IN PROGRESS
 
-Freeze one coordinated module commit set, align Core dependency pins, make
-localhost/dev-only security boundaries explicit, add release/legal metadata,
-turn CI into a truthful gate, and record correctness/performance baselines.
-Optimization work starts from the resulting root release tag.
+Freeze one coordinated release, make localhost/dev-only security boundaries
+explicit, keep CI a truthful gate, and record correctness/performance baselines.
+**Monorepo absorption is done** (PR #49): one clone, path deps, green CI on
+`main`.
 
 ### 1. Hub persistence — FS-backed object/ref store (`sorrel-hub`) — DONE
 
@@ -43,24 +43,43 @@ Hub proposal via `/collaboration/lane-submit`. Remaining: stacked changes UX.
 FS metadata + Sync view + proposal/review write path (GET/PATCH, lane-submit,
 hub-web forms). Remaining: production auth and richer review UX.
 
-### 6. Stable embedding surface (`sorrel-core`)
+### 6. Secrets + SecretSpec → devenv-backed runs → log UX — ACTIVE
+
+Consume upstream SecretSpec and devenv (**do not fork**). Sorrel keeps
+`SecretRef` + Core grants as source of truth; SecretSpec is the
+provider/resolver. Execution prefers devenv when present, with
+`LocalProcessRunner` as a compat fallback. Structured run logs land as a
+product surface (Blacksmith-grade detail), then an optional Hub secret backend.
+
+Suggested sequencing:
+
+1. SecretSpec resolve + `sorrel secret *` + inject into local workflow
+2. devenv backend for `workflow run` / `env ensure` + local fallback
+3. Rich run logs under `.sorrel/runs/<id>/`
+4. Optional Hub-hosted / BYO secret backend (same SecretRef + grant contracts)
+
+Intentional follow-up (**DEBT-1**): do **not** fully unify `cli_policy` /
+`cli_runner` until secret injection ships.
+
+### 7. Stable embedding surface (`sorrel-core`)
 
 Versioned library API + C ABI / N-API / WASM / IPC daemon — the contract for
 SDKs and apps.
 
-### 7. Agent control plane + SDKs
+### 8. Agent control plane + SDKs
 
 `sorrel-agents`, `sorrel-sdk-js`, `sorrel-sdk-rust` after lanes and embedding
 settle.
 
-### 8. Apps — desktop then mobile (last)
+### 9. Apps — desktop then mobile (last)
 
-Tauri desktop, then thinner mobile clients. Do not start before item 6.
+Tauri desktop, then thinner mobile clients. Do not start before item 7.
 
 ## Not yet
 
 Marketplace, full merge queue, hosted compute, production auth, sophisticated
-conflict-resolution UI.
+conflict-resolution UI. Nix is never mandatory — devenv is preferred, local
+fallback remains.
 
 ## Performance bar
 

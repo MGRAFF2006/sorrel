@@ -1,21 +1,19 @@
 # Contributing
 
-Sorrel is split across independent repositories coordinated by this root
-checkout. Read [`AGENTS.md`](AGENTS.md) and
+Sorrel is a **single monorepo**. Read [`AGENTS.md`](AGENTS.md) and
 [`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md) before changing code.
 
 ## Workflow
 
-1. Create a feature branch in each affected module.
-2. Change the upstream dependency first (for example Core before CLI).
-3. Run that module's tests, lint, and formatting checks.
-4. Commit and review each module independently.
-5. Advance root gitlinks only after module commits are final.
-6. Run the root release, conformance, module, and E2E checks.
+1. Create a feature branch from `main` in this repository.
+2. Change packages in dependency order when needed (for example Core before CLI).
+3. Run the affected package tests, lint, and formatting checks.
+4. Open one PR against root `main`.
+5. Run the root release, conformance, module, and E2E checks before merge.
 
 Do not combine behavior changes with optimization-only work. Optimizations must
 preserve protocol fixtures, CLI JSON contracts, and on-disk compatibility
-documented by the affected module.
+documented by the affected package.
 
 ## Required root checks
 
@@ -29,8 +27,8 @@ npm test
 Rust changes also require:
 
 ```sh
-cargo test
-cargo clippy --all-targets -- -D warnings
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 

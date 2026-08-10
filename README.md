@@ -39,8 +39,9 @@ The same status and getting-started docs are published on the landing site
 
 - Production Hub authentication and signed client identity
 - Stable embedding surface (C ABI / N-API / WASM / daemon)
-- Secret injection and production vault backends
-- Desktop/mobile applications
+- SecretSpec-backed resolve/inject under Core grants (in progress)
+- devenv-first runners + Blacksmith-grade execution logs (planned)
+- Production Hub authentication and desktop/mobile applications
 
 Details: [`docs/STATUS.md`](docs/STATUS.md).
 

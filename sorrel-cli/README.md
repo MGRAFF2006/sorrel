@@ -5,18 +5,19 @@ The binary is named `sorrel`.
 
 ## Architecture
 
-The CLI uses the canonical
-[`sorrel-core`](https://github.com/MGRAFF2006/sorrel-core) engine as a pinned
-Git dependency. Core provides the content-addressed object store, snapshots,
-changes, lanes, stacks, merge primitives, Git import/export, and policy object
-types. CLI-specific repository registries, Hub transport, line diffs, policy
-evaluation, and workflow parsing/local execution live in this repository.
-There are no embedded copies of `sorrel-core` or `sorrel-runners`.
+The CLI depends on in-tree [`sorrel-core`](../sorrel-core) via the root Cargo
+workspace path dependency. Core provides the content-addressed object store,
+snapshots, changes, lanes, stacks, merge primitives, Git import/export, and
+policy object types. CLI-specific repository registries, Hub transport, line
+diffs, policy evaluation, and workflow parsing/local execution live here.
+
+Workflow execution currently uses an in-tree `cli_runner` (intentional
+**DEBT-1** — unify with `sorrel-runners` after secret injection). Secret
+handles are listed via `sorrel secret`; resolve/inject goes through SecretSpec
+providers under Core grants (see root `ROADMAP.md`).
 
 `tests/policy_conformance.rs` checks the CLI policy evaluator against the
-vendored `sorrel-protocol` conformance manifest. Secret references remain
-opaque during workflow parsing and JSON output; this CLI does not resolve
-secret values.
+vendored `sorrel-protocol` conformance manifest.
 
 ## Features
 
@@ -225,7 +226,7 @@ Create and inspect persisted grants:
 ```bash
 sorrel grant create \
   --action secret.inject \
-  --agent agent_policy_local_dev \
+  --agent agent_mock_cli \
   --workflow workflow_validate_vault \
   --runner runner_local_process \
   --secret secret_database_url_dev \
@@ -235,10 +236,21 @@ sorrel grant create \
 sorrel grant list --json
 ```
 
+Resolve and inject secrets via SecretSpec (after a grant):
+
+```bash
+sorrel secret sync
+sorrel secret set secret_database_url_dev --value 'postgres://localhost/dev'
+sorrel secret run --provider dotenv:.env -- printenv DATABASE_URL
+sorrel workflow run test
+sorrel run list
+sorrel env ensure
+```
+
 List secret handles without resolving values:
 
 ```bash
-sorrel secret refs --json
+sorrel secret list --json
 ```
 
 ## Development

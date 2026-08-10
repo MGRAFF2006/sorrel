@@ -88,10 +88,20 @@ enum Commands {
         #[command(subcommand)]
         command: GrantCommand,
     },
-    /// Inspect Sorrel secret handles without materializing values.
+    /// Inspect and manage Sorrel secret handles via SecretSpec providers.
     Secret {
         #[command(subcommand)]
-        command: SecretCommand,
+        command: sorrel_cli::secret_cmd::SecretCommand,
+    },
+    /// Detect and scaffold project environments (devenv-first).
+    Env {
+        #[command(subcommand)]
+        command: sorrel_cli::env_cmd::EnvCommand,
+    },
+    /// Inspect local workflow/task execution logs.
+    Run {
+        #[command(subcommand)]
+        command: sorrel_cli::run_log::RunCommand,
     },
     /// Configure and inspect sync remotes.
     Remote {
@@ -415,7 +425,7 @@ struct GrantCreateArgs {
     action: String,
 
     /// Agent policy allowed by the grant.
-    #[arg(long, default_value = "agent_policy_local_dev")]
+    #[arg(long, default_value = "agent_mock_cli")]
     agent: String,
 
     /// Workflow allowed by the grant.
@@ -440,12 +450,6 @@ struct GrantCreateArgs {
         default_value = "Local validation can inject the dev secret handle."
     )]
     reason: String,
-}
-
-#[derive(Debug, Subcommand)]
-enum SecretCommand {
-    /// List known SecretRef handles.
-    Refs,
 }
 
 #[derive(Debug, Subcommand)]
@@ -500,6 +504,25 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> io::Result<()> {
+    if let Commands::Secret {
+        command: sorrel_cli::secret_cmd::SecretCommand::Run(args),
+    } = cli.command
+    {
+        return match sorrel_cli::secret_cmd::execute_run(args, cli.json)? {
+            sorrel_cli::secret_cmd::SecretRunResult::Output(output) => {
+                if cli.json {
+                    write_json(io::stdout().lock(), &output.json)
+                } else {
+                    let mut stdout = io::stdout().lock();
+                    writeln!(stdout, "{}", output.human)
+                }
+            }
+            sorrel_cli::secret_cmd::SecretRunResult::Exit(code) => {
+                std::process::exit(code);
+            }
+        };
+    }
+
     let output = execute(cli.command)?;
 
     if cli.json {
@@ -548,9 +571,9 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
             GrantCommand::Create(args) => grant_create_output(args),
             GrantCommand::List => grant_list_output(),
         },
-        Commands::Secret { command } => match command {
-            SecretCommand::Refs => secret_refs_output(),
-        },
+        Commands::Secret { command } => sorrel_cli::secret_cmd::execute(command),
+        Commands::Env { command } => sorrel_cli::env_cmd::execute(command),
+        Commands::Run { command } => sorrel_cli::run_log::execute(command),
         Commands::Remote { command } => match command {
             RemoteCommand::Add(args) => remote_add_output(args),
             RemoteCommand::List => remote_list_output(),
@@ -3253,30 +3276,6 @@ fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
             &result.snapshot[..result.snapshot.len().min(12)],
             result.downloaded
         ),
-    })
-}
-
-fn secret_refs_output() -> io::Result<CommandOutput> {
-    let objects = repo::list_registry_entries(repo::SECRETS_DIR)?;
-    let mut human = String::new();
-    for object in &objects {
-        let id = object["id"].as_str().unwrap_or_default();
-        let name = object["name"].as_str().unwrap_or_default();
-        let environment = object["environment"].as_str().unwrap_or("dev");
-        human.push_str(&format!("{id}  {name}  {environment}\n"));
-    }
-    if objects.is_empty() {
-        human = "No SecretRef handles declared. Import secrets via sorrel-vault; values stay refs."
-            .to_owned();
-    }
-    Ok(CommandOutput {
-        json: json!({
-            "command": "secret refs",
-            "mocked": false,
-            "count": objects.len(),
-            "objects": objects
-        }),
-        human: human.trim_end().to_owned(),
     })
 }
 

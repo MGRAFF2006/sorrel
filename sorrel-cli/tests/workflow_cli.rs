@@ -121,3 +121,130 @@ fn command_json(cwd: &Path, args: &[&str]) -> Value {
     let assert = command.assert().success();
     serde_json::from_slice(&assert.get_output().stdout).expect("command emits json")
 }
+
+#[test]
+fn secret_sync_set_get_and_workflow_inject() {
+    let temp_dir = TempDir::new().expect("temp dir is available");
+    let root = temp_dir.path();
+
+    command_json(root, &["init", "--json"]);
+
+    fs::write(
+        root.join("sorrel.secrets.yml"),
+        r#"
+schemaVersion: sorrel.vault.v0
+kind: SecretSpec
+secretRefs:
+  - id: secret_demo_token
+    name: DEMO_TOKEN
+    provider: dotenv
+    uri: dotenv:.env
+    environment: dev
+    required: true
+    description: Demo token for CLI tests
+"#,
+    )
+    .expect("secrets yaml writes");
+
+    let sync = command_json(root, &["secret", "sync", "--json"]);
+    assert_eq!(sync["command"], "secret sync");
+    assert_eq!(sync["count"], 1);
+    assert!(root.join("secretspec.toml").is_file());
+
+    command_json(
+        root,
+        &[
+            "grant",
+            "create",
+            "--json",
+            "--action",
+            "secret.inject",
+            "--secret",
+            "secret_demo_token",
+            "--agent",
+            "agent_mock_cli",
+            "--environment",
+            "dev",
+        ],
+    );
+
+    let set = command_json(
+        root,
+        &[
+            "secret",
+            "set",
+            "secret_demo_token",
+            "--value",
+            "demo-secret-value",
+            "--provider",
+            "dotenv:.env",
+            "--json",
+        ],
+    );
+    assert_eq!(set["stored"], true);
+    assert!(root.join(".env").is_file());
+
+    let get = command_json(
+        root,
+        &[
+            "secret",
+            "get",
+            "secret_demo_token",
+            "--reveal",
+            "--provider",
+            "dotenv:.env",
+            "--json",
+        ],
+    );
+    assert_eq!(get["revealed"], true);
+    assert_eq!(get["value"], "demo-secret-value");
+
+    write_workflow(
+        root,
+        r#"
+version: 1
+id: workflow_secret_inject
+jobs:
+  test:
+    command: printf '%s' "$DEMO_TOKEN"
+    secrets:
+      - secret_demo_token
+"#,
+    );
+
+    let run = command_json(root, &["workflow", "run", "test", "--json"]);
+    assert_eq!(run["status"], "completed");
+    assert_eq!(run["backend"], "local-fallback");
+    assert_eq!(run["job"]["injectedSecrets"], json!(["DEMO_TOKEN"]));
+    // Value must be redacted from captured logs.
+    assert_ne!(run["job"]["stdout"], "demo-secret-value");
+    assert!(run["job"]["stdout"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("<sorrel:redacted secret_demo_token>"));
+
+    let runs = command_json(root, &["run", "list", "--json"]);
+    assert_eq!(runs["command"], "run list");
+    assert!(runs["count"].as_u64().unwrap_or(0) >= 1);
+    let run_id = runs["runs"][0]["id"].as_str().expect("run id");
+    let show = command_json(root, &["run", "show", run_id, "--json"]);
+    assert_eq!(show["run"]["id"], run_id);
+    let logs = command_json(root, &["run", "logs", run_id, "--json"]);
+    assert_eq!(logs["command"], "run logs");
+    assert!(!logs["events"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn env_init_and_info_report_local_fallback() {
+    let temp_dir = TempDir::new().expect("temp dir is available");
+    let root = temp_dir.path();
+    let init = command_json(root, &["env", "init", "--json"]);
+    assert_eq!(init["command"], "env init");
+    assert!(root.join("devenv.nix").is_file());
+    assert!(root.join("devenv.yaml").is_file());
+    let info = command_json(root, &["env", "info", "--json"]);
+    assert_eq!(info["status"]["backend"], "local-fallback");
+    let ensure = command_json(root, &["env", "ensure", "--json"]);
+    assert_eq!(ensure["command"], "env ensure");
+    assert_eq!(ensure["backend"], "local-fallback");
+}

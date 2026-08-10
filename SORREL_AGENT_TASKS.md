@@ -4,16 +4,15 @@ Last updated: 2026-08-10 UTC
 
 Small, self-contained work orders derived from [`ROADMAP.md`](ROADMAP.md).
 
-> **Status 2026-08-10:** Waves 1–2 and the Git mirror are done. The repo is now
-> a **single monorepo** — CI no longer needs `SUBMODULES_TOKEN`. Prefer one PR
-> against root `main`.
+> **Status 2026-08-10:** Waves 1–2, the Git mirror, and **monorepo absorption
+> (PR #49)** are done. Prefer one PR against root `main`.
 
 ## Completed (high signal)
 
 - Merge/conflict model, `merge --continue`, protocol-aligned Conflict/MergeResult
 - Hub FS persistence, collaboration write path, bootstrap grants
 - Git import / export / colocated `git sync`
-- Monorepo absorption (in-tree packages, Cargo workspace, path deps)
+- Monorepo absorption (in-tree packages, Cargo workspace, path deps; green CI)
 
 ## How to use this pack
 
@@ -23,28 +22,38 @@ Small, self-contained work orders derived from [`ROADMAP.md`](ROADMAP.md).
 
 ## Open
 
-### ALPHA-1 — Land monorepo + green CI
+### SECRETS-1 — SecretSpec under Sorrel policy
 
 ```text
 Repository: https://github.com/MGRAFF2006/sorrel (this monorepo)
 
-Context: Submodules were absorbed into the root tree. Root CI checks out the
-repo directly and runs validate:release, validate:conformance, cargo clippy/fmt
-for the workspace, npm run test:modules, and npm test.
+Context: SecretRef + Core grants stay source of truth. SecretSpec (Apache-2.0,
+upstream; do not fork) is the provider/resolver (keyring, dotenv, env first).
 
 Task:
-1. Ensure branch CI is green on the monorepo conversion.
-2. Merge to main when ready.
-3. Tag v0.1.0-alpha.1 only after release checks pass (see docs/RELEASE.md).
+1. Bridge sorrel.secrets.yml / SecretRef names ↔ secretspec.toml (or untyped API).
+2. Extend provider enum beyond sorrel-vault to SecretSpec provider URIs.
+3. In sorrel-cli: after secret.read / secret.inject allow, ship
+   `sorrel secret check|get|set|list` and `sorrel secret run -- <cmd>`.
+4. Inject authorized secretRefs into workflow run env; keep log redaction.
+5. Deprecate Node vault-cli as primary UX (keep package for schema/tests).
 
 Validate:
-  npm run validate:release
-  npm run validate:conformance
-  cargo clippy --workspace --all-targets -- -D warnings
-  cargo fmt --all -- --check
-  npm run test:modules
-  npm test
+  cargo test -p sorrel-cli
+  cargo clippy -p sorrel-cli --all-targets -- -D warnings
+  npm test (root E2E paths that touch workflow/secrets)
 ```
+
+### ENV-1 — devenv-first execution + local fallback
+
+`sorrel env init|ensure|shell|info`; prefer `devenv tasks` for workflow/task
+run when present; LocalProcessRunner fallback with `--json` `backend:
+local-fallback`. Design `RunnerBackend` trait now; remote later.
+
+### LOGS-1 — Structured execution logs
+
+Versioned JSONL under `.sorrel/runs/<id>/`; `sorrel run show|logs`; redaction
+markers; backend + principal metadata. Hub streaming later.
 
 ### NEXT-1 — Production Hub auth (after alpha)
 
@@ -56,7 +65,8 @@ minimal signed identity path before exposing Hub beyond localhost.
 Stable library boundary for SDKs/apps (C ABI / N-API / WASM / daemon). Do not
 start desktop/mobile apps before this.
 
-### DEBT-1 — Collapse CLI forks (after alpha)
+### DEBT-1 — Collapse CLI forks (after secrets/injection)
 
 `sorrel-cli` still carries in-tree `cli_policy` and `cli_runner` duplicates of
-engine/runners packages. Unify carefully — CLI `--json` shapes may change.
+engine/runners packages. **Do not unify yet** — schedule after SecretSpec
+injection ships so `--json` shapes and secret env wiring settle first.

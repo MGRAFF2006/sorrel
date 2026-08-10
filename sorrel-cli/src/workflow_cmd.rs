@@ -2,7 +2,12 @@ use std::path::{Path, PathBuf};
 
 use crate::cli_policy::{Grant, PolicyContext, PrincipalId, ResourceScope};
 use crate::cli_runner::{parse_workflow_file, ParsedWorkflow, RunError, WorkflowError};
-use crate::cli_runner::{CorePermissionEvaluator, JobBundle, LocalProcessRunner};
+use crate::cli_runner::{CorePermissionEvaluator, JobBundle, LocalProcessRunner, RunStatus};
+use crate::env_cmd::{select_backend, try_devenv_run, RunnerBackendKind};
+use crate::run_log::{self, RunManifest};
+use crate::secretspec_bridge::{
+    load_secret_handles, redact_text, resolve_handles, secret_policy_context, BridgeError,
+};
 use clap::Args;
 use serde_json::{json, Value};
 
@@ -71,16 +76,54 @@ pub fn workflow_run_output(args: WorkflowRunJobArgs) -> CommandOutput {
         principal: principal.clone(),
     };
 
-    match LocalProcessRunner.run(&bundle, &evaluator) {
-        Ok(outcome) => CommandOutput {
-            json: run_success_json(&workflow, &bundle, &outcome),
-            human: format!(
-                "Workflow {} job {} {}",
-                workflow.id,
-                bundle.job_name,
-                outcome.status.as_str()
-            ),
-        },
+    if let Err(denial) = evaluator.authorize(&bundle) {
+        return policy_denial_output(&workflow, &bundle, &denial);
+    }
+
+    let secret_env = match resolve_job_secrets(&bundle) {
+        Ok(env) => env,
+        Err(error) => {
+            return CommandOutput {
+                json: json!({
+                    "command": "workflow run",
+                    "mocked": false,
+                    "status": "failed",
+                    "workflow": workflow_summary_json(&workflow),
+                    "job": {
+                        "name": bundle.job_name,
+                        "status": "failed",
+                        "command": bundle.command
+                    },
+                    "bundle": bundle_json(&bundle),
+                    "error": {
+                        "kind": "secret_resolve_failed",
+                        "message": error.to_string()
+                    }
+                }),
+                human: format!(
+                    "Workflow {} job {} failed to resolve secrets: {error}",
+                    workflow.id, bundle.job_name
+                ),
+            };
+        }
+    };
+
+    match run_job_with_backend(&bundle, &evaluator, &secret_env) {
+        Ok(mut outcome) => {
+            outcome.stdout = redact_text(&outcome.stdout, &secret_env);
+            outcome.stderr = redact_text(&outcome.stderr, &secret_env);
+            let _ = persist_run(&workflow, &bundle, &outcome);
+            CommandOutput {
+                json: run_success_json(&workflow, &bundle, &outcome),
+                human: format!(
+                    "Workflow {} job {} {} (backend: {})",
+                    workflow.id,
+                    bundle.job_name,
+                    outcome.status.as_str(),
+                    outcome.backend
+                ),
+            }
+        }
         Err(RunError::PolicyDenied(denial)) => policy_denial_output(&workflow, &bundle, &denial),
         Err(RunError::SpawnFailed { message }) => CommandOutput {
             json: json!({
@@ -104,7 +147,123 @@ pub fn workflow_run_output(args: WorkflowRunJobArgs) -> CommandOutput {
                 workflow.id, bundle.job_name
             ),
         },
+        Err(RunError::SecretResolve { message }) => CommandOutput {
+            json: json!({
+                "command": "workflow run",
+                "mocked": false,
+                "status": "failed",
+                "workflow": workflow_summary_json(&workflow),
+                "job": {
+                    "name": bundle.job_name,
+                    "status": "failed",
+                    "command": bundle.command
+                },
+                "bundle": bundle_json(&bundle),
+                "error": {
+                    "kind": "secret_resolve_failed",
+                    "message": message
+                }
+            }),
+            human: format!(
+                "Workflow {} job {} failed to resolve secrets",
+                workflow.id, bundle.job_name
+            ),
+        },
     }
+}
+
+fn run_job_with_backend(
+    bundle: &JobBundle,
+    evaluator: &CorePermissionEvaluator<'_>,
+    secret_env: &crate::secretspec_bridge::ResolvedSecrets,
+) -> Result<crate::cli_runner::RunOutcome, RunError> {
+    let cwd = std::env::current_dir().map_err(|error| RunError::SpawnFailed {
+        message: error.to_string(),
+    })?;
+
+    // Secret env injection into devenv is deferred: when secrets are required we
+    // stay on the local runner so values stay in the child env only.
+    if secret_env.values.is_empty() && select_backend(&cwd) == RunnerBackendKind::Devenv {
+        match try_devenv_run(&cwd, &bundle.command) {
+            Ok(Some(devenv)) => {
+                return Ok(crate::cli_runner::RunOutcome {
+                    status: if devenv.success {
+                        RunStatus::Completed
+                    } else {
+                        RunStatus::Failed
+                    },
+                    exit_code: devenv.exit_code,
+                    stdout: devenv.stdout,
+                    stderr: devenv.stderr,
+                    backend: RunnerBackendKind::Devenv.as_str().to_owned(),
+                    injected_secrets: vec![],
+                });
+            }
+            Ok(None) => {}
+            Err(error) => {
+                // Fall through to local with a stderr note via local runner.
+                let mut outcome = LocalProcessRunner.run_with_env(
+                    bundle,
+                    evaluator,
+                    secret_env.values.clone(),
+                )?;
+                outcome.stderr = format!(
+                    "devenv backend failed ({error}); used {}\n{}",
+                    RunnerBackendKind::LocalFallback.as_str(),
+                    outcome.stderr
+                );
+                outcome.backend = RunnerBackendKind::LocalFallback.as_str().to_owned();
+                return Ok(outcome);
+            }
+        }
+    }
+
+    LocalProcessRunner.run_with_env(bundle, evaluator, secret_env.values.clone())
+}
+
+fn persist_run(
+    workflow: &ParsedWorkflow,
+    bundle: &JobBundle,
+    outcome: &crate::cli_runner::RunOutcome,
+) -> std::io::Result<()> {
+    if !crate::repo::is_initialized() {
+        return Ok(());
+    }
+    let id = run_log::new_run_id();
+    let mut manifest = RunManifest {
+        schema_version: 1,
+        id: id.clone(),
+        started_at: run_log::now_rfc3339(),
+        finished_at: None,
+        backend: outcome.backend.clone(),
+        principal: CLI_AGENT_PRINCIPAL.to_owned(),
+        workflow_id: Some(workflow.id.clone()),
+        job_name: Some(bundle.job_name.clone()),
+        status: outcome.status.as_str().to_owned(),
+        exit_code: outcome.exit_code,
+        injected_secrets: outcome.injected_secrets.clone(),
+    };
+    let dir = run_log::begin_run(&manifest)?;
+    if !outcome.stdout.is_empty() {
+        run_log::append_stream(&dir, "stdout", &outcome.stdout)?;
+    }
+    if !outcome.stderr.is_empty() {
+        run_log::append_stream(&dir, "stderr", &outcome.stderr)?;
+    }
+    manifest.status = outcome.status.as_str().to_owned();
+    run_log::finish_run(&dir, manifest)?;
+    Ok(())
+}
+
+fn resolve_job_secrets(
+    bundle: &JobBundle,
+) -> Result<crate::secretspec_bridge::ResolvedSecrets, BridgeError> {
+    if bundle.secret_refs.is_empty() {
+        return Ok(crate::secretspec_bridge::ResolvedSecrets::default());
+    }
+    let cwd = std::env::current_dir().map_err(BridgeError::Io)?;
+    let handles = load_secret_handles(&cwd)?;
+    resolve_handles(&cwd, &handles, &bundle.secret_refs, None)
 }
 
 fn load_workflow(file: &Option<PathBuf>) -> Result<ParsedWorkflow, WorkflowError> {
@@ -145,7 +304,7 @@ fn workflow_execution_context() -> PolicyContext {
         };
     }
 
-    let mut context = PolicyContext::headless_default();
+    let mut context = secret_policy_context().unwrap_or_else(|_| PolicyContext::headless_default());
     context
         .default_rules
         .retain(|rule| rule.action != "workflow.run");
@@ -268,6 +427,7 @@ fn run_success_json(
         "command": "workflow run",
         "mocked": false,
         "status": outcome.status.as_str(),
+        "backend": outcome.backend,
         "workflow": workflow_summary_json(workflow),
         "job": {
             "name": bundle.job_name,
@@ -275,7 +435,8 @@ fn run_success_json(
             "command": bundle.command,
             "exitCode": outcome.exit_code,
             "stdout": outcome.stdout,
-            "stderr": outcome.stderr
+            "stderr": outcome.stderr,
+            "injectedSecrets": outcome.injected_secrets
         },
         "bundle": bundle_json(bundle)
     })
