@@ -27,6 +27,11 @@ jobs:
         run: |
           cargo clippy --workspace --all-targets -- -D warnings
           cargo fmt --all -- --check
+      - name: Install Node package dependencies
+        run: |
+          for dir in sorrel-protocol sorrel-vault sorrel-slices sorrel-hub sorrel-hub-web sorrel-sdk-js sorrel-agents; do
+            (cd "$dir" && npm ci)
+          done
       - name: Module suites
         run: npm run test:modules
       - name: Root E2E

@@ -5,6 +5,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,9 +25,27 @@ const JOBS = [
   { name: 'sorrel-agents', cwd: 'sorrel-agents', cmd: ['npm', 'test'] },
 ];
 
+function ensureNodeModules(cwd) {
+  const abs = join(ROOT, cwd);
+  if (existsSync(join(abs, 'node_modules'))) return true;
+  if (!existsSync(join(abs, 'package.json'))) return true;
+  console.log(`Installing dependencies in ${cwd}…`);
+  const install = spawnSync(
+    'npm',
+    [existsSync(join(abs, 'package-lock.json')) ? 'ci' : 'install'],
+    { cwd: abs, stdio: 'inherit', env: process.env },
+  );
+  return install.status === 0;
+}
+
 let failed = 0;
 for (const job of JOBS) {
   console.log(`\n=== ${job.name} ===`);
+  if (job.cmd[0] === 'npm' && !ensureNodeModules(job.cwd)) {
+    console.error(`FAILED: ${job.name} (dependency install)`);
+    failed += 1;
+    continue;
+  }
   const result = spawnSync(job.cmd[0], job.cmd.slice(1), {
     cwd: join(ROOT, job.cwd),
     stdio: 'inherit',
