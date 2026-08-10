@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Grant",
+  "id": "grant_agent_docs_write",
+  "principal": {
+    "kind": "Principal",
+    "id": "principal_agent_docs"
+  },
+  "capabilities": [
+    {
+      "kind": "Capability",
+      "id": "capability_path_write"
+    }
+  ],
+  "resources": [
+    {
+      "kind": "ResourceRef",
+      "id": "resource_docs_path"
+    }
+  ],
+  "effect": "allow",
+  "status": "active",
+  "conditions": {
+    "changeVisibility": "review"
+  },
+  "issuedBy": {
+    "type": "team",
+    "id": "team_platform"
+  },
+  "issuedAt": "2026-06-24T09:10:00Z",
+  "reason": "Docs agent may write review changes under docs/."
+}

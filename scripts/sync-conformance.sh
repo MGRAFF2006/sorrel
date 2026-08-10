@@ -4,11 +4,11 @@
 # its sidecar metadata from sorrel-protocol into every consumer's vendored
 # conformance directory, so vendored copies cannot drift.
 #
-# This is a convenience for side-by-side checkouts (e.g. this root monorepo with
-# its submodules). Normal package use does NOT require it: each consumer also
-# guards drift on its own via a sidecar-checksum test, and a maintainer can copy
-# the two files by hand. The actual copy/regeneration logic lives in
-# sorrel-protocol/scripts/export-conformance.mjs; this script just fans it out.
+# This is a convenience for the monorepo checkout. Normal package use does NOT
+# require it: each consumer also guards drift on its own via a sidecar-checksum
+# test, and a maintainer can copy the two files by hand. The actual
+# copy/regeneration logic lives in sorrel-protocol/scripts/export-conformance.mjs;
+# this script just fans it out.
 #
 # Usage:
 #   scripts/sync-conformance.sh            # export into all consumers
@@ -40,7 +40,7 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 
 if [[ ! -f "$EXPORTER" ]]; then
-  echo "error: missing $EXPORTER (is the sorrel-protocol submodule checked out?)" >&2
+  echo "error: missing $EXPORTER (is sorrel-protocol present in the monorepo?)" >&2
   exit 1
 fi
 

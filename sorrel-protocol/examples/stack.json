@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Stack",
+  "id": "stack_docs_001",
+  "name": "Protocol documentation stack",
+  "lane": {
+    "kind": "Lane",
+    "id": "lane_agent_docs_001"
+  },
+  "baseSnapshot": {
+    "kind": "Snapshot",
+    "id": "snap_initial_001"
+  },
+  "target": {
+    "repo": "repo_main",
+    "lane": "main"
+  },
+  "changes": [
+    {
+      "change": {
+        "kind": "Change",
+        "id": "chg_update_readme_001"
+      },
+      "dependsOn": [],
+      "status": "review"
+    }
+  ],
+  "policy": {
+    "kind": "Policy",
+    "id": "policy_repo_review"
+  },
+  "createdAt": "2026-06-24T08:05:00Z",
+  "updatedAt": "2026-06-24T08:06:00Z",
+  "metadata": {
+    "proposal": "proposal_docs_001"
+  }
+}

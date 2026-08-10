@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,13 +15,6 @@ function read(path) {
   return readFileSync(join(ROOT, path), 'utf8');
 }
 
-function moduleHead(module) {
-  return execFileSync('git', ['-C', module, 'rev-parse', 'HEAD'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  }).trim();
-}
-
 function packageVersion(module) {
   const path = join(ROOT, module, 'package.json');
   if (!existsSync(path)) return undefined;
@@ -32,14 +24,18 @@ function packageVersion(module) {
 function cargoVersion(module) {
   const path = join(ROOT, module, 'Cargo.toml');
   if (!existsSync(path)) return undefined;
-  return readFileSync(path, 'utf8').match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+  const text = readFileSync(path, 'utf8');
+  return (
+    text.match(/^version\s*=\s*"([^"]+)"/m)?.[1] ??
+    (text.includes('version.workspace = true') ? expectedVersion : undefined)
+  );
 }
 
-function corePin(module) {
+function usesPathCore(module) {
   const cargo = read(`${module}/Cargo.toml`);
-  return cargo.match(
-    /sorrel-core\s*=\s*\{[^}]*\brev\s*=\s*"([0-9a-f]{40})"/,
-  )?.[1];
+  return /sorrel-core\s*=\s*\{\s*path\s*=\s*"\.\.\/sorrel-core"\s*\}/.test(
+    cargo,
+  );
 }
 
 const errors = [];
@@ -52,12 +48,10 @@ check(
   `root package version must be ${expectedVersion}`,
 );
 
-for (const [module, expectedSha] of Object.entries(manifest.modules)) {
-  const actualSha = moduleHead(module);
-  check(
-    actualSha === expectedSha,
-    `${module} HEAD ${actualSha} != release manifest ${expectedSha}`,
-  );
+check(!existsSync(join(ROOT, '.gitmodules')), '.gitmodules must not exist in the monorepo');
+
+for (const module of Object.keys(manifest.modules)) {
+  check(existsSync(join(ROOT, module)), `${module}/ is missing`);
 
   const version = packageVersion(module) ?? cargoVersion(module);
   if (version !== undefined) {
@@ -72,13 +66,14 @@ for (const [module, expectedSha] of Object.entries(manifest.modules)) {
   }
 }
 
-const coreSha = manifest.modules['sorrel-core'];
 for (const module of ['sorrel-cli', 'sorrel-sdk-rust']) {
-  const pin = corePin(module);
-  check(pin === coreSha, `${module} pins core ${pin ?? '(missing)'} != ${coreSha}`);
+  check(
+    usesPathCore(module),
+    `${module} must depend on sorrel-core via path = "../sorrel-core"`,
+  );
 }
 
-for (const file of ['LICENSE-APACHE', 'LICENSE-MIT', 'CHANGELOG.md']) {
+for (const file of ['LICENSE-APACHE', 'LICENSE-MIT', 'CHANGELOG.md', 'Cargo.toml']) {
   check(existsSync(join(ROOT, file)), `root ${file} is missing`);
 }
 
@@ -90,5 +85,5 @@ if (errors.length > 0) {
 
 assert.equal(Object.keys(manifest.modules).length, 12);
 console.log(
-  `Release ${manifest.release}: 12 module SHAs, versions, licenses, changelogs, and core pins are consistent.`,
+  `Release ${manifest.release}: monorepo modules, versions, licenses, changelogs, and path deps are consistent.`,
 );

@@ -1,0 +1,15 @@
+{
+  "name": "sorrel-hub",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "description": "Collaboration app/server layer for Sorrel Hub.",
+  "license": "MIT OR Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  }
+}

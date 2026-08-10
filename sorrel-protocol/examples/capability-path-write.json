@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Capability",
+  "id": "capability_path_write",
+  "action": "path.write",
+  "category": "path",
+  "description": "Write changes to a repository path.",
+  "constraints": {
+    "requiresChangeObject": true
+  }
+}

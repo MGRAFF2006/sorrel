@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Policy",
+  "id": "policy_authority_root",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "description": "Root authority policy governing policy grants and authority rotation.",
+  "rules": [
+    {
+      "effect": "allow",
+      "principals": [
+        {
+          "kind": "Principal",
+          "id": "principal_maintainer"
+        }
+      ],
+      "capabilities": [
+        {
+          "kind": "Capability",
+          "id": "capability_policy_grant"
+        },
+        {
+          "kind": "Capability",
+          "id": "capability_policy_delegate"
+        }
+      ],
+      "resources": [
+        {
+          "kind": "ResourceRef",
+          "id": "resource_docs_path"
+        }
+      ],
+      "reason": "Maintainers may grant or delegate within the docs/ scope."
+    },
+    {
+      "effect": "allow",
+      "principals": [
+        {
+          "kind": "Principal",
+          "id": "principal_maintainer"
+        }
+      ],
+      "capabilities": [
+        {
+          "kind": "Capability",
+          "id": "capability_authority_rotate"
+        },
+        {
+          "kind": "Capability",
+          "id": "capability_authority_admin"
+        }
+      ],
+      "resources": [
+        {
+          "kind": "ResourceRef",
+          "id": "resource_repo_main"
+        }
+      ],
+      "reason": "Maintainers may rotate root authority with threshold signatures."
+    },
+    {
+      "effect": "deny",
+      "principals": [
+        {
+          "kind": "Principal",
+          "id": "principal_unprivileged_agent"
+        }
+      ],
+      "capabilities": [
+        {
+          "kind": "Capability",
+          "id": "capability_policy_grant"
+        },
+        {
+          "kind": "Capability",
+          "id": "capability_secret_inject"
+        }
+      ],
+      "resources": [
+        {
+          "kind": "ResourceRef",
+          "id": "resource_repo_main"
+        }
+      ],
+      "reason": "Agents may not self-grant policy or secret capabilities."
+    }
+  ],
+  "defaults": {
+    "decision": "deny"
+  },
+  "createdAt": "2026-06-24T10:05:00Z",
+  "updatedAt": "2026-06-24T10:05:00Z"
+}

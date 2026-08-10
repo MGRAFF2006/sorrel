@@ -8,16 +8,25 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Release consistency
+        run: npm run validate:release
+      - name: Conformance drift
+        run: npm run validate:conformance
+      - name: Rust lint and format
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo fmt --all -- --check
       - name: Module suites
         run: npm run test:modules
       - name: Root E2E

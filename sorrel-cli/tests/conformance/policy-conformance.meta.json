@@ -1,0 +1,8 @@
+{
+  "kind": "PolicyConformanceMeta",
+  "description": "Sidecar metadata for conformance/policy-conformance.json. Consumers vendor this file alongside the manifest and assert the SHA-256 matches so drift is a test failure. Regenerate with `npm run sync:meta`.",
+  "manifestFile": "policy-conformance.json",
+  "manifestVersion": "policy_conformance_v0",
+  "schemaVersion": "sorrel.protocol.v0",
+  "sha256": "6debd14c694254002ff16c7856f7ee8584f8457685fbb30a67736e466e46d9a5"
+}

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Conflict",
+  "repoId": "repo_main",
+  "path": "README.md",
+  "base": {
+    "object": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+  },
+  "ours": {
+    "object": "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678"
+  },
+  "theirs": {
+    "object": "c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890"
+  },
+  "conflictType": "content",
+  "hunks": [
+    {
+      "baseStart": 1,
+      "baseLines": [
+        "# Sorrel",
+        "",
+        "Sorrel."
+      ],
+      "oursLines": [
+        "# Sorrel",
+        "",
+        "Agent-native version control."
+      ],
+      "theirsLines": [
+        "# Sorrel",
+        "",
+        "Version control for humans and agents."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sorrel Core - Docs - Sorrel</title>
+    <meta name="description" content="Sorrel Core: content-addressed objects, snapshots, changes, lanes, the three-way merge and conflict model, and the Core-native policy spine.">
+    <meta name="theme-color" content="#2e3440">
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("sorrel-theme");
+          document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="./docs.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="../index.html" aria-label="Sorrel home">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>Sorrel</span>
+      </a>
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="./index.html">Docs</a>
+        <a href="./cli.html">CLI</a>
+        <a href="./hub.html">Hub</a>
+        <a href="./workflows.html">Workflows</a>
+        <a href="./api.html">API</a>
+        <a href="https://github.com/MGRAFF2006/sorrel-core">GitHub</a>
+        <button class="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle theme">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+          </svg>
+        </button>
+      </nav>
+    </header>
+
+    <main>
+      <div class="doc-hero">
+        <p class="crumbs"><a href="../index.html">sorrel</a><span>/</span><a href="./index.html">docs</a><span>/</span><span>core</span></p>
+        <h1>Sorrel Core</h1>
+        <p class="lede">
+          The Rust engine underneath everything: a content-addressed object store, snapshots and
+          changes, lanes for parallel work, a real three-way merge with first-class conflicts, and
+          a permission spine that works without any server.
+        </p>
+      </div>
+
+      <section class="section">
+        <div class="doc-body">
+          <h2>Content-addressed objects</h2>
+          <p>
+            Every piece of history is an immutable object identified by the BLAKE3 hash of its
+            bytes. Objects live in a fanout store on disk (<code>FileObjectStore</code>) or in
+            memory for tests. Writes are atomic (temp file, then rename) and reads verify the
+            digest, so corruption is detected instead of propagated. Identical content always has
+            the identical id — on every machine.
+          </p>
+          <table class="doc-table">
+            <thead><tr><th>Object</th><th>What it captures</th></tr></thead>
+            <tbody>
+              <tr><td><code>Blob</code></td><td>Raw file bytes.</td></tr>
+              <tr><td><code>Tree</code></td><td>A directory: named entries pointing at blobs and subtrees, with modes and sizes.</td></tr>
+              <tr><td><code>Snapshot</code></td><td>A whole working tree at a point in time, plus parent snapshots — history is a DAG of snapshots.</td></tr>
+              <tr><td><code>Change</code></td><td>An intent: author, message, base and resulting snapshot, and the path-level diff between them.</td></tr>
+              <tr><td><code>Lane</code> / <code>Stack</code></td><td>Isolated streams of work (for humans or agents) and ordered stacks of changes, with owner, visibility, and policy references.</td></tr>
+              <tr><td><code>Conflict</code> / <code>MergeResult</code></td><td>The outcome of a merge: stored, addressable, and inspectable — not an error string.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Snapshots and changes</h2>
+          <p>
+            <code>materialize_snapshot</code> walks a directory into trees and blobs and writes a
+            snapshot. A stat cache (size + mtime) skips re-hashing unchanged files, which keeps
+            <code>status</code>-style operations fast on large trees. <code>snapshot_diff</code>
+            computes the path-level added/modified/deleted set between two snapshots, and
+            <code>create_change</code> records that diff as a Change object and links the
+            snapshots into history.
+          </p>
+
+          <h2>The merge model</h2>
+          <p>
+            Merging is engine work, not CLI string manipulation. Three layers cooperate:
+          </p>
+          <ul>
+            <li>
+              <strong>Merge base:</strong> <code>merge_base</code> walks the snapshot DAG
+              breadth-first from both sides and returns a deterministic best common ancestor
+              (criss-cross ties resolve to the smallest id, so every machine agrees).
+            </li>
+            <li>
+              <strong>Line merge:</strong> <code>merge3</code> is a dependency-free three-way text
+              merge. Regions changed on one side take that side; identical edits merge; overlapping
+              different edits produce structured conflict hunks and Git-style
+              <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> markers. Non-UTF-8 content is treated as binary.
+            </li>
+            <li>
+              <strong>Snapshot merge:</strong> <code>merge_snapshots</code> merges two snapshots
+              against their base path by path. A clean merge writes a merged snapshot whose
+              parents are both sides. A conflicted merge writes <em>no</em> snapshot — it stores
+              <code>Conflict</code> objects (content, add/add, modify/delete, binary) and a
+              <code>MergeResult</code> that lists them.
+            </li>
+          </ul>
+          <div class="doc-note">
+            <p>
+              Conflicts being real objects matters for agents: a conflicted merge is data another
+              process can pick up, reason about, and resolve — possibly on a different machine,
+              possibly by a different agent than the one that attempted the merge.
+            </p>
+          </div>
+
+          <h2>The policy spine</h2>
+          <p>
+            Core owns identity, permissions, grants, policy evaluation, redaction markers,
+            <code>SecretRef</code> semantics, and audit records — headless, with no server
+            required. Decentralized does not mean permissionless: policy and authority changes are
+            signed <code>PolicyChange</code> objects evaluated against the <em>previous</em>
+            effective policy. A principal cannot grant itself power it does not already have
+            delegated authority for; peers, runners, the Hub, and vaults reject forged or locally
+            edited permission state.
+          </p>
+          <p>
+            The contract is enforced across languages by protocol fixtures: a canonical
+            conformance manifest lives in <code>sorrel-protocol</code> and is vendored into every
+            consumer (engine, CLI, Hub, runners, vault) with drift-guard tests, so all evaluators
+            provably return the same decisions.
+          </p>
+
+          <h2>Performance stance</h2>
+          <ul>
+            <li>BLAKE3 ids; stat-cache to avoid re-hashing unchanged files.</li>
+            <li>Engine-level exclusion (e.g. <code>.sorrel/</code>) instead of tree copies.</li>
+            <li>Dependency-free benches with coarse budgets that fail on order-of-magnitude regressions.</li>
+          </ul>
+
+          <div class="doc-footer-nav">
+            <a class="button secondary" href="./api.html">Generated API reference</a>
+            <a class="button secondary" href="./cli.html">Next: the CLI</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Sorrel</span>
+      <span>Agent-native version control, building in public.</span>
+    </footer>
+
+    <script src="../site.js"></script>
+  </body>
+</html>

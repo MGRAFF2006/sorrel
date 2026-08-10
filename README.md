@@ -16,8 +16,7 @@ product on top.
 | --- | --- |
 | [`docs/STATUS.md`](docs/STATUS.md) | **What works / what is missing** |
 | [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | **How to clone and run everything** |
-| [`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md) | Coordinated multi-repository agent workflow |
-| [`docs/RELEASE.md`](docs/RELEASE.md) | Coordinated version, validation, and tagging process |
+| [`docs/RELEASE.md`](docs/RELEASE.md) | Version, validation, and tagging process |
 | [`SECURITY.md`](SECURITY.md) | Security scope and vulnerability reporting |
 | [`ROADMAP.md`](ROADMAP.md) | Sequenced forward plan |
 | [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md) | Full architecture |
@@ -25,7 +24,7 @@ product on top.
 The same status and getting-started docs are published on the landing site
 (`sorrel-web` → Cloudflare) under `/docs/`.
 
-## Status at a glance (2026-07-30)
+## Status at a glance (2026-08-10)
 
 **Working today**
 
@@ -34,6 +33,7 @@ The same status and getting-started docs are published on the landing site
 - Policy/conformance spine across protocol, core, CLI, hub, runners, vault
 - Development Hub with FS-backed sync + metadata; writable Hub UI companion
 - Vault, runners, slices prototypes; public landing site live on Cloudflare
+- **Single monorepo** — clone once, no submodule tokens
 
 **Still missing**
 
@@ -41,18 +41,17 @@ The same status and getting-started docs are published on the landing site
 - Stable embedding surface (C ABI / N-API / WASM / daemon)
 - Secret injection and production vault backends
 - Desktop/mobile applications
-- Complete standalone CI coverage for every module
 
 Details: [`docs/STATUS.md`](docs/STATUS.md).
 
 ## Quick start
 
 ```sh
-git clone --recurse-submodules https://github.com/MGRAFF2006/sorrel.git
+git clone https://github.com/MGRAFF2006/sorrel.git
 cd sorrel
 
 # Local VCS demo
-cd sorrel-cli && cargo build
+cargo build -p sorrel-cli
 SORREL=target/debug/sorrel
 mkdir /tmp/sorrel-demo && cd /tmp/sorrel-demo
 $SORREL init
@@ -69,10 +68,9 @@ Full instructions: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
 
 ## Repository layout
 
-This root repository coordinates architecture and submodule pointers. Most
-implementation lives in submodules:
+Everything lives in this repository as normal packages:
 
-| Submodule | Role | Maturity |
+| Package | Role | Maturity |
 | --- | --- | --- |
 | `sorrel-protocol` | Schemas, examples, policy conformance | Active |
 | `sorrel-core` | Rust engine | Active |
@@ -89,6 +87,8 @@ implementation lives in submodules:
 
 Hub is split three ways: `sorrel-hub` (API), `sorrel-hub-web` (product UI),
 `sorrel-web` (marketing landing — **not** the Hub UI).
+
+Rust crates form one Cargo workspace (`Cargo.toml` at the root).
 
 ## Toolchains
 
@@ -107,18 +107,8 @@ rustup default stable
 npm test
 npm run test:modules
 
-# Rust modules
-cargo test && cargo clippy --all-targets && cargo fmt --all -- --check
-
-# Node modules
-npm test
-npm run validate   # protocol, vault
+# Rust workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
 ```
-
-## Working with submodules
-
-Use the root checkout as one filesystem workspace, but commit changes in the
-submodule repository that owns them. After merging each change to that
-submodule’s `main`, advance and commit the pointer in this root repository.
-See [`AGENTS.md`](AGENTS.md) and
-[`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md).

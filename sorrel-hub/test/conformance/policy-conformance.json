@@ -1,0 +1,363 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyConformanceSuite",
+  "id": "policy_conformance_v0",
+  "description": "Canonical, language-neutral policy conformance vectors. Every Sorrel policy consumer (Core, CLI embedded Core, Hub guard, Runners gate, Vault adapter) MUST agree on these decisions for the same protocol inputs. Each case references the protocol example fixture(s) it is derived from so the inputs stay in sync with sorrel-protocol/examples.",
+  "decisionValues": ["allow", "deny", "needs_grant"],
+  "trustValues": ["trusted", "untrusted", "denied"],
+  "permissionDecisions": [
+    {
+      "id": "path_write_allow",
+      "title": "Normal path.write is allowed by an active grant",
+      "sourceFixtures": [
+        "examples/policy-decision-agent-docs-write.json",
+        "examples/grant-agent-docs-write.json"
+      ],
+      "request": {
+        "principal": { "type": "agent", "id": "principal_agent_docs" },
+        "capability": "path.write",
+        "resource": { "kind": "path", "id": "resource_docs_path" }
+      },
+      "grants": [
+        {
+          "id": "grant_agent_docs_write",
+          "principal": { "type": "agent", "id": "principal_agent_docs" },
+          "capability": "path.write",
+          "resource": { "kind": "path", "id": "resource_docs_path" },
+          "effect": "allow"
+        }
+      ],
+      "expected": "allow"
+    },
+    {
+      "id": "workflow_run_allow",
+      "title": "workflow.run is allowed for a granted runner",
+      "sourceFixtures": [
+        "examples/policy-decision-runner-workflow-run.json",
+        "examples/grant-runner-workflow-run.json"
+      ],
+      "request": {
+        "principal": { "type": "runner", "id": "principal_runner_local_container" },
+        "capability": "workflow.run",
+        "resource": { "kind": "workflow", "id": "resource_validate_workflow" }
+      },
+      "grants": [
+        {
+          "id": "grant_runner_workflow_run",
+          "principal": { "type": "runner", "id": "principal_runner_local_container" },
+          "capability": "workflow.run",
+          "resource": { "kind": "workflow", "id": "resource_validate_workflow" },
+          "effect": "allow"
+        }
+      ],
+      "expected": "allow"
+    },
+    {
+      "id": "workflow_run_deny",
+      "title": "workflow.run is denied when no grant matches",
+      "sourceFixtures": ["examples/policy-decision-workflow-run-denied.json"],
+      "request": {
+        "principal": { "type": "agent", "id": "principal_unprivileged_agent" },
+        "capability": "workflow.run",
+        "resource": { "kind": "workflow", "id": "resource_validate_workflow" }
+      },
+      "grants": [],
+      "expected": "deny"
+    },
+    {
+      "id": "secret_read_allow",
+      "title": "secret.read is allowed for the granted workflow principal",
+      "sourceFixtures": [
+        "examples/policy-decision-secret-read-allowed.json",
+        "examples/grant-workflow-secret-injection.json"
+      ],
+      "request": {
+        "principal": { "type": "workflow", "id": "principal_workflow_validate_protocol" },
+        "capability": "secret.read",
+        "resource": { "kind": "secret", "id": "resource_npm_token_secret" }
+      },
+      "grants": [
+        {
+          "id": "grant_workflow_secret_injection",
+          "principal": { "type": "workflow", "id": "principal_workflow_validate_protocol" },
+          "capability": "secret.read",
+          "resource": { "kind": "secret", "id": "resource_npm_token_secret" },
+          "effect": "allow"
+        }
+      ],
+      "expected": "allow"
+    },
+    {
+      "id": "secret_inject_allow",
+      "title": "secret.inject is allowed for the granted workflow principal",
+      "sourceFixtures": [
+        "examples/policy-decision-secret-inject-allowed.json",
+        "examples/grant-workflow-secret-injection.json"
+      ],
+      "request": {
+        "principal": { "type": "workflow", "id": "principal_workflow_validate_protocol" },
+        "capability": "secret.inject",
+        "resource": { "kind": "secret", "id": "resource_npm_token_secret" }
+      },
+      "grants": [
+        {
+          "id": "grant_workflow_secret_injection",
+          "principal": { "type": "workflow", "id": "principal_workflow_validate_protocol" },
+          "capability": "secret.inject",
+          "resource": { "kind": "secret", "id": "resource_npm_token_secret" },
+          "effect": "allow"
+        }
+      ],
+      "expected": "allow"
+    },
+    {
+      "id": "secret_inject_deny",
+      "title": "secret.inject is denied when no grant matches",
+      "sourceFixtures": ["examples/policy-decision-secret-inject-denied.json"],
+      "request": {
+        "principal": { "type": "agent", "id": "principal_unprivileged_agent" },
+        "capability": "secret.inject",
+        "resource": { "kind": "secret", "id": "resource_npm_token_secret" }
+      },
+      "grants": [],
+      "expected": "deny"
+    },
+    {
+      "id": "repo_object_write_allow",
+      "title": "repo.object.write is allowed for a granted maintainer",
+      "sourceFixtures": [
+        "examples/policy-decision-repo-object-write-allowed.json",
+        "examples/grant-repo-object-write.json"
+      ],
+      "request": {
+        "principal": { "type": "user", "id": "principal_maintainer" },
+        "capability": "repo.object.write",
+        "resource": { "kind": "repo", "id": "repo_main" }
+      },
+      "grants": [
+        {
+          "id": "grant_repo_object_write",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "repo.object.write",
+          "resource": { "kind": "repo", "id": "repo_main" },
+          "effect": "allow"
+        }
+      ],
+      "expected": "allow"
+    },
+    {
+      "id": "repo_object_write_deny",
+      "title": "repo.object.write is denied when no grant matches",
+      "sourceFixtures": ["examples/policy-decision-repo-object-write-denied.json"],
+      "request": {
+        "principal": { "type": "agent", "id": "principal_unprivileged_agent" },
+        "capability": "repo.object.write",
+        "resource": { "kind": "repo", "id": "repo_main" }
+      },
+      "grants": [],
+      "expected": "deny"
+    },
+    {
+      "id": "repo_ref_write_allow",
+      "title": "repo.ref.write is allowed for a granted maintainer",
+      "sourceFixtures": [
+        "examples/policy-decision-repo-ref-write-allowed.json",
+        "examples/grant-repo-ref-write.json"
+      ],
+      "request": {
+        "principal": { "type": "user", "id": "principal_maintainer" },
+        "capability": "repo.ref.write",
+        "resource": { "kind": "repo", "id": "repo_main" }
+      },
+      "grants": [
+        {
+          "id": "grant_repo_ref_write",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "repo.ref.write",
+          "resource": { "kind": "repo", "id": "repo_main" },
+          "effect": "allow"
+        }
+      ],
+      "expected": "allow"
+    },
+    {
+      "id": "repo_ref_write_deny",
+      "title": "repo.ref.write is denied when no grant matches",
+      "sourceFixtures": ["examples/policy-decision-repo-ref-write-denied.json"],
+      "request": {
+        "principal": { "type": "agent", "id": "principal_unprivileged_agent" },
+        "capability": "repo.ref.write",
+        "resource": { "kind": "repo", "id": "repo_main" }
+      },
+      "grants": [],
+      "expected": "deny"
+    }
+  ],
+  "policyChanges": [
+    {
+      "id": "self_grant_denied",
+      "title": "Denied self-grant of policy.grant / secret.inject",
+      "sourceFixtures": [
+        "examples/policy-change-self-grant-denied.json",
+        "examples/policy-decision-self-grant-denied.json"
+      ],
+      "operation": "policy.grant",
+      "actor": { "type": "agent", "id": "principal_unprivileged_agent" },
+      "proposedGrant": {
+        "principal": { "type": "agent", "id": "principal_unprivileged_agent" },
+        "capabilities": ["secret.inject", "policy.grant"],
+        "resource": { "kind": "repo", "id": "resource_repo_main" },
+        "effect": "allow"
+      },
+      "signed": true,
+      "previousGrants": [],
+      "expected": { "trust": "denied", "outcome": "deny" }
+    },
+    {
+      "id": "unsigned_change_untrusted",
+      "title": "Unsigned policy change is untrusted and denied",
+      "sourceFixtures": [
+        "examples/policy-change-unsigned-untrusted.json",
+        "examples/policy-decision-unsigned-policy-change-denied.json"
+      ],
+      "operation": "policy.grant",
+      "actor": { "type": "user", "id": "principal_maintainer" },
+      "proposedGrant": {
+        "principal": { "type": "agent", "id": "principal_agent_docs" },
+        "capabilities": ["path.write"],
+        "resource": { "kind": "path", "id": "resource_docs_path" },
+        "effect": "allow"
+      },
+      "signed": false,
+      "previousGrants": [
+        {
+          "id": "grant_maintainer_policy_grant",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "policy.grant",
+          "resource": { "kind": "path", "id": "resource_docs_path" },
+          "effect": "allow"
+        }
+      ],
+      "expected": { "trust": "untrusted", "outcome": "deny" }
+    },
+    {
+      "id": "forged_signature_untrusted",
+      "title": "Forged signature (no valid authority key) is untrusted and denied",
+      "sourceFixtures": ["examples/policy-change-unsigned-untrusted.json"],
+      "operation": "policy.grant",
+      "actor": { "type": "user", "id": "principal_maintainer" },
+      "proposedGrant": {
+        "principal": { "type": "agent", "id": "principal_agent_docs" },
+        "capabilities": ["path.write"],
+        "resource": { "kind": "path", "id": "resource_docs_path" },
+        "effect": "allow"
+      },
+      "signed": true,
+      "forgedSignature": true,
+      "previousGrants": [
+        {
+          "id": "grant_maintainer_policy_grant",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "policy.grant",
+          "resource": { "kind": "path", "id": "resource_docs_path" },
+          "effect": "allow"
+        }
+      ],
+      "expected": { "trust": "untrusted", "outcome": "deny" }
+    },
+    {
+      "id": "delegated_grant_allowed",
+      "title": "Delegated grant within delegated scope is allowed",
+      "sourceFixtures": [
+        "examples/policy-change-delegated-grant-allowed.json",
+        "examples/policy-decision-delegated-grant-allowed.json"
+      ],
+      "operation": "policy.grant",
+      "actor": { "type": "user", "id": "principal_maintainer" },
+      "proposedGrant": {
+        "principal": { "type": "agent", "id": "principal_agent_docs" },
+        "capabilities": ["path.write"],
+        "resource": { "kind": "path", "id": "resource_docs_path" },
+        "effect": "allow"
+      },
+      "signed": true,
+      "previousGrants": [
+        {
+          "id": "grant_maintainer_policy_grant",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "policy.grant",
+          "resource": { "kind": "path", "id": "resource_docs_path" },
+          "effect": "allow"
+        }
+      ],
+      "expected": { "trust": "trusted", "outcome": "allow" }
+    },
+    {
+      "id": "scope_broadening_denied",
+      "title": "Delegate cannot broaden scope to repo-wide policy.grant",
+      "sourceFixtures": [
+        "examples/policy-change-scope-broadening-denied.json",
+        "examples/policy-decision-scope-broadening-denied.json"
+      ],
+      "operation": "policy.delegate",
+      "actor": { "type": "user", "id": "principal_maintainer" },
+      "proposedGrant": {
+        "principal": { "type": "agent", "id": "principal_agent_docs" },
+        "capabilities": ["policy.grant"],
+        "resource": { "kind": "repo", "id": "resource_repo_main" },
+        "effect": "allow"
+      },
+      "signed": true,
+      "previousGrants": [
+        {
+          "id": "grant_maintainer_policy_delegate_docs",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "policy.delegate",
+          "resource": { "kind": "path", "id": "resource_docs_path" },
+          "effect": "allow"
+        }
+      ],
+      "expected": { "trust": "denied", "outcome": "deny" }
+    },
+    {
+      "id": "authority_rotation_threshold_met",
+      "title": "Authority rotation with weighted threshold signatures is allowed",
+      "sourceFixtures": ["examples/policy-change-authority-rotation.json"],
+      "operation": "authority.rotate",
+      "actor": { "type": "user", "id": "principal_maintainer" },
+      "signed": true,
+      "signatureWeight": 2,
+      "thresholdMinimum": 2,
+      "previousGrants": [
+        {
+          "id": "grant_maintainer_authority_rotate",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "authority.rotate",
+          "resource": { "kind": "repo", "id": "resource_repo_main" },
+          "effect": "allow"
+        }
+      ],
+      "expected": { "trust": "trusted", "outcome": "allow" }
+    },
+    {
+      "id": "authority_rotation_threshold_not_met",
+      "title": "Authority rotation below weighted threshold is untrusted and denied",
+      "sourceFixtures": ["examples/policy-change-authority-rotation.json"],
+      "operation": "authority.rotate",
+      "actor": { "type": "user", "id": "principal_maintainer" },
+      "signed": true,
+      "signatureWeight": 1,
+      "thresholdMinimum": 2,
+      "previousGrants": [
+        {
+          "id": "grant_maintainer_authority_rotate",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "authority.rotate",
+          "resource": { "kind": "repo", "id": "resource_repo_main" },
+          "effect": "allow"
+        }
+      ],
+      "expected": { "trust": "untrusted", "outcome": "deny" }
+    }
+  ]
+}

@@ -8,8 +8,7 @@ import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const CLI_DIR = join(ROOT, 'sorrel-cli');
-const CLI = join(CLI_DIR, 'target/release/sorrel');
+const CLI = join(ROOT, 'target/release/sorrel');
 const fileCount = Number(process.env.SORREL_BENCH_FILES ?? 10_000);
 const historyCount = Number(process.env.SORREL_BENCH_HISTORY ?? 1_000);
 
@@ -27,7 +26,7 @@ function timed(command, args, options = {}) {
   return performance.now() - start;
 }
 
-run('cargo', ['build', '--release'], { cwd: CLI_DIR });
+run('cargo', ['build', '--release', '-p', 'sorrel-cli'], { cwd: ROOT });
 
 const statusRepo = mkdtempSync(join(tmpdir(), 'sorrel-bench-status-'));
 for (let i = 0; i < fileCount; i += 1) {

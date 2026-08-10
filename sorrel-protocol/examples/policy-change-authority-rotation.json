@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyChange",
+  "id": "policy_change_authority_rotation",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "previousPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "f1e2d3c4b5a69788776655443322110099887766554433221100998877665544"
+    }
+  },
+  "proposedPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main_v2",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "3344556677889900aabbccddeeff3344556677889900aabbccddeeff33445566"
+    }
+  },
+  "evaluationPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "f1e2d3c4b5a69788776655443322110099887766554433221100998877665544"
+    }
+  },
+  "operation": {
+    "type": "authority.rotate",
+    "rotation": {
+      "authorities": [
+        {
+          "principal": {
+            "kind": "Principal",
+            "id": "principal_maintainer"
+          },
+          "weight": 1,
+          "publicKey": {
+            "algorithm": "ed25519",
+            "value": "d4e5f6789012345678901234567890abcdef0123456"
+          },
+          "status": "active"
+        },
+        {
+          "principal": {
+            "type": "team",
+            "id": "team_platform"
+          },
+          "weight": 1,
+          "publicKey": {
+            "algorithm": "ed25519",
+            "value": "e5f6789012345678901234567890abcdef012345678"
+          },
+          "status": "active"
+        },
+        {
+          "principal": {
+            "type": "team",
+            "id": "team_security"
+          },
+          "weight": 1,
+          "publicKey": {
+            "algorithm": "ed25519",
+            "value": "f6789012345678901234567890abcdef0123456789a"
+          },
+          "status": "rotated"
+        }
+      ],
+      "threshold": {
+        "mode": "weighted",
+        "minimum": 2,
+        "totalWeight": 3
+      },
+      "rotatedBy": {
+        "kind": "Principal",
+        "id": "principal_maintainer"
+      },
+      "reason": "Rotate team_security authority key; threshold signatures collected."
+    }
+  },
+  "signatures": [
+    {
+      "signer": {
+        "kind": "Principal",
+        "id": "principal_maintainer"
+      },
+      "algorithm": "ed25519",
+      "value": "sig_rotation_maintainer_ed25519_placeholder_value",
+      "signedAt": "2026-06-24T10:35:00Z",
+      "weight": 1
+    },
+    {
+      "signer": {
+        "type": "team",
+        "id": "team_platform"
+      },
+      "algorithm": "ed25519",
+      "value": "sig_rotation_platform_ed25519_placeholder_value",
+      "signedAt": "2026-06-24T10:35:05Z",
+      "weight": 1
+    }
+  ],
+  "proposedBy": {
+    "kind": "Principal",
+    "id": "principal_maintainer"
+  },
+  "trust": "trusted",
+  "createdAt": "2026-06-24T10:35:00Z",
+  "decidedAt": "2026-06-24T10:35:10Z",
+  "metadata": {
+    "outcome": "allow",
+    "invariant": "Evaluated against previousPolicyRoot; rotation authorized by threshold weight 2 of 3.",
+    "signatureWeight": 2,
+    "thresholdMinimum": 2
+  }
+}

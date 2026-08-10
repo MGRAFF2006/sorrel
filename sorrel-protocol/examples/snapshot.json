@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Snapshot",
+  "id": "snap_initial_001",
+  "repo": "repo_main",
+  "rootTree": {
+    "kind": "Tree",
+    "id": "tree_root_001"
+  },
+  "parents": [],
+  "message": "Initial materialized tree",
+  "createdAt": "2026-06-24T08:01:00Z",
+  "author": {
+    "type": "user",
+    "id": "user_alice",
+    "displayName": "Alice"
+  },
+  "metadata": {
+    "importedFrom": "git"
+  }
+}

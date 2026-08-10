@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Change",
+  "id": "chg_update_readme_001",
+  "author": {
+    "type": "agent",
+    "id": "agent_docs_001",
+    "displayName": "Docs Agent"
+  },
+  "parents": [],
+  "baseSnapshot": {
+    "kind": "Snapshot",
+    "id": "snap_initial_001"
+  },
+  "summary": "Document Sorrel protocol goals",
+  "description": "Adds a short overview to the README.",
+  "operations": [
+    {
+      "op": "modify",
+      "path": "README.md",
+      "object": {
+        "kind": "Blob",
+        "id": "blob_readme_002"
+      },
+      "hunks": [
+        {
+          "stableAnchor": "README.md#heading",
+          "range": {
+            "startLine": 1,
+            "startColumn": 1,
+            "endLine": 3,
+            "endColumn": 1
+          },
+          "oldText": "# Sorrel\n",
+          "newText": "# Sorrel\n\nAgent-native version control.\n"
+        }
+      ]
+    }
+  ],
+  "dependencies": [],
+  "touches": {
+    "paths": ["README.md"],
+    "symbols": [],
+    "secrets": [],
+    "schemas": []
+  },
+  "visibility": "review",
+  "createdAt": "2026-06-24T08:02:00Z",
+  "signedBy": "identity_key_agent_docs_001"
+}

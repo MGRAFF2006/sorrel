@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Blob",
+  "id": "blob_readme_001",
+  "mediaType": "text/markdown",
+  "size": 42,
+  "contentHash": {
+    "algorithm": "blake3",
+    "value": "4f8f1d2c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+  },
+  "encoding": "utf8",
+  "executable": false,
+  "createdAt": "2026-06-24T08:00:00Z",
+  "metadata": {
+    "lineEndings": "lf"
+  }
+}

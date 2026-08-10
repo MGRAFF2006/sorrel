@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyChange",
+  "id": "policy_change_self_grant_denied",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "previousPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "f1e2d3c4b5a69788776655443322110099887766554433221100998877665544"
+    }
+  },
+  "proposedPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff11"
+    }
+  },
+  "evaluationPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "f1e2d3c4b5a69788776655443322110099887766554433221100998877665544"
+    }
+  },
+  "operation": {
+    "type": "policy.grant",
+    "grant": {
+      "principal": {
+        "kind": "Principal",
+        "id": "principal_unprivileged_agent"
+      },
+      "capabilities": [
+        {
+          "kind": "Capability",
+          "id": "capability_secret_inject"
+        },
+        {
+          "kind": "Capability",
+          "id": "capability_policy_grant"
+        }
+      ],
+      "resources": [
+        {
+          "kind": "ResourceRef",
+          "id": "resource_repo_main"
+        }
+      ],
+      "effect": "allow",
+      "reason": "Agent attempts to grant itself secret.inject and policy.grant."
+    }
+  },
+  "signatures": [],
+  "proposedBy": {
+    "kind": "Principal",
+    "id": "principal_unprivileged_agent"
+  },
+  "trust": "denied",
+  "decision": {
+    "kind": "PolicyDecision",
+    "id": "decision_self_grant_denied"
+  },
+  "createdAt": "2026-06-24T10:25:00Z",
+  "decidedAt": "2026-06-24T10:25:01Z",
+  "metadata": {
+    "outcome": "deny",
+    "invariant": "Evaluated against previousPolicyRoot; agent lacks policy.grant under prior effective policy.",
+    "denialReason": "Self-grant of secret.inject and policy.grant denied by previous effective policy."
+  }
+}

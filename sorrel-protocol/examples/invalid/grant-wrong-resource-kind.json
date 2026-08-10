@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Grant",
+  "id": "grant_invalid_resource_kind",
+  "principal": {
+    "kind": "Principal",
+    "id": "principal_agent_docs"
+  },
+  "capabilities": [
+    {
+      "kind": "Capability",
+      "id": "capability_path_write"
+    }
+  ],
+  "resources": [
+    {
+      "kind": "Capability",
+      "id": "capability_workflow_run"
+    }
+  ],
+  "effect": "allow",
+  "status": "active",
+  "issuedAt": "2026-06-24T09:14:00Z"
+}

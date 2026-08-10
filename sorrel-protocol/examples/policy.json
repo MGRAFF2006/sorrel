@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Policy",
+  "id": "policy_core_permission_spine",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "description": "Portable Core authorization policy consumed by Hub, runners, and agents.",
+  "rules": [
+    {
+      "effect": "allow",
+      "principals": [
+        {
+          "kind": "Principal",
+          "id": "principal_agent_docs"
+        }
+      ],
+      "capabilities": [
+        {
+          "kind": "Capability",
+          "id": "capability_path_write"
+        }
+      ],
+      "resources": [
+        {
+          "kind": "ResourceRef",
+          "id": "resource_docs_path"
+        }
+      ],
+      "conditions": {
+        "changeVisibility": "review"
+      },
+      "reason": "Docs agents may write review changes under docs/."
+    },
+    {
+      "effect": "allow",
+      "principals": [
+        {
+          "kind": "Principal",
+          "id": "principal_runner_local_container"
+        }
+      ],
+      "capabilities": [
+        {
+          "kind": "Capability",
+          "id": "capability_workflow_run"
+        }
+      ],
+      "resources": [
+        {
+          "kind": "ResourceRef",
+          "id": "resource_validate_workflow"
+        }
+      ],
+      "conditions": {
+        "runner": "runner_local_container"
+      },
+      "reason": "The local container runner may run the protocol validation workflow."
+    },
+    {
+      "effect": "allow",
+      "principals": [
+        {
+          "kind": "Principal",
+          "id": "principal_workflow_validate_protocol"
+        }
+      ],
+      "capabilities": [
+        {
+          "kind": "Capability",
+          "id": "capability_secret_inject"
+        }
+      ],
+      "resources": [
+        {
+          "kind": "ResourceRef",
+          "id": "resource_npm_token_secret"
+        }
+      ],
+      "conditions": {
+        "job": "validate"
+      },
+      "reason": "Validation workflow may request brokered NPM_TOKEN injection.",
+      "redaction": {
+        "classification": "secret",
+        "strategy": "omit",
+        "fields": ["/conditions/envPreview"],
+        "reason": "Policy examples do not disclose secret values or previews."
+      }
+    }
+  ],
+  "defaults": {
+    "decision": "deny"
+  },
+  "approvals": {
+    "required": 1,
+    "from": ["team_platform"]
+  },
+  "locks": [
+    {
+      "type": "glob",
+      "value": "*.psd"
+    }
+  ],
+  "createdAt": "2026-06-24T08:11:00Z",
+  "updatedAt": "2026-06-24T08:12:00Z"
+}

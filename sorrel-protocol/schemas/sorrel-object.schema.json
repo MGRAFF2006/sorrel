@@ -1,0 +1,1831 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.sorrel.dev/protocol/v0/sorrel-object.schema.json",
+  "title": "Sorrel Protocol Object",
+  "description": "Versioned JSON Schema bundle for Sorrel protocol objects.",
+  "oneOf": [
+    { "$ref": "#/$defs/Blob" },
+    { "$ref": "#/$defs/Tree" },
+    { "$ref": "#/$defs/Snapshot" },
+    { "$ref": "#/$defs/Change" },
+    { "$ref": "#/$defs/Lane" },
+    { "$ref": "#/$defs/Stack" },
+    { "$ref": "#/$defs/Slice" },
+    { "$ref": "#/$defs/Conflict" },
+    { "$ref": "#/$defs/MergeResult" },
+    { "$ref": "#/$defs/Resolution" },
+    { "$ref": "#/$defs/Principal" },
+    { "$ref": "#/$defs/Capability" },
+    { "$ref": "#/$defs/ResourceRef" },
+    { "$ref": "#/$defs/Grant" },
+    { "$ref": "#/$defs/SecretRef" },
+    { "$ref": "#/$defs/Workflow" },
+    { "$ref": "#/$defs/Runner" },
+    { "$ref": "#/$defs/Policy" },
+    { "$ref": "#/$defs/PolicyDecision" },
+    { "$ref": "#/$defs/AuditEvent" },
+    { "$ref": "#/$defs/AgentPolicy" },
+    { "$ref": "#/$defs/AuthorityRoot" },
+    { "$ref": "#/$defs/PolicyChange" },
+    { "$ref": "#/$defs/Workspace" }
+  ],
+  "$defs": {
+    "ProtocolVersion": {
+      "type": "string",
+      "const": "sorrel.protocol.v0"
+    },
+    "Kind": {
+      "type": "string",
+      "enum": [
+        "Blob",
+        "Tree",
+        "Snapshot",
+        "Change",
+        "Lane",
+        "Stack",
+        "Slice",
+        "Conflict",
+        "MergeResult",
+        "Resolution",
+        "Principal",
+        "Capability",
+        "ResourceRef",
+        "Grant",
+        "SecretRef",
+        "Workflow",
+        "Runner",
+        "Policy",
+        "PolicyDecision",
+        "AuditEvent",
+        "AgentPolicy",
+        "AuthorityRoot",
+        "PolicyChange",
+        "Workspace"
+      ]
+    },
+    "ObjectId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z][A-Za-z0-9_.:/-]*$"
+    },
+    "ContentObjectId": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "64-character lowercase hexadecimal BLAKE3 content id."
+    },
+    "ContentObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["object"],
+      "properties": {
+        "object": { "$ref": "#/$defs/ContentObjectId" }
+      }
+    },
+    "RepositoryId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 240,
+      "pattern": "^(repo_[A-Za-z0-9_.:-]+|sorrel://[A-Za-z0-9_.:/-]+)$"
+    },
+    "Timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "Path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "not": {
+        "pattern": "(^/|(^|/)\\.\\.(/|$))"
+      }
+    },
+    "PrincipalType": {
+      "type": "string",
+      "enum": ["user", "agent", "team", "service", "runner", "workflow", "system"]
+    },
+    "PrincipalRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "$ref": "#/$defs/PrincipalType" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "Principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "principalType"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Principal" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "principalType": { "$ref": "#/$defs/PrincipalType" },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "uniqueItems": true
+        },
+        "attributes": { "$ref": "#/$defs/Metadata" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "ObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/Kind" },
+        "id": { "$ref": "#/$defs/ObjectId" }
+      }
+    },
+    "PrincipalObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "Principal" },
+        "id": { "$ref": "#/$defs/ObjectId" }
+      }
+    },
+    "CapabilityObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "Capability" },
+        "id": { "$ref": "#/$defs/ObjectId" }
+      }
+    },
+    "ResourceObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "ResourceRef" },
+        "id": { "$ref": "#/$defs/ObjectId" }
+      }
+    },
+    "GrantObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "Grant" },
+        "id": { "$ref": "#/$defs/ObjectId" }
+      }
+    },
+    "PolicyObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "Policy" },
+        "id": { "$ref": "#/$defs/ObjectId" }
+      }
+    },
+    "PolicyDecisionObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "PolicyDecision" },
+        "id": { "$ref": "#/$defs/ObjectId" }
+      }
+    },
+    "AuthorityRootObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "AuthorityRoot" },
+        "id": { "$ref": "#/$defs/ObjectId" }
+      }
+    },
+    "PolicyChangeObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "PolicyChange" },
+        "id": { "$ref": "#/$defs/ObjectId" }
+      }
+    },
+    "SecretObjectRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "SecretRef" },
+        "id": { "$ref": "#/$defs/ObjectId" }
+      }
+    },
+    "Hash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["blake3", "sha256", "git-sha1"]
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Fa-f0-9]{40,128}$"
+        }
+      }
+    },
+    "Visibility": {
+      "type": "string",
+      "enum": ["private", "team", "review", "public", "redacted"]
+    },
+    "Metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "PathSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["path", "glob", "symbol", "schema", "secret", "workflow"]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "Range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startLine", "startColumn", "endLine", "endColumn"],
+      "properties": {
+        "startLine": { "type": "integer", "minimum": 1 },
+        "startColumn": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "endColumn": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "Operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "path"],
+      "properties": {
+        "op": {
+          "type": "string",
+          "enum": ["add", "modify", "delete", "move", "copy", "chmod", "metadata"]
+        },
+        "path": { "$ref": "#/$defs/Path" },
+        "fromPath": { "$ref": "#/$defs/Path" },
+        "object": { "$ref": "#/$defs/ObjectRef" },
+        "mode": {
+          "type": "string",
+          "enum": ["normal", "executable", "symlink", "directory"]
+        },
+        "hunks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Hunk" }
+        },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Hunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stableAnchor", "oldText", "newText"],
+      "properties": {
+        "stableAnchor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "range": { "$ref": "#/$defs/Range" },
+        "oldText": { "type": "string" },
+        "newText": { "type": "string" }
+      }
+    },
+    "TouchSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Path" },
+          "uniqueItems": true
+        },
+        "symbols": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "secrets": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "schemas": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "PlatformRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtime": {
+          "type": "string",
+          "enum": ["shell", "node", "python", "rust", "go", "container", "wasm", "browser", "xcode", "custom"]
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "os": {
+          "type": "string",
+          "enum": ["linux", "macos", "windows", "any"]
+        },
+        "arch": {
+          "type": "string",
+          "enum": ["x64", "arm64", "wasm32", "any"]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "Scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ref"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "org",
+            "project",
+            "repo",
+            "path",
+            "file",
+            "symbol",
+            "change",
+            "stack",
+            "proposal",
+            "secret",
+            "environment",
+            "agent",
+            "runner",
+            "workflow",
+            "marketplace-app"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "CapabilityAction": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9-]*)+$"
+    },
+    "AuthorizationEffect": {
+      "type": "string",
+      "enum": ["allow", "deny", "require-approval"]
+    },
+    "GrantStatus": {
+      "type": "string",
+      "enum": ["active", "expired", "revoked"]
+    },
+    "DecisionOutcome": {
+      "type": "string",
+      "enum": ["allow", "deny", "require-approval"]
+    },
+    "AuthorizationPrincipal": {
+      "oneOf": [
+        { "$ref": "#/$defs/PrincipalRef" },
+        { "$ref": "#/$defs/PrincipalObjectRef" }
+      ]
+    },
+    "AuthorizationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal", "capability", "resource"],
+      "properties": {
+        "principal": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "capability": { "$ref": "#/$defs/CapabilityObjectRef" },
+        "resource": { "$ref": "#/$defs/ResourceObjectRef" },
+        "context": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "RedactionMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "strategy"],
+      "properties": {
+        "classification": {
+          "type": "string",
+          "enum": ["public", "internal", "confidential", "secret"]
+        },
+        "strategy": {
+          "type": "string",
+          "enum": ["none", "mask", "hash", "omit", "tokenize"]
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "uniqueItems": true
+        },
+        "reason": { "type": "string", "minLength": 1 },
+        "appliedAt": { "$ref": "#/$defs/Timestamp" },
+        "appliedBy": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Blob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "size", "contentHash", "encoding"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Blob" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "mediaType": { "type": "string", "minLength": 1 },
+        "size": { "type": "integer", "minimum": 0 },
+        "contentHash": { "$ref": "#/$defs/Hash" },
+        "encoding": {
+          "type": "string",
+          "enum": ["raw", "utf8", "base64", "chunked"]
+        },
+        "chunks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["offset", "size", "hash"],
+            "properties": {
+              "offset": { "type": "integer", "minimum": 0 },
+              "size": { "type": "integer", "minimum": 1 },
+              "hash": { "$ref": "#/$defs/Hash" }
+            }
+          }
+        },
+        "executable": { "type": "boolean" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Tree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "entries"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Tree" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TreeEntry" }
+        },
+        "contentHash": { "$ref": "#/$defs/Hash" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "TreeEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "type", "object", "mode"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "path": { "$ref": "#/$defs/Path" },
+        "type": {
+          "type": "string",
+          "enum": ["file", "directory", "symlink", "slice"]
+        },
+        "object": { "$ref": "#/$defs/ObjectRef" },
+        "mode": {
+          "type": "string",
+          "enum": ["normal", "executable", "symlink", "directory"]
+        },
+        "size": { "type": "integer", "minimum": 0 },
+        "contentHash": { "$ref": "#/$defs/Hash" }
+      }
+    },
+    "Snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "repo", "rootTree", "createdAt", "author"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Snapshot" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "repo": { "$ref": "#/$defs/RepositoryId" },
+        "rootTree": { "$ref": "#/$defs/ObjectRef" },
+        "parents": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ObjectRef" }
+        },
+        "change": { "$ref": "#/$defs/ObjectRef" },
+        "message": { "type": "string" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "author": { "$ref": "#/$defs/PrincipalRef" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "author", "baseSnapshot", "operations", "createdAt", "visibility"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Change" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "author": { "$ref": "#/$defs/PrincipalRef" },
+        "parents": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ObjectRef" }
+        },
+        "baseSnapshot": { "$ref": "#/$defs/ObjectRef" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "description": { "type": "string" },
+        "operations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Operation" }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ObjectRef" }
+        },
+        "touches": { "$ref": "#/$defs/TouchSet" },
+        "visibility": { "$ref": "#/$defs/Visibility" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "signedBy": { "type": "string", "minLength": 1 },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "name", "owner", "baseSnapshot", "status", "createdAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Lane" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "owner": { "$ref": "#/$defs/PrincipalRef" },
+        "baseSnapshot": { "$ref": "#/$defs/ObjectRef" },
+        "headSnapshot": { "$ref": "#/$defs/ObjectRef" },
+        "stack": { "$ref": "#/$defs/ObjectRef" },
+        "activeChanges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ObjectRef" }
+        },
+        "workspace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["filesystem", "in-memory", "browser", "container", "remote"]
+            },
+            "path": { "type": "string", "minLength": 1 },
+            "runner": { "$ref": "#/$defs/ObjectRef" }
+          }
+        },
+        "claims": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PathSelector" }
+        },
+        "secretGrants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ObjectRef" }
+        },
+        "policy": { "$ref": "#/$defs/ObjectRef" },
+        "visibility": { "$ref": "#/$defs/Visibility" },
+        "status": {
+          "type": "string",
+          "enum": ["active", "paused", "closed"]
+        },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "name", "changes", "createdAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Stack" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "lane": { "$ref": "#/$defs/ObjectRef" },
+        "baseSnapshot": { "$ref": "#/$defs/ObjectRef" },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repo": { "$ref": "#/$defs/RepositoryId" },
+            "lane": { "type": "string", "minLength": 1 }
+          }
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["change", "status"],
+            "properties": {
+              "change": { "$ref": "#/$defs/ObjectRef" },
+              "dependsOn": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/ObjectRef" }
+              },
+              "status": {
+                "type": "string",
+                "enum": ["draft", "review", "ready", "merged", "blocked"]
+              }
+            }
+          }
+        },
+        "policy": { "$ref": "#/$defs/ObjectRef" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Slice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "name", "sourceRepo", "sourcePath", "entrypoints", "permissionsPolicy", "linkMode", "createdBy"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Slice" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "sourceRepo": { "$ref": "#/$defs/RepositoryId" },
+        "sourcePath": { "$ref": "#/$defs/Path" },
+        "entrypoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/Path" }
+        },
+        "targetRepo": { "$ref": "#/$defs/RepositoryId" },
+        "sourceChange": { "$ref": "#/$defs/ObjectRef" },
+        "permissionsPolicy": {
+          "type": "string",
+          "enum": ["projected", "explicit", "inherited", "none"]
+        },
+        "linkMode": {
+          "type": "string",
+          "enum": ["live", "pinned", "vendored", "virtual"]
+        },
+        "includes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PathSelector" }
+        },
+        "excludes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PathSelector" }
+        },
+        "createdBy": { "$ref": "#/$defs/PrincipalRef" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "backlinks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["repo", "path"],
+            "properties": {
+              "repo": { "$ref": "#/$defs/RepositoryId" },
+              "path": { "$ref": "#/$defs/Path" },
+              "createdFrom": { "$ref": "#/$defs/ObjectRef" }
+            }
+          }
+        },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "ConflictHunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseStart", "baseLines", "oursLines", "theirsLines"],
+      "properties": {
+        "baseStart": { "type": "integer", "minimum": 0 },
+        "baseLines": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "oursLines": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "theirsLines": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "Conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "repoId", "path", "conflictType"],
+      "anyOf": [
+        {
+          "properties": {
+            "ours": { "$ref": "#/$defs/ContentObjectRef" }
+          },
+          "required": ["ours"]
+        },
+        {
+          "properties": {
+            "theirs": { "$ref": "#/$defs/ContentObjectRef" }
+          },
+          "required": ["theirs"]
+        }
+      ],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Conflict" },
+        "repoId": { "$ref": "#/$defs/RepositoryId" },
+        "path": { "$ref": "#/$defs/Path" },
+        "base": { "$ref": "#/$defs/ContentObjectRef" },
+        "ours": { "$ref": "#/$defs/ContentObjectRef" },
+        "theirs": { "$ref": "#/$defs/ContentObjectRef" },
+        "conflictType": {
+          "type": "string",
+          "enum": ["content", "add_add", "modify_delete", "binary"]
+        },
+        "hunks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ConflictHunk" }
+        },
+        "resolution": { "$ref": "#/$defs/ContentObjectId" }
+      }
+    },
+    "MergeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "kind",
+        "repoId",
+        "baseSnapshot",
+        "oursSnapshot",
+        "theirsSnapshot",
+        "status",
+        "conflicts"
+      ],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "MergeResult" },
+        "repoId": { "$ref": "#/$defs/RepositoryId" },
+        "baseSnapshot": { "$ref": "#/$defs/ContentObjectId" },
+        "oursSnapshot": { "$ref": "#/$defs/ContentObjectId" },
+        "theirsSnapshot": { "$ref": "#/$defs/ContentObjectId" },
+        "status": {
+          "type": "string",
+          "enum": ["clean", "conflicted"]
+        },
+        "conflicts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ContentObjectId" }
+        },
+        "mergedSnapshot": { "$ref": "#/$defs/ContentObjectId" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "status": { "const": "clean" }
+            },
+            "required": ["status"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "conflicts": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Resolution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "conflict", "resolvedBy", "createdAt", "operations", "status"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Resolution" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "conflict": { "$ref": "#/$defs/ObjectRef" },
+        "resolvedBy": { "$ref": "#/$defs/PrincipalRef" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "changes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ObjectRef" }
+        },
+        "operations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Operation" }
+        },
+        "rationale": { "type": "string" },
+        "reusable": { "type": "boolean" },
+        "appliesTo": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "paths": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/Path" }
+            },
+            "symbols": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "conflictKinds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["text", "semantic", "dependency", "binary", "manual"]
+              }
+            }
+          }
+        },
+        "verification": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ObjectRef" }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["accepted", "superseded", "rejected"]
+        },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "action", "category"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Capability" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "action": { "$ref": "#/$defs/CapabilityAction" },
+        "category": {
+          "type": "string",
+          "enum": ["repo", "path", "workflow", "runner", "secret", "policy", "authority", "audit", "system", "custom"]
+        },
+        "description": { "type": "string", "minLength": 1 },
+        "implies": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CapabilityObjectRef" },
+          "uniqueItems": true
+        },
+        "constraints": { "$ref": "#/$defs/Metadata" },
+        "redaction": { "$ref": "#/$defs/RedactionMetadata" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "ResourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "scope"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "ResourceRef" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "scope": { "$ref": "#/$defs/Scope" },
+        "repo": { "$ref": "#/$defs/RepositoryId" },
+        "path": { "$ref": "#/$defs/Path" },
+        "object": { "$ref": "#/$defs/ObjectRef" },
+        "description": { "type": "string", "minLength": 1 },
+        "redaction": { "$ref": "#/$defs/RedactionMetadata" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "principal", "capabilities", "resources", "effect", "status", "issuedAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Grant" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "principal": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/CapabilityObjectRef" },
+          "uniqueItems": true
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ResourceObjectRef" },
+          "uniqueItems": true
+        },
+        "effect": { "$ref": "#/$defs/AuthorizationEffect" },
+        "status": { "$ref": "#/$defs/GrantStatus" },
+        "conditions": { "$ref": "#/$defs/Metadata" },
+        "issuedBy": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "issuedAt": { "$ref": "#/$defs/Timestamp" },
+        "expiresAt": { "$ref": "#/$defs/Timestamp" },
+        "revokedAt": { "$ref": "#/$defs/Timestamp" },
+        "reason": { "type": "string" },
+        "redaction": { "$ref": "#/$defs/RedactionMetadata" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "SecretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "name", "provider", "uri", "environment", "required", "valueType"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "SecretRef" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "provider": {
+          "type": "string",
+          "enum": [
+            "sorrel-vault",
+            "hashicorp-vault",
+            "aws-secrets-manager",
+            "gcp-secret-manager",
+            "azure-key-vault",
+            "doppler",
+            "infisical",
+            "sops",
+            "custom"
+          ]
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "required": { "type": "boolean" },
+        "valueType": {
+          "type": "string",
+          "enum": ["secret", "url", "token", "certificate", "key", "json", "text"]
+        },
+        "scopes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Scope" }
+        },
+        "version": { "type": "string", "minLength": 1 },
+        "rotation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cadence": {
+              "type": "string",
+              "enum": ["manual", "daily", "weekly", "monthly", "quarterly", "yearly"]
+            },
+            "lastRotatedAt": { "$ref": "#/$defs/Timestamp" }
+          }
+        },
+        "description": { "type": "string" },
+        "resource": { "$ref": "#/$defs/ResourceObjectRef" },
+        "redaction": { "$ref": "#/$defs/RedactionMetadata" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "name", "jobs"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Workflow" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "description": { "type": "string" },
+        "triggers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["event"],
+            "properties": {
+              "event": {
+                "type": "string",
+                "enum": ["manual", "schedule", "change.created", "lane.updated", "stack.submitted", "snapshot.created"]
+              },
+              "cron": { "type": "string", "minLength": 1 },
+              "filters": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/PathSelector" }
+              }
+            }
+          }
+        },
+        "jobs": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/WorkflowJob" }
+        },
+        "permissions": { "$ref": "#/$defs/ObjectRef" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "WorkflowJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "platform"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "needs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "command": { "type": "string", "minLength": 1 },
+        "shell": {
+          "type": "string",
+          "enum": ["sh", "bash", "pwsh", "cmd", "none"]
+        },
+        "inputs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PathSelector" }
+        },
+        "outputs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PathSelector" }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string" },
+              { "$ref": "#/$defs/ObjectRef" }
+            ]
+          }
+        },
+        "secrets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ObjectRef" }
+        },
+        "platform": { "$ref": "#/$defs/PlatformRequirement" },
+        "timeoutMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10080
+        }
+      }
+    },
+    "Runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "name", "mode", "runnerType", "platform", "isolation", "maxParallelJobs"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Runner" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "mode": {
+          "type": "string",
+          "enum": ["local", "pull", "push", "ephemeral"]
+        },
+        "runnerType": {
+          "type": "string",
+          "enum": ["process", "container", "ssh", "kubernetes", "github-actions", "gitlab-ci", "buildkite", "remote-execution", "wasm", "browser"]
+        },
+        "platform": { "$ref": "#/$defs/PlatformRequirement" },
+        "isolation": {
+          "type": "string",
+          "enum": ["host", "container", "vm", "microvm", "wasm", "browser"]
+        },
+        "maxParallelJobs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "labels": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "endpoint": { "type": "string", "minLength": 1 },
+        "trust": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "identity": { "type": "string", "minLength": 1 },
+            "attestation": {
+              "type": "string",
+              "enum": ["none", "self-attested", "oidc", "tpm", "sigstore"]
+            },
+            "secretHandling": {
+              "type": "string",
+              "enum": ["none", "environment", "file", "brokered", "hardware-backed"]
+            }
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["online", "offline", "draining", "disabled"]
+        },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "Policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "scope", "rules"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Policy" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "scope": { "$ref": "#/$defs/Scope" },
+        "description": { "type": "string", "minLength": 1 },
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/PolicyRule" }
+        },
+        "defaults": { "$ref": "#/$defs/Metadata" },
+        "approvals": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": { "type": "integer", "minimum": 0 },
+            "from": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "locks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PathSelector" }
+        },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" },
+        "redaction": { "$ref": "#/$defs/RedactionMetadata" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "PolicyRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect", "principals", "capabilities", "resources"],
+      "properties": {
+        "effect": { "$ref": "#/$defs/AuthorizationEffect" },
+        "principals": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/AuthorizationPrincipal" }
+        },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/CapabilityObjectRef" }
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ResourceObjectRef" }
+        },
+        "conditions": { "$ref": "#/$defs/Metadata" },
+        "reason": { "type": "string" },
+        "redaction": { "$ref": "#/$defs/RedactionMetadata" }
+      }
+    },
+    "PolicyDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "request", "decision", "decidedAt", "evaluator"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "PolicyDecision" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "request": { "$ref": "#/$defs/AuthorizationRequest" },
+        "decision": { "$ref": "#/$defs/DecisionOutcome" },
+        "reason": { "type": "string" },
+        "matchedPolicies": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PolicyObjectRef" },
+          "uniqueItems": true
+        },
+        "matchedGrants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GrantObjectRef" },
+          "uniqueItems": true
+        },
+        "decidedAt": { "$ref": "#/$defs/Timestamp" },
+        "evaluator": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "redaction": { "$ref": "#/$defs/RedactionMetadata" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "AuditEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "eventType", "actor", "occurredAt", "outcome"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "AuditEvent" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "eventType": {
+          "type": "string",
+          "enum": [
+            "capability.requested",
+            "capability.allowed",
+            "capability.denied",
+            "grant.created",
+            "grant.revoked",
+            "policy.evaluated",
+            "resource.written",
+            "workflow.run.requested",
+            "workflow.run.started",
+            "secret.injection.requested",
+            "secret.injected",
+            "policy.change.proposed",
+            "policy.change.approved",
+            "policy.change.denied",
+            "authority.rotated"
+          ]
+        },
+        "actor": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "capability": { "$ref": "#/$defs/CapabilityObjectRef" },
+        "resource": { "$ref": "#/$defs/ResourceObjectRef" },
+        "decision": { "$ref": "#/$defs/PolicyDecisionObjectRef" },
+        "grant": { "$ref": "#/$defs/GrantObjectRef" },
+        "secret": { "$ref": "#/$defs/SecretObjectRef" },
+        "occurredAt": { "$ref": "#/$defs/Timestamp" },
+        "outcome": {
+          "type": "string",
+          "enum": ["success", "failure", "denied", "pending", "redacted"]
+        },
+        "reason": { "type": "string" },
+        "redaction": { "$ref": "#/$defs/RedactionMetadata" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "AgentPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "scope", "rules", "approvedBy"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "AgentPolicy" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "scope": { "$ref": "#/$defs/Scope" },
+        "appliesTo": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "agents": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "lanes": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "tasks": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "patches": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "allowedTools": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "deniedTools": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "readableScopes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Scope" }
+        },
+        "writableScopes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Scope" }
+        },
+        "secretGrants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ObjectRef" }
+        },
+        "workflowPermissions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["workflow", "actions"],
+            "properties": {
+              "workflow": { "$ref": "#/$defs/ObjectRef" },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["read", "run", "cancel", "reroute"]
+                },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "commandPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "deny": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "requireApproval": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "materializedFiles": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Path" }
+        },
+        "approvedBy": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "PublicKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["ed25519", "secp256k1", "p256"]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 256
+        }
+      }
+    },
+    "AuthorityThreshold": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "minimum"],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["simple", "unanimous"]
+            },
+            "minimum": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "minimum", "totalWeight"],
+          "properties": {
+            "mode": { "const": "weighted" },
+            "minimum": {
+              "type": "number",
+              "minimum": 0
+            },
+            "totalWeight": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "WeightedAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal", "weight"],
+      "properties": {
+        "principal": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "weight": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "publicKey": { "$ref": "#/$defs/PublicKey" },
+        "status": {
+          "type": "string",
+          "enum": ["active", "rotated", "revoked"]
+        }
+      }
+    },
+    "PolicyRootRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "const": "AuthorityRoot" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "contentHash": { "$ref": "#/$defs/Hash" }
+      }
+    },
+    "AuthoritySignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signer", "algorithm", "value", "signedAt"],
+      "properties": {
+        "signer": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "algorithm": {
+          "type": "string",
+          "enum": ["ed25519", "secp256k1", "p256"]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 512
+        },
+        "signedAt": { "$ref": "#/$defs/Timestamp" },
+        "weight": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "PolicyGrantOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal", "capabilities", "resources", "effect"],
+      "properties": {
+        "principal": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/CapabilityObjectRef" },
+          "uniqueItems": true
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ResourceObjectRef" },
+          "uniqueItems": true
+        },
+        "effect": { "$ref": "#/$defs/AuthorizationEffect" },
+        "delegatedBy": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "scopeConstraint": { "$ref": "#/$defs/Scope" },
+        "reason": { "type": "string" }
+      }
+    },
+    "PolicyDelegationOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delegate", "capabilities", "scope"],
+      "properties": {
+        "delegate": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/CapabilityObjectRef" },
+          "uniqueItems": true
+        },
+        "scope": { "$ref": "#/$defs/Scope" },
+        "delegatedBy": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "reason": { "type": "string" }
+      }
+    },
+    "AuthorityRotationOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorities", "threshold"],
+      "properties": {
+        "authorities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/WeightedAuthority" }
+        },
+        "threshold": { "$ref": "#/$defs/AuthorityThreshold" },
+        "rotatedBy": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "reason": { "type": "string" }
+      }
+    },
+    "PolicyChangeOperation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "grant"],
+          "properties": {
+            "type": { "const": "policy.grant" },
+            "grant": { "$ref": "#/$defs/PolicyGrantOperation" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "delegation"],
+          "properties": {
+            "type": { "const": "policy.delegate" },
+            "delegation": { "$ref": "#/$defs/PolicyDelegationOperation" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "rotation"],
+          "properties": {
+            "type": { "const": "authority.rotate" },
+            "rotation": { "$ref": "#/$defs/AuthorityRotationOperation" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "admin"],
+          "properties": {
+            "type": { "const": "authority.admin" },
+            "admin": { "$ref": "#/$defs/Metadata" }
+          }
+        }
+      ]
+    },
+    "AuthorityRoot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "id", "scope", "threshold", "authorities", "policy", "createdAt"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "AuthorityRoot" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "scope": { "$ref": "#/$defs/Scope" },
+        "description": { "type": "string", "minLength": 1 },
+        "threshold": { "$ref": "#/$defs/AuthorityThreshold" },
+        "authorities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/WeightedAuthority" }
+        },
+        "policy": { "$ref": "#/$defs/PolicyObjectRef" },
+        "contentHash": { "$ref": "#/$defs/Hash" },
+        "previousRoot": { "$ref": "#/$defs/AuthorityRootObjectRef" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "PolicyChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "kind",
+        "id",
+        "scope",
+        "previousPolicyRoot",
+        "proposedPolicyRoot",
+        "evaluationPolicyRoot",
+        "operation",
+        "createdAt"
+      ],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "PolicyChange" },
+        "id": { "$ref": "#/$defs/ObjectId" },
+        "scope": { "$ref": "#/$defs/Scope" },
+        "previousPolicyRoot": { "$ref": "#/$defs/PolicyRootRef" },
+        "proposedPolicyRoot": { "$ref": "#/$defs/PolicyRootRef" },
+        "evaluationPolicyRoot": { "$ref": "#/$defs/PolicyRootRef" },
+        "operation": { "$ref": "#/$defs/PolicyChangeOperation" },
+        "signatures": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AuthoritySignature" }
+        },
+        "proposedBy": { "$ref": "#/$defs/AuthorizationPrincipal" },
+        "trust": {
+          "type": "string",
+          "enum": ["trusted", "untrusted", "pending", "denied"]
+        },
+        "decision": { "$ref": "#/$defs/PolicyDecisionObjectRef" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "decidedAt": { "$ref": "#/$defs/Timestamp" },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    },
+    "ComponentLinkTracking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["branch", "revision", "tag"]
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 64,
+          "pattern": "^[0-9a-f]+$"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "branch" } } },
+          "then": {
+            "properties": { "branch": { "type": "string" } },
+            "required": ["branch"]
+          }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "revision" } } },
+          "then": {
+            "properties": { "revision": { "type": "string" } },
+            "required": ["revision"]
+          }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "tag" } } },
+          "then": {
+            "properties": { "tag": { "type": "string" } },
+            "required": ["tag"]
+          }
+        }
+      ]
+    },
+    "ComponentLinkLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["git", "path"]
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      }
+    },
+    "ComponentLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role", "location", "tracking"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["member", "dependency"]
+        },
+        "location": { "$ref": "#/$defs/ComponentLinkLocation" },
+        "tracking": { "$ref": "#/$defs/ComponentLinkTracking" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "role": { "const": "member" } } },
+          "then": {
+            "properties": {
+              "tracking": {
+                "type": "object",
+                "properties": { "mode": { "const": "branch" } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "role": { "const": "dependency" } } },
+          "then": {
+            "properties": {
+              "tracking": {
+                "type": "object",
+                "properties": {
+                  "mode": { "enum": ["revision", "tag"] }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "kind", "repoId", "createdAt", "defaultLane"],
+      "properties": {
+        "schemaVersion": { "$ref": "#/$defs/ProtocolVersion" },
+        "kind": { "const": "Workspace" },
+        "repoId": { "$ref": "#/$defs/RepositoryId" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "defaultLane": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "name"],
+          "properties": {
+            "id": { "$ref": "#/$defs/ObjectId" },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240
+            }
+          }
+        },
+        "componentLinks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ComponentLink" }
+        },
+        "metadata": { "$ref": "#/$defs/Metadata" }
+      }
+    }
+  }
+}

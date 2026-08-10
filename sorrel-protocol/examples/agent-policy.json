@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "AgentPolicy",
+  "id": "agent_policy_docs",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "appliesTo": {
+    "agents": ["agent_docs_001"],
+    "lanes": ["agent/docs-protocol"],
+    "tasks": ["document-protocol"]
+  },
+  "rules": [
+    "Run npm run validate before proposing schema changes.",
+    "Do not serialize raw secret values into examples.",
+    "Keep protocol object examples small and reviewable."
+  ],
+  "patches": [
+    "Prefer schema changes that preserve v0 examples unless the example documents a deliberate contract change."
+  ],
+  "allowedTools": ["read", "edit", "npm"],
+  "deniedTools": ["publish"],
+  "readableScopes": [
+    {
+      "type": "repo",
+      "ref": "repo_main"
+    }
+  ],
+  "writableScopes": [
+    {
+      "type": "path",
+      "ref": "schemas/"
+    },
+    {
+      "type": "path",
+      "ref": "examples/"
+    }
+  ],
+  "secretGrants": [
+    {
+      "kind": "SecretRef",
+      "id": "secret_npm_token"
+    }
+  ],
+  "workflowPermissions": [
+    {
+      "workflow": {
+        "kind": "Workflow",
+        "id": "workflow_validate_protocol"
+      },
+      "actions": ["read", "run"]
+    }
+  ],
+  "commandPolicy": {
+    "allow": ["npm install", "npm run validate"],
+    "deny": ["npm publish"],
+    "requireApproval": ["git push origin main"]
+  },
+  "materializedFiles": ["AGENTS.md", ".sorrel/agent-policy.lock"],
+  "approvedBy": ["team:platform"],
+  "createdAt": "2026-06-24T08:13:00Z",
+  "updatedAt": "2026-06-24T08:14:00Z"
+}

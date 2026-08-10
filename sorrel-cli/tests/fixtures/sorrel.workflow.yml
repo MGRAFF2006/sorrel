@@ -1,0 +1,7 @@
+version: 1
+id: workflow_validate_protocol
+
+jobs:
+  test:
+    command: echo workflow-ok
+    shell: sh

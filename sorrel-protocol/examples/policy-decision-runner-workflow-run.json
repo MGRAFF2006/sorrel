@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyDecision",
+  "id": "decision_runner_workflow_run",
+  "request": {
+    "principal": {
+      "kind": "Principal",
+      "id": "principal_runner_local_container"
+    },
+    "capability": {
+      "kind": "Capability",
+      "id": "capability_workflow_run"
+    },
+    "resource": {
+      "kind": "ResourceRef",
+      "id": "resource_validate_workflow"
+    },
+    "context": {
+      "runner": "runner_local_container"
+    }
+  },
+  "decision": "allow",
+  "reason": "Active grant permits the local container runner to run the validation workflow.",
+  "matchedPolicies": [
+    {
+      "kind": "Policy",
+      "id": "policy_core_permission_spine"
+    }
+  ],
+  "matchedGrants": [
+    {
+      "kind": "Grant",
+      "id": "grant_runner_workflow_run"
+    }
+  ],
+  "decidedAt": "2026-06-24T09:21:00Z",
+  "evaluator": {
+    "type": "system",
+    "id": "system_core"
+  }
+}

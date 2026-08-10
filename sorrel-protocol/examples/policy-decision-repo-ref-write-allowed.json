@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyDecision",
+  "id": "decision_repo_ref_write_allowed",
+  "request": {
+    "principal": {
+      "kind": "Principal",
+      "id": "principal_maintainer"
+    },
+    "capability": {
+      "kind": "Capability",
+      "id": "capability_repo_ref_write"
+    },
+    "resource": {
+      "kind": "ResourceRef",
+      "id": "resource_repo_main"
+    },
+    "context": {
+      "repoId": "repo_main",
+      "ref": "lane/main",
+      "operation": "sync_push"
+    }
+  },
+  "decision": "allow",
+  "reason": "Active grant permits the maintainer to advance refs on repo_main.",
+  "matchedPolicies": [
+    {
+      "kind": "Policy",
+      "id": "policy_core_permission_spine"
+    }
+  ],
+  "matchedGrants": [
+    {
+      "kind": "Grant",
+      "id": "grant_repo_ref_write"
+    }
+  ],
+  "decidedAt": "2026-06-24T09:27:00Z",
+  "evaluator": {
+    "type": "system",
+    "id": "system_core"
+  }
+}

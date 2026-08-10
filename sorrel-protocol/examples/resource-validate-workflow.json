@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "ResourceRef",
+  "id": "resource_validate_workflow",
+  "scope": {
+    "type": "workflow",
+    "ref": "workflow_validate_protocol"
+  },
+  "object": {
+    "kind": "Workflow",
+    "id": "workflow_validate_protocol"
+  },
+  "description": "Protocol validation workflow."
+}

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Slice",
+  "id": "slice_auth_lib",
+  "name": "auth-lib",
+  "sourceRepo": "sorrel://org/app",
+  "sourcePath": "packages/auth",
+  "entrypoints": [
+    "packages/auth/src/index.ts"
+  ],
+  "targetRepo": "sorrel://org/auth-lib",
+  "sourceChange": {
+    "kind": "Change",
+    "id": "chg_update_readme_001"
+  },
+  "permissionsPolicy": "projected",
+  "linkMode": "live",
+  "includes": [
+    {
+      "type": "glob",
+      "value": "packages/auth/**"
+    }
+  ],
+  "excludes": [
+    {
+      "type": "glob",
+      "value": "packages/auth/**/*.snap"
+    }
+  ],
+  "createdBy": {
+    "type": "user",
+    "id": "user_alice",
+    "displayName": "Alice"
+  },
+  "createdAt": "2026-06-24T08:07:00Z",
+  "backlinks": [
+    {
+      "repo": "sorrel://org/app",
+      "path": "packages/auth",
+      "createdFrom": {
+        "kind": "Change",
+        "id": "chg_update_readme_001"
+      }
+    }
+  ]
+}

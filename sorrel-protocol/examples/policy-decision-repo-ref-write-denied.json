@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyDecision",
+  "id": "decision_repo_ref_write_denied",
+  "request": {
+    "principal": {
+      "kind": "Principal",
+      "id": "principal_unprivileged_agent"
+    },
+    "capability": {
+      "kind": "Capability",
+      "id": "capability_repo_ref_write"
+    },
+    "resource": {
+      "kind": "ResourceRef",
+      "id": "resource_repo_main"
+    },
+    "context": {
+      "repoId": "repo_main",
+      "ref": "lane/main",
+      "note": "No grant authorizes this principal to advance refs."
+    }
+  },
+  "decision": "deny",
+  "reason": "No active grant permits this principal to advance refs on repo_main.",
+  "matchedPolicies": [],
+  "matchedGrants": [],
+  "decidedAt": "2026-06-24T09:28:00Z",
+  "evaluator": {
+    "type": "system",
+    "id": "system_core"
+  }
+}

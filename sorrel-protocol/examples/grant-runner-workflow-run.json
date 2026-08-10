@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Grant",
+  "id": "grant_runner_workflow_run",
+  "principal": {
+    "kind": "Principal",
+    "id": "principal_runner_local_container"
+  },
+  "capabilities": [
+    {
+      "kind": "Capability",
+      "id": "capability_workflow_run"
+    }
+  ],
+  "resources": [
+    {
+      "kind": "ResourceRef",
+      "id": "resource_validate_workflow"
+    }
+  ],
+  "effect": "allow",
+  "status": "active",
+  "conditions": {
+    "runner": "runner_local_container",
+    "maxParallelJobs": 2
+  },
+  "issuedBy": {
+    "type": "team",
+    "id": "team_platform"
+  },
+  "issuedAt": "2026-06-24T09:11:00Z",
+  "reason": "The local container runner may run the protocol validation workflow."
+}

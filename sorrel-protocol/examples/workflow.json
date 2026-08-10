@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Workflow",
+  "id": "workflow_validate_protocol",
+  "name": "Validate protocol package",
+  "description": "Compile JSON schemas and validate bundled examples.",
+  "triggers": [
+    {
+      "event": "manual"
+    },
+    {
+      "event": "change.created",
+      "filters": [
+        {
+          "type": "glob",
+          "value": "schemas/**/*.json"
+        },
+        {
+          "type": "glob",
+          "value": "examples/**/*.json"
+        }
+      ]
+    }
+  ],
+  "jobs": {
+    "validate": {
+      "name": "Validate schema and examples",
+      "command": "npm run validate",
+      "shell": "bash",
+      "inputs": [
+        {
+          "type": "glob",
+          "value": "schemas/**/*.json"
+        },
+        {
+          "type": "glob",
+          "value": "examples/**/*.json"
+        },
+        {
+          "type": "path",
+          "value": "package.json"
+        }
+      ],
+      "outputs": [],
+      "env": {
+        "NODE_ENV": "test",
+        "NPM_TOKEN": {
+          "kind": "SecretRef",
+          "id": "secret_npm_token"
+        }
+      },
+      "secrets": [
+        {
+          "kind": "SecretRef",
+          "id": "secret_npm_token"
+        }
+      ],
+      "platform": {
+        "runtime": "node",
+        "os": "any",
+        "arch": "any",
+        "capabilities": ["npm"]
+      },
+      "timeoutMinutes": 10
+    }
+  },
+  "permissions": {
+    "kind": "Policy",
+    "id": "policy_core_permission_spine"
+  },
+  "createdAt": "2026-06-24T08:10:00Z"
+}

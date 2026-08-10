@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Run each submodule's own test suite (no mocks where those modules already
+ * Run each package's own test suite (no mocks where those modules already
  * spawn real processes). Used by `npm run test:modules`.
  */
 
@@ -12,15 +12,15 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 const JOBS = [
   { name: 'sorrel-protocol', cwd: 'sorrel-protocol', cmd: ['npm', 'test'] },
-  { name: 'sorrel-core', cwd: 'sorrel-core', cmd: ['cargo', 'test'] },
-  { name: 'sorrel-cli', cwd: 'sorrel-cli', cmd: ['cargo', 'test'] },
+  { name: 'sorrel-core', cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-core'] },
+  { name: 'sorrel-cli', cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-cli'] },
   { name: 'sorrel-vault', cwd: 'sorrel-vault', cmd: ['npm', 'test'] },
-  { name: 'sorrel-runners', cwd: 'sorrel-runners', cmd: ['cargo', 'test'] },
+  { name: 'sorrel-runners', cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-runners'] },
   { name: 'sorrel-slices', cwd: 'sorrel-slices', cmd: ['npm', 'test'] },
   { name: 'sorrel-hub', cwd: 'sorrel-hub', cmd: ['npm', 'test'] },
   { name: 'sorrel-hub-web', cwd: 'sorrel-hub-web', cmd: ['npm', 'test'] },
   { name: 'sorrel-sdk-js', cwd: 'sorrel-sdk-js', cmd: ['npm', 'test'] },
-  { name: 'sorrel-sdk-rust', cwd: 'sorrel-sdk-rust', cmd: ['cargo', 'test'] },
+  { name: 'sorrel-sdk-rust', cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-sdk'] },
   { name: 'sorrel-agents', cwd: 'sorrel-agents', cmd: ['npm', 'test'] },
 ];
 

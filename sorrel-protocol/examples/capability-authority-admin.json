@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Capability",
+  "id": "capability_authority_admin",
+  "action": "authority.admin",
+  "category": "authority",
+  "description": "Perform administrative operations on decentralized authority configuration.",
+  "constraints": {
+    "requiresThresholdSignatures": true
+  }
+}

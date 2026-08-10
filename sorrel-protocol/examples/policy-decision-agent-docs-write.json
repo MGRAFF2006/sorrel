@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyDecision",
+  "id": "decision_agent_docs_write",
+  "request": {
+    "principal": {
+      "kind": "Principal",
+      "id": "principal_agent_docs"
+    },
+    "capability": {
+      "kind": "Capability",
+      "id": "capability_path_write"
+    },
+    "resource": {
+      "kind": "ResourceRef",
+      "id": "resource_docs_path"
+    },
+    "context": {
+      "change": "change_docs_intro",
+      "requestedBy": "agent_docs_001"
+    }
+  },
+  "decision": "allow",
+  "reason": "Active grant permits the docs agent to write review changes under docs/.",
+  "matchedPolicies": [
+    {
+      "kind": "Policy",
+      "id": "policy_core_permission_spine"
+    }
+  ],
+  "matchedGrants": [
+    {
+      "kind": "Grant",
+      "id": "grant_agent_docs_write"
+    }
+  ],
+  "decidedAt": "2026-06-24T09:20:00Z",
+  "evaluator": {
+    "type": "system",
+    "id": "system_core"
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyChange",
+  "id": "policy_change_scope_broadening_denied",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "previousPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "f1e2d3c4b5a69788776655443322110099887766554433221100998877665544"
+    }
+  },
+  "proposedPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "223344556677889900aabbccddeeff223344556677889900aabbccddeeff2233"
+    }
+  },
+  "evaluationPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "f1e2d3c4b5a69788776655443322110099887766554433221100998877665544"
+    }
+  },
+  "operation": {
+    "type": "policy.delegate",
+    "delegation": {
+      "delegate": {
+        "kind": "Principal",
+        "id": "principal_agent_docs"
+      },
+      "capabilities": [
+        {
+          "kind": "Capability",
+          "id": "capability_policy_grant"
+        }
+      ],
+      "scope": {
+        "type": "repo",
+        "ref": "repo_main"
+      },
+      "delegatedBy": {
+        "kind": "Principal",
+        "id": "principal_maintainer"
+      },
+      "reason": "Delegate attempts repo-wide policy.grant beyond docs/ delegation scope."
+    }
+  },
+  "signatures": [
+    {
+      "signer": {
+        "kind": "Principal",
+        "id": "principal_maintainer"
+      },
+      "algorithm": "ed25519",
+      "value": "sig_maintainer_scope_broadening_ed25519_placeholder_value",
+      "signedAt": "2026-06-24T10:30:00Z",
+      "weight": 1
+    }
+  ],
+  "proposedBy": {
+    "kind": "Principal",
+    "id": "principal_maintainer"
+  },
+  "trust": "denied",
+  "decision": {
+    "kind": "PolicyDecision",
+    "id": "decision_scope_broadening_denied"
+  },
+  "createdAt": "2026-06-24T10:30:00Z",
+  "decidedAt": "2026-06-24T10:30:01Z",
+  "metadata": {
+    "outcome": "deny",
+    "invariant": "Evaluated against previousPolicyRoot; delegate may not broaden scope to repo-wide policy.grant.",
+    "denialReason": "Maintainer delegation is limited to docs/; repo-wide policy.grant exceeds prior scope."
+  }
+}

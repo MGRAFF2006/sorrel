@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyDecision",
+  "id": "decision_self_grant_denied",
+  "request": {
+    "principal": {
+      "kind": "Principal",
+      "id": "principal_unprivileged_agent"
+    },
+    "capability": {
+      "kind": "Capability",
+      "id": "capability_policy_grant"
+    },
+    "resource": {
+      "kind": "ResourceRef",
+      "id": "resource_repo_main"
+    },
+    "context": {
+      "policyChange": "policy_change_self_grant_denied",
+      "attemptedCapabilities": ["capability_secret_inject", "capability_policy_grant"]
+    }
+  },
+  "decision": "deny",
+  "reason": "Agent may not self-grant secret.inject or policy.grant under previous effective policy.",
+  "matchedPolicies": [
+    {
+      "kind": "Policy",
+      "id": "policy_authority_root"
+    }
+  ],
+  "decidedAt": "2026-06-24T10:25:01Z",
+  "evaluator": {
+    "type": "system",
+    "id": "system_core"
+  },
+  "metadata": {
+    "evaluationPolicyRoot": "authority_root_repo_main",
+    "invariant": "Permissions introduced by the proposed change were not used during evaluation."
+  }
+}

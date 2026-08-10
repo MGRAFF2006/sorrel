@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Principal",
+  "id": "principal_maintainer",
+  "principalType": "user",
+  "displayName": "Repository maintainer",
+  "attributes": {
+    "role": "maintainer"
+  },
+  "createdAt": "2026-06-24T10:00:00Z"
+}

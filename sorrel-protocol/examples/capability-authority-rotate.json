@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Capability",
+  "id": "capability_authority_rotate",
+  "action": "authority.rotate",
+  "category": "authority",
+  "description": "Rotate authority root keys or membership with threshold signatures.",
+  "constraints": {
+    "requiresThresholdSignatures": true,
+    "evaluatedAgainstPreviousPolicy": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Capability",
+  "id": "capability_policy_grant",
+  "action": "policy.grant",
+  "category": "policy",
+  "description": "Create or extend authorization grants within delegated policy scope.",
+  "constraints": {
+    "evaluatedAgainstPreviousPolicy": true,
+    "selfGrantForbidden": true
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyDecision",
+  "id": "decision_delegated_grant_allowed",
+  "request": {
+    "principal": {
+      "kind": "Principal",
+      "id": "principal_maintainer"
+    },
+    "capability": {
+      "kind": "Capability",
+      "id": "capability_policy_grant"
+    },
+    "resource": {
+      "kind": "ResourceRef",
+      "id": "resource_docs_path"
+    },
+    "context": {
+      "policyChange": "policy_change_delegated_grant_allowed",
+      "targetPrincipal": "principal_agent_docs",
+      "targetCapability": "capability_path_write"
+    }
+  },
+  "decision": "allow",
+  "reason": "Maintainer may grant path.write within docs/ under previous effective policy.",
+  "matchedPolicies": [
+    {
+      "kind": "Policy",
+      "id": "policy_authority_root"
+    }
+  ],
+  "decidedAt": "2026-06-24T10:20:01Z",
+  "evaluator": {
+    "type": "system",
+    "id": "system_core"
+  },
+  "metadata": {
+    "evaluationPolicyRoot": "authority_root_repo_main",
+    "invariant": "PolicyChange evaluated against previousPolicyRoot, not proposed grants."
+  }
+}

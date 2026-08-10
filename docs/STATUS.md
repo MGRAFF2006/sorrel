@@ -1,6 +1,6 @@
 # Sorrel status
 
-Last updated: 2026-07-30
+Last updated: 2026-08-10
 
 What works today, what does not, and where to look next. For how to run the
 stack, see [GETTING_STARTED.md](GETTING_STARTED.md). The forward plan is
@@ -34,7 +34,7 @@ exposure.
 | **Hub API** | JSON HTTP server: health, projects, admin collections with GET/PATCH, proposals/reviews lifecycle, lane-submit collaboration endpoint, sync endpoints, FS persistence. |
 | **Hub UI** | Framework-free Nord companion: Projects, Reviews (proposal detail + comment thread + workflow status), Sync; proxies `/api/*` to Hub. |
 | **Landing (`sorrel-web`)** | Static marketing site (Nord theme). Production deploy is Cloudflare Pages; local Docker is optional preview only. |
-| **Root E2E / CI** | `npm test` E2E and `npm run test:modules` pass locally. Root Actions still needs the `SUBMODULES_TOKEN` secret plus the prepared workflow authentication update before it becomes a reliable merge gate. |
+| **Root E2E / CI** | `npm test` E2E and `npm run test:modules` from one checkout. Root Actions checks out the monorepo directly — no submodule PAT. |
 
 ## Missing / not ready
 
@@ -63,8 +63,14 @@ exposure.
 | `sorrel-sdk-js` | Hub HTTP client SDK | Active (minimal) |
 | `sorrel-sdk-rust` | Rust SDK over `sorrel-core` | Active (minimal) |
 
+## Layout note
+
+Packages that used to be private submodules now live in-tree. Prefer path
+dependencies and workspace Cargo commands from the repo root.
+
 ## Next up (from roadmap)
 
-1. Production auth + richer review UX for the Hub.
-2. Stable embedding surface, then agents + SDKs.
-3. Stacked changes UX for lanes.
+1. Ship `v0.1.0-alpha.1` from the monorepo and keep CI green.
+2. Production auth + richer review UX for the Hub.
+3. Stable embedding surface, then agents + SDKs.
+4. Collapse intentional duplicates (`cli_policy` / `cli_runner`) once the alpha is stable.

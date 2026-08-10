@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "AuthorityRoot",
+  "id": "authority_root_invalid_threshold",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "threshold": {
+    "mode": "weighted",
+    "minimum": 2
+  },
+  "authorities": [
+    {
+      "principal": {
+        "kind": "Principal",
+        "id": "principal_maintainer"
+      },
+      "weight": 0,
+      "status": "active"
+    }
+  ],
+  "policy": {
+    "kind": "Policy",
+    "id": "policy_authority_root"
+  },
+  "createdAt": "2026-06-24T10:55:00Z"
+}

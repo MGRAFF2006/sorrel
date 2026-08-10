@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Conflict",
+  "repoId": "repo_main",
+  "path": "README.md",
+  "conflictType": "modify_delete"
+}

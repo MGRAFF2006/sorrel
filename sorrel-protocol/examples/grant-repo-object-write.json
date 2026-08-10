@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Grant",
+  "id": "grant_repo_object_write",
+  "principal": {
+    "kind": "Principal",
+    "id": "principal_maintainer"
+  },
+  "capabilities": [
+    {
+      "kind": "Capability",
+      "id": "capability_repo_object_write"
+    }
+  ],
+  "resources": [
+    {
+      "kind": "ResourceRef",
+      "id": "resource_repo_main"
+    }
+  ],
+  "effect": "allow",
+  "status": "active",
+  "issuedBy": {
+    "type": "team",
+    "id": "team_platform"
+  },
+  "issuedAt": "2026-06-24T09:12:00Z",
+  "reason": "Maintainer may upload objects to the main repository."
+}

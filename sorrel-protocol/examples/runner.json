@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Runner",
+  "id": "runner_local_container",
+  "name": "local-container",
+  "mode": "pull",
+  "runnerType": "container",
+  "platform": {
+    "runtime": "container",
+    "image": "node:22-bookworm",
+    "os": "linux",
+    "arch": "x64",
+    "capabilities": ["npm", "json-schema", "network:egress"]
+  },
+  "isolation": "container",
+  "maxParallelJobs": 2,
+  "labels": ["linux", "node", "protocol"],
+  "endpoint": "runner://local/container",
+  "trust": {
+    "identity": "runner_local_container_identity",
+    "attestation": "self-attested",
+    "secretHandling": "brokered"
+  },
+  "status": "online",
+  "metadata": {
+    "owner": "team:platform"
+  }
+}

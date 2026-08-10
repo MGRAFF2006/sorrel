@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Capability",
+  "id": "capability_repo_ref_write",
+  "action": "repo.ref.write",
+  "category": "repo",
+  "description": "Advance a named ref to a new snapshot on a remote repository.",
+  "constraints": {
+    "requiresPolicyDecision": true
+  }
+}
