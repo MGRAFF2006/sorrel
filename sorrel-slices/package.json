@@ -1,0 +1,30 @@
+{
+  "name": "@sorrel/slices",
+  "version": "0.1.0-alpha.1",
+  "private": false,
+  "description": "Prototype dependency-closure and manifest generation for Sorrel slices.",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MGRAFF2006/sorrel-slices.git"
+  },
+  "bin": {
+    "sorrel-slices": "./src/index.js"
+  },
+  "exports": {
+    ".": "./src/slice.js"
+  },
+  "files": [
+    "src",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "lint": "node --check src/index.js && node --check src/slice.js && node --check test/slice.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

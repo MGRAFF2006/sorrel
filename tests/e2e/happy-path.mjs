@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const CLI_DIR = join(ROOT, 'sorrel-cli');
+const SORREL_BIN = join(ROOT, 'target/debug/sorrel');
 const HUB_DIR = join(ROOT, 'sorrel-hub');
 const HUB_WEB_DIR = join(ROOT, 'sorrel-hub-web');
 const VAULT_DIR = join(ROOT, 'sorrel-vault');
@@ -34,7 +34,6 @@ const SLICES_DIR = join(ROOT, 'sorrel-slices');
 const PROTOCOL_DIR = join(ROOT, 'sorrel-protocol');
 const WEB_DIR = join(ROOT, 'sorrel-web');
 const SDK_JS_DIR = join(ROOT, 'sorrel-sdk-js');
-const SDK_RUST_DIR = join(ROOT, 'sorrel-sdk-rust');
 const AGENTS_DIR = join(ROOT, 'sorrel-agents');
 const RUNNERS_DIR = join(ROOT, 'sorrel-runners');
 
@@ -134,7 +133,7 @@ function run(command, args, options = {}) {
 }
 
 function sorrel(cwd, args, env = {}) {
-  return run(join(CLI_DIR, 'target/debug/sorrel'), args, {
+  return run(SORREL_BIN, args, {
     cwd,
     env: { ...process.env, ...env },
   });
@@ -151,19 +150,23 @@ async function main() {
   run('npm', ['run', 'validate'], { cwd: PROTOCOL_DIR });
   log('protocol', 'schema/example/conformance validate');
 
-  run('cargo', ['build'], { cwd: CLI_DIR });
+  run('cargo', ['build', '-p', 'sorrel-cli'], { cwd: ROOT });
   log('sorrel-cli + sorrel-core', 'built');
 
+  // Exercise the default durable Hub path, not only the in-memory test store.
+  const hubDataRoot = mkdtempSync(join(tmpdir(), 'sorrel-e2e-hub-'));
   const hub = await spawnReady('node', ['scripts/listen.mjs'], {
     cwd: HUB_DIR,
     env: {
       ...process.env,
-      SORREL_HUB_SYNC_STORE: 'memory',
+      SORREL_HUB_SYNC_STORE: 'fs',
+      SORREL_HUB_DATA_DIR: join(hubDataRoot, 'sync'),
+      SORREL_HUB_METADATA_DIR: join(hubDataRoot, 'metadata'),
       SORREL_HUB_BOOTSTRAP_GRANTS: '1',
     },
   });
   const hubUrl = hub.ready.url;
-  log('sorrel-hub', hubUrl);
+  log('sorrel-hub', `${hubUrl} (FS-backed)`);
 
   const health = await fetch(`${hubUrl}/healthz`).then((r) => r.json());
   assert.equal(health.status, 'ok');
@@ -248,7 +251,7 @@ async function main() {
   writeFileSync(join(workA, 'c.txt'), 'feature-c\n');
   sorrel(workA, ['change', 'create', '-m', 'feature adds c']);
   sorrel(workA, ['lane', 'switch', 'lane_main']);
-  const conflicted = spawnSync(join(CLI_DIR, 'target/debug/sorrel'), ['merge', conflictLaneId, '--json'], {
+  const conflicted = spawnSync(SORREL_BIN, ['merge', conflictLaneId, '--json'], {
     cwd: workA,
     encoding: 'utf8',
   });
@@ -405,10 +408,28 @@ jobs:
   writeFileSync(join(gitDir, 'readme.txt'), 'from-git\n');
   run('git', ['add', 'readme.txt'], { cwd: gitDir });
   run('git', ['commit', '-m', 'add readme'], { cwd: gitDir });
+  run('git', ['branch', '-M', 'main'], { cwd: gitDir });
   const imported = sorrelJson(gitDir, ['git', 'import']);
   assert.ok(imported.commits.length >= 1);
   assert.equal(readFileSync(join(gitDir, 'readme.txt'), 'utf8'), 'from-git\n');
   log('cli git import');
+
+  // Colocated mirror: pull a Git-side commit, then push a Sorrel-side change.
+  writeFileSync(join(gitDir, 'git-side.txt'), 'from-git-side\n');
+  run('git', ['add', 'git-side.txt'], { cwd: gitDir });
+  run('git', ['commit', '-m', 'git-side change'], { cwd: gitDir });
+  const gitPulled = sorrelJson(gitDir, ['git', 'sync', '--branch', 'main']);
+  assert.equal(gitPulled.status, 'pulled');
+
+  writeFileSync(join(gitDir, 'sorrel-side.txt'), 'from-sorrel-side\n');
+  sorrelJson(gitDir, ['change', 'create', '-m', 'sorrel-side change']);
+  const gitPushed = sorrelJson(gitDir, ['git', 'sync', '--branch', 'main']);
+  assert.equal(gitPushed.status, 'pushed');
+  const gitLog = run('git', ['log', '--format=%s', 'main'], {
+    cwd: gitDir,
+  }).stdout;
+  assert.match(gitLog, /sorrel-side change/);
+  log('cli git sync', 'colocated pull + push');
 
   const exportDir = mkdtempSync(join(tmpdir(), 'sorrel-e2e-export-'));
   const exported = sorrelJson(gitDir, ['git', 'export', exportDir, '--branch', 'export-main']);
@@ -435,7 +456,7 @@ jobs:
   log('sorrel-sdk-js', 'live Hub client + proposals');
 
   // sdk-rust: exercise real core via the SDK Workspace helper (no nested cargo test).
-  run('cargo', ['test', '--quiet'], { cwd: SDK_RUST_DIR });
+  run('cargo', ['test', '-p', 'sorrel-sdk', '--quiet'], { cwd: ROOT });
   log('sorrel-sdk-rust', 'Workspace against sorrel-core');
 
   const { AgentControlPlane } = await import(join(AGENTS_DIR, 'src/index.js'));

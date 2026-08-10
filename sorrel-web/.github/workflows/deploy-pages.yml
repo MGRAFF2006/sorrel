@@ -1,0 +1,66 @@
+name: deploy-pages
+
+# Builds the static site + the generated rustdoc API reference and deploys
+# to GitHub Pages. The API reference is generated from doc comments in
+# sorrel-core on every deploy, so it can never drift from the code.
+#
+# Requirements (repo settings):
+# - Pages: Settings -> Pages -> Source = "GitHub Actions".
+# - sorrel-core is private, so checking it out needs a token with read
+#   access: add a fine-grained PAT as the SORREL_CORE_TOKEN secret.
+#   Without it the site still deploys, just without the /api/ reference.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout site
+        uses: actions/checkout@v4
+
+      - name: Checkout sorrel-core (for rustdoc)
+        id: core
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: MGRAFF2006/sorrel-core
+          token: ${{ secrets.SORREL_CORE_TOKEN || github.token }}
+          path: .core
+
+      - name: Install Rust
+        if: steps.core.outcome == 'success'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build API docs
+        if: steps.core.outcome == 'success'
+        run: bash scripts/build-api-docs.sh .core
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          rsync -a --exclude '_site' --exclude '.git' --exclude '.github' --exclude '.core' ./ _site/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

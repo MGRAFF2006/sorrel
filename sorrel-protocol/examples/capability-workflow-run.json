@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Capability",
+  "id": "capability_workflow_run",
+  "action": "workflow.run",
+  "category": "workflow",
+  "description": "Start an approved workflow on an eligible runner.",
+  "constraints": {
+    "requiresPolicyDecision": true
+  }
+}

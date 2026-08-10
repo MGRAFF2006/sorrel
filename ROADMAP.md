@@ -1,12 +1,19 @@
 # Sorrel Roadmap
 
-Last updated: 2026-07-30
+Last updated: 2026-08-10
 
 Forward plan for the multi-repo Sorrel project. Live status:
 [`docs/STATUS.md`](docs/STATUS.md). Architecture:
 [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md).
 
 ## Sequenced plan
+
+### 0. `v0.1.0-alpha.1` stabilization — IN PROGRESS
+
+Freeze one coordinated module commit set, align Core dependency pins, make
+localhost/dev-only security boundaries explicit, add release/legal metadata,
+turn CI into a truthful gate, and record correctness/performance baselines.
+Optimization work starts from the resulting root release tag.
 
 ### 1. Hub persistence — FS-backed object/ref store (`sorrel-hub`) — DONE
 
@@ -61,8 +68,8 @@ conflict-resolution UI.
   under ~50ms (benches in core).
 - Next: packfiles + indexes, chunked large blobs, lazy fetch on sync.
 
-## Submodules
+## Monorepo
 
-Implementation lives in submodule repos. Merge to each submodule’s `main`, then
-advance the root pointer. Run that module’s checks before merging
-(`cargo test` / `npm test`, plus clippy/fmt for Rust).
+Implementation lives in-tree under `sorrel-*`. Open one PR against root `main`.
+Run package checks plus root E2E before merging
+(`cargo test --workspace` / `npm test`, plus clippy/fmt for Rust).

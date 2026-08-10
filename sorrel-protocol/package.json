@@ -1,0 +1,42 @@
+{
+  "name": "@sorrel/protocol",
+  "version": "0.1.0-alpha.1",
+  "private": false,
+  "description": "Versioned JSON Schema specifications and examples for Sorrel protocol objects.",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MGRAFF2006/sorrel-protocol.git"
+  },
+  "protocolVersion": "sorrel.protocol.v0",
+  "files": [
+    "schemas",
+    "examples",
+    "conformance",
+    "docs",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "scripts": {
+    "validate:schemas": "node scripts/validate.mjs --schema-only",
+    "validate:examples": "node scripts/validate.mjs --examples-only",
+    "validate:conformance": "node scripts/conformance-meta.mjs --check",
+    "validate": "npm run validate:schemas && npm run validate:examples && npm run validate:conformance",
+    "sync:meta": "node scripts/conformance-meta.mjs",
+    "export:conformance": "node scripts/export-conformance.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "keywords": [
+    "sorrel",
+    "protocol",
+    "json-schema",
+    "version-control"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0"
+  }
+}

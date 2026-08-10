@@ -1,12 +1,12 @@
 # Getting started
 
-Last updated: 2026-07-21
+Last updated: 2026-08-10
 
 How to clone Sorrel, run the local VCS demo, and start the Hub stack.
 
 ## Prerequisites
 
-- **Git** with submodule support
+- **Git**
 - **Rust** stable 1.85+ with clippy + rustfmt
 - **Node.js** 22+ (Hub / hub-web); Node 20+ is enough for protocol/vault/slices
 - **Docker** (optional) for `docker compose` Hub + Hub UI preview
@@ -16,24 +16,19 @@ rustup toolchain install stable --profile minimal -c clippy -c rustfmt
 rustup default stable
 ```
 
-## Clone with submodules
+## Clone
 
 ```sh
-git clone --recurse-submodules https://github.com/MGRAFF2006/sorrel.git
+git clone https://github.com/MGRAFF2006/sorrel.git
 cd sorrel
-
-# If you already cloned without submodules:
-git submodule update --init --recursive
 ```
 
-Some submodules may be private. If `submodule update` fails with “Repository not
-found”, ensure your GitHub credentials can access the Sorrel org repos.
+Sorrel is a single monorepo. No submodules and no `SUBMODULES_TOKEN` are required.
 
 ## Local VCS happy path (CLI)
 
 ```sh
-cd sorrel-cli
-cargo build
+cargo build -p sorrel-cli
 SORREL=target/debug/sorrel
 
 mkdir /tmp/sorrel-demo && cd /tmp/sorrel-demo
@@ -57,14 +52,14 @@ $SORREL merge <feature-lane-id>
 
 Longer walkthrough: [`sorrel-cli/DEMO.md`](../sorrel-cli/DEMO.md).  
 Sync (push/pull) against Hub: [`sorrel-cli/SYNC.md`](../sorrel-cli/SYNC.md).  
-Git import: [`sorrel-cli/GIT.md`](../sorrel-cli/GIT.md).
+Git import/export/sync: [`sorrel-cli/GIT.md`](../sorrel-cli/GIT.md).
 
 ## Import an existing Git repo
 
 ```sh
 cd /path/to/git-checkout
 # from a built CLI:
-/path/to/sorrel-cli/target/debug/sorrel git import
+/path/to/sorrel/target/debug/sorrel git import
 # optional: --ref main --limit 20 --json
 sorrel log
 sorrel status
@@ -72,15 +67,36 @@ sorrel status
 
 Creates `.sorrel/` if needed, imports commits reachable from `HEAD` as Sorrel
 snapshots/changes, writes `.sorrel/git-map.json`, and restores the working tree
-to the tip. Export / colocated sync are not implemented yet.
+to the tip. Use `sorrel git export` for one-way export or `sorrel git sync` to
+incrementally keep colocated Git and Sorrel histories aligned. Divergence is
+parked on a normal `git/<branch>` lane for explicit merge resolution.
 
 ## Hub API + Hub UI
+
+### One-command local dashboard (recommended for testing)
+
+From the repo root:
+
+```sh
+npm run dev
+# or: node scripts/dev-dashboard.mjs
+```
+
+This builds the CLI, seeds `.dev/workspace`, starts Hub (:3000) + Hub UI
+(:5180) with bootstrap grants and FS persistence under `.dev/hub-data`, then
+opens a status dashboard at http://127.0.0.1:5200 with health checks and
+copy-paste commands. Stop with Ctrl+C.
+
+Flags: `--skip-build`, `--no-open`, `--no-seed`, `--port 5200`.
 
 ### With Docker Compose (from repo root)
 
 ```sh
 docker compose up --build
 ```
+
+If a preview port is occupied, override it with `SORREL_HUB_PORT`,
+`SORREL_HUB_WEB_PORT`, or `SORREL_WEB_PORT` before running Compose.
 
 | Service | URL |
 | --- | --- |
@@ -94,9 +110,9 @@ compose `web` service is an optional local mirror; it does not replace Cloudflar
 ### Without Docker
 
 ```sh
-# terminal 1 — API
+# terminal 1 — API (explicit insecure local bootstrap for the demo)
 cd sorrel-hub
-npm start          # http://0.0.0.0:3000
+SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start  # http://127.0.0.1:3000
 
 # terminal 2 — UI (proxies /api → Hub)
 cd sorrel-hub-web
@@ -107,7 +123,10 @@ Useful Hub env vars:
 
 - `SORREL_HUB_DATA_DIR` — sync store (default `./data/sync`)
 - `SORREL_HUB_METADATA_DIR` — product metadata (default `./data/metadata`)
-- `SORREL_HUB_BOOTSTRAP_GRANTS=0` — disable local push/pull bootstrap grants
+- `HOST` — listen address (default `127.0.0.1`; use `0.0.0.0` only in an
+  isolated container/network)
+- `SORREL_HUB_BOOTSTRAP_GRANTS=1` — explicitly enable broad local demo grants
+  (disabled by default)
 - `HUB_API_URL` — hub-web upstream (default `http://localhost:3000`)
 
 ## CLI ↔ Hub sync
@@ -126,6 +145,9 @@ $SORREL remote add origin http://127.0.0.1:3000 --repo-id <repoId-from-source>
 $SORREL pull origin   # downloads objects and restores the working tree
 ```
 
+The alpha Hub has no production authentication. Do not expose it to an
+untrusted network. See [`SECURITY.md`](../SECURITY.md).
+
 ## Validate modules
 
 From the repo root, run the full-stack E2E (real Hub + CLI + vault + slices +
@@ -133,7 +155,7 @@ hub-web + SDKs + agents — **no mocks**):
 
 ```sh
 npm test              # tests/e2e/happy-path.mjs
-npm run test:modules  # each submodule's own suite
+npm run test:modules  # each package's own suite
 ```
 
 Rust (`sorrel-core`, `sorrel-cli`, `sorrel-runners`, `sorrel-sdk-rust`):

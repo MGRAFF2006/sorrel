@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyChange",
+  "id": "policy_change_delegated_grant_allowed",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "previousPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "f1e2d3c4b5a69788776655443322110099887766554433221100998877665544"
+    }
+  },
+  "proposedPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "aabbccddeeff0011223344556677889900aabbccddeeff00112233445566778899"
+    }
+  },
+  "evaluationPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "f1e2d3c4b5a69788776655443322110099887766554433221100998877665544"
+    }
+  },
+  "operation": {
+    "type": "policy.grant",
+    "grant": {
+      "principal": {
+        "kind": "Principal",
+        "id": "principal_agent_docs"
+      },
+      "capabilities": [
+        {
+          "kind": "Capability",
+          "id": "capability_path_write"
+        }
+      ],
+      "resources": [
+        {
+          "kind": "ResourceRef",
+          "id": "resource_docs_path"
+        }
+      ],
+      "effect": "allow",
+      "delegatedBy": {
+        "kind": "Principal",
+        "id": "principal_maintainer"
+      },
+      "scopeConstraint": {
+        "type": "path",
+        "ref": "docs/"
+      },
+      "reason": "Maintainer delegates path.write to docs agent within docs/ scope."
+    }
+  },
+  "signatures": [
+    {
+      "signer": {
+        "kind": "Principal",
+        "id": "principal_maintainer"
+      },
+      "algorithm": "ed25519",
+      "value": "sig_maintainer_delegated_grant_ed25519_placeholder_value",
+      "signedAt": "2026-06-24T10:20:00Z",
+      "weight": 1
+    }
+  ],
+  "proposedBy": {
+    "kind": "Principal",
+    "id": "principal_maintainer"
+  },
+  "trust": "trusted",
+  "decision": {
+    "kind": "PolicyDecision",
+    "id": "decision_delegated_grant_allowed"
+  },
+  "createdAt": "2026-06-24T10:20:00Z",
+  "decidedAt": "2026-06-24T10:20:01Z",
+  "metadata": {
+    "outcome": "allow",
+    "invariant": "Evaluated against previousPolicyRoot; proposed grant does not broaden maintainer authority."
+  }
+}

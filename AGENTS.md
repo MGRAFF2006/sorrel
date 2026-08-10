@@ -1,9 +1,8 @@
 # Sorrel
 
-Sorrel is an agent-native version-control system split across submodules.
+Sorrel is an agent-native version-control system in a **single monorepo**.
 
-The root repository coordinates architecture and submodule pointers. Most
-implementation work lives in submodules:
+Implementation packages live as normal directories:
 
 - sorrel-protocol: schemas, examples, and the policy-conformance manifest
 - sorrel-core: Rust engine — object store, snapshots, changes, lanes, policy spine
@@ -34,29 +33,24 @@ rustup default stable
 cargo fetch
 ```
 
+Rust crates are a Cargo workspace. Prefer workspace commands from the repo root:
+
+```sh
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
+
 ## Common checks
 
 Root E2E (no mocks, all active modules): `npm test`
 
-All submodule suites: `npm run test:modules`
+All package suites: `npm run test:modules`
 
-Rust: `cargo build && cargo test && cargo clippy --all-targets && cargo fmt --all -- --check`
+Node packages: `npm test` (+ `npm run validate` where defined) inside each package dir.
 
-Node: `npm test` (+ `npm run validate` where defined)
+## Workflow
 
-## Agent workspace (important)
-
-Use the **root checkout as one filesystem workspace**: edit files under
-`sorrel-core/`, `sorrel-cli/`, etc. directly from the parent tree. Each
-submodule remains an independent Git repository, so commit and push from the
-repository that owns the changed files.
-
-See **[`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md)** for the coordinated
-multi-repository workflow and pointer-sync helper.
-
-## Submodules
-
-Some submodules may be private. After changes inside a submodule, merge to that
-repo’s `main`, then advance and commit the pointer in this root repository.
-`./scripts/sync-submodule-pointers.sh` can fetch every configured `main` and
-stage those gitlink updates without changing active submodule checkouts.
+Edit files under `sorrel-core/`, `sorrel-cli/`, etc. directly. Commit once in this
+root repository — there are no submodule pointer advances and no
+`SUBMODULES_TOKEN` requirement for CI.

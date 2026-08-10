@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Capability",
+  "id": "capability_repo_object_write",
+  "action": "repo.object.write",
+  "category": "repo",
+  "description": "Upload content-addressed objects to a remote repository.",
+  "constraints": {
+    "requiresPolicyDecision": true
+  }
+}

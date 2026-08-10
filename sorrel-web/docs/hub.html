@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sorrel Hub - Docs - Sorrel</title>
+    <meta name="description" content="Sorrel Hub: the collaboration API server, the browser interface, and the content-addressed sync transport with persistent storage.">
+    <meta name="theme-color" content="#2e3440">
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("sorrel-theme");
+          document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="./docs.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="../index.html" aria-label="Sorrel home">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>Sorrel</span>
+      </a>
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="./index.html">Docs</a>
+        <a href="./core.html">Core</a>
+        <a href="./cli.html">CLI</a>
+        <a href="./workflows.html">Workflows</a>
+        <a href="./api.html">API</a>
+        <a href="https://github.com/MGRAFF2006/sorrel-hub">GitHub</a>
+        <button class="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle theme">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+          </svg>
+        </button>
+      </nav>
+    </header>
+
+    <main>
+      <div class="doc-hero">
+        <p class="crumbs"><a href="../index.html">sorrel</a><span>/</span><a href="./index.html">docs</a><span>/</span><span>hub</span></p>
+        <h1>Sorrel Hub</h1>
+        <p class="lede">
+          The collaboration layer: a zero-dependency Node API server that stores project
+          metadata, transports content-addressed objects between machines, and administers
+          Core policy — plus a framework-free browser interface on top.
+        </p>
+      </div>
+
+      <section class="section">
+        <div class="doc-body">
+          <h2>Three repos, three roles</h2>
+          <table class="doc-table">
+            <thead><tr><th>Repo</th><th>Role</th></tr></thead>
+            <tbody>
+              <tr><td><code>sorrel-hub</code></td><td>The <strong>API server</strong>: JSON over HTTP, no UI.</td></tr>
+              <tr><td><code>sorrel-hub-web</code></td><td>The <strong>web interface</strong>: plain HTML/CSS/ES modules calling the Hub API.</td></tr>
+              <tr><td><code>sorrel-web</code></td><td>This site — public landing and docs, unrelated to the product UI.</td></tr>
+            </tbody>
+          </table>
+
+          <h2>Sync transport</h2>
+          <p>
+            The Hub moves the engine's content-addressed objects with a small negotiated
+            protocol (specified in <code>sorrel-protocol/docs/sync-transport.md</code>):
+          </p>
+          <table class="doc-table">
+            <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>GET /{repoId}/refs</code></td><td>List ref names and snapshot ids.</td></tr>
+              <tr><td><code>POST /{repoId}/objects/missing</code></td><td>Negotiate: given <code>want</code>/<code>have</code>, which objects are missing.</td></tr>
+              <tr><td><code>POST /{repoId}/objects</code></td><td>Upload objects (id-verified; policy-gated by <code>repo.object.write</code>).</td></tr>
+              <tr><td><code>GET /{repoId}/objects/{id}</code></td><td>Download raw object bytes.</td></tr>
+              <tr><td><code>POST /{repoId}/refs/{name}</code></td><td>Advance a ref — closure-complete and fast-forward checked, policy-gated by <code>repo.ref.write</code>.</td></tr>
+              <tr><td><code>GET /admin/sync-repos</code></td><td>List repositories known to the sync store with ref counts.</td></tr>
+            </tbody>
+          </table>
+          <p>
+            Every object upload is digest-verified against its BLAKE3 id, and a ref can only
+            advance when the full snapshot closure is present — a half-pushed history is never
+            visible as the current state.
+          </p>
+
+          <h2>Persistence</h2>
+          <p>
+            Sync objects/refs and product metadata (projects, proposals, workflow runs, ...)
+            persist to disk with the same discipline as the engine: content-addressed fanout
+            layout, atomic temp-file-and-rename writes, digest-verified reads. A Hub restart
+            loses nothing. <code>SORREL_HUB_DATA_DIR</code> selects the location;
+            <code>SORREL_HUB_SYNC_STORE=memory</code> keeps everything ephemeral (the test
+            default).
+          </p>
+
+          <h2>Policy: Hub administers, Core decides</h2>
+          <p>
+            Mutating sync calls carry an acting principal and <code>grantRefs</code>; the Hub
+            hydrates those against grants it trusts and re-evaluates the Core policy decision
+            before writing. The Hub never invents its own permission language — signature
+            trust, rotation rules, and audit semantics remain Core's job.
+          </p>
+
+          <h2>The web interface</h2>
+          <p>
+            <code>sorrel-hub-web</code> is deliberately framework-free: static HTML/CSS/ES
+            modules and a small dev server that proxies <code>/api/*</code> to the Hub. It
+            can create projects, proposals, and review comments; transition proposal and
+            workflow status; and resolve comments. Sync remains read-only in the browser.
+            This alpha companion sends the development <code>user:local</code> acting principal
+            on mutations and has no production authentication; do not expose it to an untrusted
+            network.
+          </p>
+
+          <div class="doc-footer-nav">
+            <a class="button secondary" href="./cli.html">Back: the CLI</a>
+            <a class="button secondary" href="./workflows.html">Next: workflows &amp; secrets</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Sorrel</span>
+      <span>Agent-native version control, building in public.</span>
+    </footer>
+
+    <script src="../site.js"></script>
+  </body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyDecision",
+  "id": "decision_unsigned_policy_change_denied",
+  "request": {
+    "principal": {
+      "kind": "Principal",
+      "id": "principal_maintainer"
+    },
+    "capability": {
+      "kind": "Capability",
+      "id": "capability_policy_grant"
+    },
+    "resource": {
+      "kind": "ResourceRef",
+      "id": "resource_docs_path"
+    },
+    "context": {
+      "policyChange": "policy_change_unsigned_untrusted",
+      "signatureCount": 0
+    }
+  },
+  "decision": "deny",
+  "reason": "Unsigned PolicyChange is untrusted and denied despite otherwise valid grant operation.",
+  "matchedPolicies": [
+    {
+      "kind": "Policy",
+      "id": "policy_authority_root"
+    }
+  ],
+  "decidedAt": "2026-06-24T10:40:01Z",
+  "evaluator": {
+    "type": "system",
+    "id": "system_core"
+  },
+  "metadata": {
+    "evaluationPolicyRoot": "authority_root_repo_main",
+    "invariant": "Trust evaluation occurs after previous-policy authorization check."
+  }
+}

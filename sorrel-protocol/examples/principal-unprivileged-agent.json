@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Principal",
+  "id": "principal_unprivileged_agent",
+  "principalType": "agent",
+  "displayName": "Unprivileged automation agent",
+  "attributes": {
+    "purpose": "Demonstrate denied self-grant policy changes"
+  },
+  "createdAt": "2026-06-24T10:01:00Z"
+}

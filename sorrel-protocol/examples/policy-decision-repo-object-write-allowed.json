@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyDecision",
+  "id": "decision_repo_object_write_allowed",
+  "request": {
+    "principal": {
+      "kind": "Principal",
+      "id": "principal_maintainer"
+    },
+    "capability": {
+      "kind": "Capability",
+      "id": "capability_repo_object_write"
+    },
+    "resource": {
+      "kind": "ResourceRef",
+      "id": "resource_repo_main"
+    },
+    "context": {
+      "repoId": "repo_main",
+      "operation": "sync_push"
+    }
+  },
+  "decision": "allow",
+  "reason": "Active grant permits the maintainer to upload objects to repo_main.",
+  "matchedPolicies": [
+    {
+      "kind": "Policy",
+      "id": "policy_core_permission_spine"
+    }
+  ],
+  "matchedGrants": [
+    {
+      "kind": "Grant",
+      "id": "grant_repo_object_write"
+    }
+  ],
+  "decidedAt": "2026-06-24T09:25:00Z",
+  "evaluator": {
+    "type": "system",
+    "id": "system_core"
+  }
+}

@@ -1,0 +1,189 @@
+/* Documentation subpages — additive styles over styles.css. */
+
+.doc-hero {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 72px 24px 8px;
+}
+
+.doc-hero h1 {
+  margin: 10px 0 14px;
+  font-size: clamp(2rem, 4.4vw, 2.9rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+}
+
+.doc-hero .lede {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 1.06rem;
+  line-height: 1.65;
+}
+
+.crumbs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.crumbs a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  text-decoration: underline;
+}
+
+.doc-body {
+  max-width: 860px;
+}
+
+.doc-body h2 {
+  margin: 44px 0 12px;
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+}
+
+.doc-body h2:first-child {
+  margin-top: 0;
+}
+
+.doc-body h3 {
+  margin: 28px 0 8px;
+  font-size: 1.1rem;
+}
+
+.doc-body p,
+.doc-body li {
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+
+.doc-body ul,
+.doc-body ol {
+  padding-left: 22px;
+}
+
+.doc-body code {
+  padding: 1px 5px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font-size: 0.86em;
+}
+
+.doc-body pre {
+  margin: 14px 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--code-bg);
+  color: var(--nord6);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.doc-body pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+}
+
+.doc-table {
+  width: 100%;
+  margin: 14px 0;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-lg);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  font-size: 0.92rem;
+}
+
+.doc-table th,
+.doc-table td {
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: var(--border-width) solid var(--line);
+}
+
+.doc-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.doc-table th {
+  background: var(--panel-strong);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-strong);
+}
+
+.doc-table td code {
+  white-space: nowrap;
+}
+
+.doc-note {
+  margin: 18px 0;
+  padding: 14px 16px;
+  border: var(--border-width) solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.doc-note p {
+  margin: 0;
+}
+
+.doc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-top: 26px;
+}
+
+.doc-card {
+  display: block;
+  padding: 22px;
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  text-decoration: none;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.doc-card:hover {
+  border-color: var(--accent);
+  background: var(--panel-hover);
+  transform: translateY(-2px);
+}
+
+.doc-card h3 {
+  margin: 8px 0 6px;
+  font-size: 1.05rem;
+}
+
+.doc-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.doc-footer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: var(--border-width) solid var(--line);
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@sorrel/agents",
+  "version": "0.1.0-alpha.1",
+  "private": false,
+  "description": "Agent control plane for Sorrel lanes and path claims.",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MGRAFF2006/sorrel-agents.git"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "lint": "node --check src/index.js && node --check test/control-plane.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

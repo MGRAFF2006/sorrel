@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyDecision",
+  "id": "decision_scope_broadening_denied",
+  "request": {
+    "principal": {
+      "kind": "Principal",
+      "id": "principal_maintainer"
+    },
+    "capability": {
+      "kind": "Capability",
+      "id": "capability_policy_delegate"
+    },
+    "resource": {
+      "kind": "ResourceRef",
+      "id": "resource_repo_main"
+    },
+    "context": {
+      "policyChange": "policy_change_scope_broadening_denied",
+      "delegationScope": "repo_main",
+      "permittedScope": "docs/"
+    }
+  },
+  "decision": "deny",
+  "reason": "Delegate may not grant repo-wide policy.grant; prior policy limits delegation to docs/ scope.",
+  "matchedPolicies": [
+    {
+      "kind": "Policy",
+      "id": "policy_authority_root"
+    }
+  ],
+  "decidedAt": "2026-06-24T10:30:01Z",
+  "evaluator": {
+    "type": "system",
+    "id": "system_core"
+  },
+  "metadata": {
+    "evaluationPolicyRoot": "authority_root_repo_main",
+    "invariant": "Scope broadening denied because evaluation used previous effective policy."
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "name": "@sorrel/vault",
+  "version": "0.1.0-alpha.1",
+  "private": false,
+  "description": "Sorrel secrets specification draft and local development vault prototype.",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MGRAFF2006/sorrel-vault.git"
+  },
+  "vaultSpecVersion": "sorrel.vault.v0",
+  "files": [
+    "schemas",
+    "examples",
+    "docs",
+    "scripts/lib",
+    "scripts/vault-cli.mjs",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "scripts": {
+    "validate:schemas": "node scripts/validate.mjs --schema-only",
+    "validate:examples": "node scripts/validate.mjs --examples-only",
+    "validate": "npm run validate:schemas && npm run validate:examples",
+    "test": "node scripts/test-local-dev.mjs && node --test tests/*.test.mjs",
+    "demo:local": "node scripts/local-dev-backend.mjs",
+    "vault": "node scripts/vault-cli.mjs"
+  },
+  "keywords": [
+    "sorrel",
+    "secrets",
+    "vault",
+    "json-schema",
+    "dotenv"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0",
+    "js-yaml": "^5.1.0"
+  }
+}

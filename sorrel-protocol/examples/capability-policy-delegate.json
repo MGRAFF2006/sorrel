@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Capability",
+  "id": "capability_policy_delegate",
+  "action": "policy.delegate",
+  "category": "policy",
+  "description": "Delegate policy authority to another principal within a bounded scope.",
+  "constraints": {
+    "scopeBroadeningForbidden": true,
+    "evaluatedAgainstPreviousPolicy": true
+  }
+}

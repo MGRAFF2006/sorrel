@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "ResourceRef",
+  "id": "resource_docs_path",
+  "scope": {
+    "type": "path",
+    "ref": "docs/"
+  },
+  "repo": "repo_main",
+  "path": "docs/",
+  "description": "Documentation subtree in the main repository."
+}

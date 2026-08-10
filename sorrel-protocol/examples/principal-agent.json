@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Principal",
+  "id": "principal_agent_docs",
+  "principalType": "agent",
+  "displayName": "Docs protocol agent",
+  "attributes": {
+    "purpose": "Prepare documentation and schema updates"
+  },
+  "createdAt": "2026-06-24T09:00:00Z"
+}

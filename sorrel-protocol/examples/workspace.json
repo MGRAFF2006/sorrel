@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Workspace",
+  "repoId": "repo_4a91c0deab12cd34",
+  "createdAt": "2026-07-01T10:00:00Z",
+  "defaultLane": {
+    "id": "lane_main",
+    "name": "main"
+  },
+  "componentLinks": [
+    {
+      "name": "sorrel-core",
+      "role": "member",
+      "location": {
+        "type": "git",
+        "url": "https://github.com/MGRAFF2006/sorrel-core.git",
+        "path": "sorrel-core"
+      },
+      "tracking": {
+        "mode": "branch",
+        "branch": "main"
+      }
+    },
+    {
+      "name": "sorrel-cli",
+      "role": "member",
+      "location": {
+        "type": "git",
+        "url": "https://github.com/MGRAFF2006/sorrel-cli.git",
+        "path": "sorrel-cli"
+      },
+      "tracking": {
+        "mode": "branch",
+        "branch": "main"
+      }
+    },
+    {
+      "name": "sorrel-core",
+      "role": "dependency",
+      "location": {
+        "type": "git",
+        "url": "https://github.com/MGRAFF2006/sorrel-core.git"
+      },
+      "tracking": {
+        "mode": "revision",
+        "revision": "198fe2d31674400f3607b911aad5f7c5dcf9419c"
+      }
+    }
+  ]
+}

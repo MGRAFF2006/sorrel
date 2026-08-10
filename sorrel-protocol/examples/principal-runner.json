@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Principal",
+  "id": "principal_runner_local_container",
+  "principalType": "runner",
+  "displayName": "Local container runner",
+  "attributes": {
+    "runner": "runner_local_container"
+  },
+  "createdAt": "2026-06-24T09:01:00Z"
+}

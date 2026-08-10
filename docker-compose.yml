@@ -9,15 +9,19 @@
 #
 # Production landing is Cloudflare Pages (sorrel-web). The `web` service here
 # is an optional local mirror and does not replace that deploy.
+#
+# This compose stack is an isolated developer preview. It explicitly enables
+# the Hub's broad local bootstrap grants; never expose it as a production Hub.
 
 services:
   hub:
     build: ./sorrel-hub
     ports:
-      - "3000:3000"
+      - "${SORREL_HUB_PORT:-3000}:3000"
     environment:
       HOST: "0.0.0.0"
       PORT: "3000"
+      SORREL_HUB_BOOTSTRAP_GRANTS: "1"
       SORREL_HUB_DATA_DIR: /app/data/sync
       SORREL_HUB_METADATA_DIR: /app/data/metadata
     volumes:
@@ -31,7 +35,7 @@ services:
   hub-web:
     build: ./sorrel-hub-web
     ports:
-      - "5180:5180"
+      - "${SORREL_HUB_WEB_PORT:-5180}:5180"
     environment:
       HOST: "0.0.0.0"
       PORT: "5180"
@@ -43,7 +47,7 @@ services:
   web:
     build: ./sorrel-web
     ports:
-      - "4173:80"
+      - "${SORREL_WEB_PORT:-4173}:80"
 
 volumes:
   hub-data:

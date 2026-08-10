@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Lane",
+  "id": "lane_agent_docs_001",
+  "name": "agent/docs-protocol",
+  "owner": {
+    "type": "agent",
+    "id": "agent_docs_001",
+    "displayName": "Docs Agent"
+  },
+  "baseSnapshot": {
+    "kind": "Snapshot",
+    "id": "snap_initial_001"
+  },
+  "headSnapshot": {
+    "kind": "Snapshot",
+    "id": "snap_docs_001"
+  },
+  "stack": {
+    "kind": "Stack",
+    "id": "stack_docs_001"
+  },
+  "activeChanges": [
+    {
+      "kind": "Change",
+      "id": "chg_update_readme_001"
+    }
+  ],
+  "workspace": {
+    "mode": "container",
+    "path": "workspaces/agent-docs"
+  },
+  "claims": [
+    {
+      "type": "path",
+      "value": "README.md"
+    }
+  ],
+  "secretGrants": [
+    {
+      "kind": "SecretRef",
+      "id": "secret_npm_token"
+    }
+  ],
+  "policy": {
+    "kind": "AgentPolicy",
+    "id": "agent_policy_docs"
+  },
+  "visibility": "team",
+  "status": "active",
+  "createdAt": "2026-06-24T08:03:00Z",
+  "updatedAt": "2026-06-24T08:04:00Z"
+}

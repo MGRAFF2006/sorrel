@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+  "sorrel-core",
+  "sorrel-cli",
+  "sorrel-runners",
+  "sorrel-sdk-rust",
+]
+
+[workspace.package]
+version = "0.1.0-alpha.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/MGRAFF2006/sorrel"
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Principal",
+  "id": "principal_workflow_validate_protocol",
+  "principalType": "workflow",
+  "displayName": "Validate protocol workflow",
+  "attributes": {
+    "workflow": "workflow_validate_protocol"
+  },
+  "createdAt": "2026-06-24T09:02:00Z"
+}

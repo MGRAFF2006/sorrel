@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sorrel Hub</title>
+    <meta
+      name="description"
+      content="Sorrel Hub web interface: browse and mutate projects, proposals, and reviews via the sorrel-hub collaboration API."
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark">Sorrel</span>
+        <span class="brand-sub">Hub</span>
+      </div>
+      <div class="header-status">
+        <span id="api-status" class="status status-unknown">API: checking…</span>
+      </div>
+    </header>
+
+    <nav class="app-nav" id="app-nav" aria-label="Primary">
+      <button class="nav-item active" type="button" data-view="projects">Projects</button>
+      <button class="nav-item" type="button" data-view="admin">Reviews</button>
+      <button class="nav-item" type="button" data-view="sync">Sync</button>
+    </nav>
+
+    <main class="app-main">
+      <section class="panel view" id="view-projects" data-view="projects">
+        <div class="panel-head">
+          <div>
+            <h1>Projects</h1>
+            <p class="muted lede">
+              Thin browser companion over the <code>sorrel-hub</code> API. Hub owns
+              state and policy; this UI displays and submits forms.
+            </p>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button id="refresh-projects" type="button">Refresh</button>
+          <input
+            id="org-filter"
+            type="text"
+            placeholder="Filter by organizationId (optional)"
+            autocomplete="off"
+          />
+        </div>
+
+        <form id="project-form" class="form-card">
+          <h2>Create project</h2>
+          <div class="form-grid two">
+            <label>
+              Organization id
+              <input name="organizationId" required placeholder="org_local" autocomplete="off" />
+            </label>
+            <label>
+              Name
+              <input name="name" required placeholder="Platform" autocomplete="off" />
+            </label>
+          </div>
+          <label>
+            Description
+            <input name="description" placeholder="optional" autocomplete="off" />
+          </label>
+          <button type="submit">Create project</button>
+          <p id="project-form-status" class="muted" aria-live="polite"></p>
+        </form>
+
+        <div id="projects" class="cards" aria-live="polite">
+          <p class="muted">Loading projects…</p>
+        </div>
+      </section>
+
+      <section class="panel view" id="view-admin" data-view="admin" hidden>
+        <div class="panel-head">
+          <div>
+            <h1>Reviews</h1>
+            <p class="muted lede">
+              Proposals, comments, and workflow runs — open a proposal to inspect
+              its review thread and advance status.
+            </p>
+          </div>
+        </div>
+        <div class="tabs" id="admin-tabs">
+          <button class="tab" data-collection="organizations">Organizations</button>
+          <button class="tab" data-collection="repositories">Repositories</button>
+          <button class="tab active" data-collection="proposals">Proposals</button>
+          <button class="tab" data-collection="review-comments">Review comments</button>
+          <button class="tab" data-collection="workflow-runs">Workflow runs</button>
+          <button class="tab" data-collection="policies">Policies</button>
+        </div>
+
+        <div id="admin-forms">
+          <form id="proposal-form" class="form-card">
+            <h2>Open proposal</h2>
+            <div class="form-grid two">
+              <label>
+                Project id
+                <input name="projectId" required placeholder="proj_…" autocomplete="off" />
+              </label>
+              <label>
+                Title
+                <input name="title" required placeholder="Land feature lane" autocomplete="off" />
+              </label>
+              <label>
+                Sync repo id (optional)
+                <input name="syncRepoId" placeholder="repo_…" autocomplete="off" />
+              </label>
+              <label>
+                Source lane (optional)
+                <input name="sourceLane" placeholder="lane_feature" autocomplete="off" />
+              </label>
+            </div>
+            <label>
+              Description
+              <textarea name="description" rows="2" placeholder="optional"></textarea>
+            </label>
+            <button type="submit">Open proposal</button>
+            <p id="proposal-form-status" class="muted" aria-live="polite"></p>
+          </form>
+
+          <form id="comment-form" class="form-card" hidden>
+            <h2>Add review comment</h2>
+            <div class="form-grid two">
+              <label>
+                Proposal id
+                <input name="proposalId" required placeholder="prop_…" autocomplete="off" />
+              </label>
+              <label>
+                Path (optional)
+                <input name="path" placeholder="src/main.rs" autocomplete="off" />
+              </label>
+            </div>
+            <label>
+              Body
+              <textarea name="body" rows="3" required placeholder="Review note"></textarea>
+            </label>
+            <button type="submit">Post comment</button>
+            <p id="comment-form-status" class="muted" aria-live="polite"></p>
+          </form>
+
+          <form id="workflow-form" class="form-card" hidden>
+            <h2>Update workflow run</h2>
+            <div class="form-grid two">
+              <label>
+                Run id
+                <input name="runId" required placeholder="run_…" autocomplete="off" />
+              </label>
+              <label>
+                Status
+                <select name="status">
+                  <option value="queued">queued</option>
+                  <option value="running">running</option>
+                  <option value="succeeded">succeeded</option>
+                  <option value="failed">failed</option>
+                </select>
+              </label>
+            </div>
+            <button type="submit">Patch status</button>
+            <p id="workflow-form-status" class="muted" aria-live="polite"></p>
+          </form>
+        </div>
+
+        <div class="admin-layout" id="admin-layout">
+          <div id="admin-list" class="cards" aria-live="polite"></div>
+          <aside id="admin-detail" class="detail-panel" hidden>
+            <p class="empty-detail muted">Select a proposal to review.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="panel view" id="view-sync" data-view="sync" hidden>
+        <div class="panel-head">
+          <div>
+            <h1>Sync</h1>
+            <p class="muted lede">
+              Repositories synced into the Hub and their refs (read-only).
+            </p>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button id="refresh-sync" type="button">Refresh</button>
+        </div>
+
+        <div id="sync-repos" aria-live="polite">
+          <p class="muted">Loading synced repositories…</p>
+        </div>
+
+        <div id="sync-refs" class="sync-refs" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span
+        >Sorrel Hub UI · companion to the <code>sorrel-hub</code> API · part of
+        the Sorrel agent-native VCS</span
+      >
+    </footer>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>

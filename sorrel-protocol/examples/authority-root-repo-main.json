@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "AuthorityRoot",
+  "id": "authority_root_repo_main",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "description": "Decentralized authority root for repo_main with weighted threshold governance.",
+  "threshold": {
+    "mode": "weighted",
+    "minimum": 2,
+    "totalWeight": 3
+  },
+  "authorities": [
+    {
+      "principal": {
+        "kind": "Principal",
+        "id": "principal_maintainer"
+      },
+      "weight": 1,
+      "publicKey": {
+        "algorithm": "ed25519",
+        "value": "a1b2c3d4e5f6789012345678901234567890abcd"
+      },
+      "status": "active"
+    },
+    {
+      "principal": {
+        "type": "team",
+        "id": "team_platform"
+      },
+      "weight": 1,
+      "publicKey": {
+        "algorithm": "ed25519",
+        "value": "b2c3d4e5f6789012345678901234567890abcdef01"
+      },
+      "status": "active"
+    },
+    {
+      "principal": {
+        "type": "team",
+        "id": "team_security"
+      },
+      "weight": 1,
+      "publicKey": {
+        "algorithm": "ed25519",
+        "value": "c3d4e5f6789012345678901234567890abcdef0123"
+      },
+      "status": "active"
+    }
+  ],
+  "policy": {
+    "kind": "Policy",
+    "id": "policy_authority_root"
+  },
+  "contentHash": {
+    "algorithm": "blake3",
+    "value": "f1e2d3c4b5a69788776655443322110099887766554433221100998877665544"
+  },
+  "createdAt": "2026-06-24T10:10:00Z"
+}

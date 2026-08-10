@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyChange",
+  "id": "policy_change_invalid_missing_evaluation_root",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "previousPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "f1e2d3c4b5a69788776655443322110099887766554433221100998877665544"
+    }
+  },
+  "proposedPolicyRoot": {
+    "kind": "AuthorityRoot",
+    "id": "authority_root_repo_main",
+    "contentHash": {
+      "algorithm": "blake3",
+      "value": "aabbccddeeff0011223344556677889900aabbccddeeff00112233445566778899"
+    }
+  },
+  "operation": {
+    "type": "policy.grant",
+    "grant": {
+      "principal": {
+        "kind": "Principal",
+        "id": "principal_agent_docs"
+      },
+      "capabilities": [
+        {
+          "kind": "Capability",
+          "id": "capability_path_write"
+        }
+      ],
+      "resources": [
+        {
+          "kind": "ResourceRef",
+          "id": "resource_docs_path"
+        }
+      ],
+      "effect": "allow"
+    }
+  },
+  "createdAt": "2026-06-24T10:50:00Z"
+}

@@ -1,0 +1,172 @@
+{
+  "description": "End-to-end push walkthrough: client advances lane/main on repo_main from remote snapshot a1b2…3456 to local snapshot b2c3…5678.",
+  "repoId": "repo_main",
+  "ref": "lane/main",
+  "ids": {
+    "remoteSnapshot": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+    "localSnapshot": "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678",
+    "treeRoot": "c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890",
+    "blobReadme": "d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890ab"
+  },
+  "steps": [
+    {
+      "step": 1,
+      "label": "List remote refs",
+      "request": {
+        "method": "GET",
+        "path": "/repo_main/refs"
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "repoId": "repo_main",
+          "refs": [
+            {
+              "name": "HEAD",
+              "snapshot": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+            },
+            {
+              "name": "lane/main",
+              "snapshot": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "step": 2,
+      "label": "Negotiate objects to upload",
+      "request": {
+        "method": "POST",
+        "path": "/repo_main/objects/missing",
+        "body": {
+          "want": [
+            "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678"
+          ],
+          "have": [
+            "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "missing": [
+            "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678",
+            "c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890",
+            "d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890ab"
+          ]
+        }
+      },
+      "notes": "want entries are snapshot ids; have entries are any object ids the client believes the remote already stores (here, the current ref snapshot)."
+    },
+    {
+      "step": 3,
+      "label": "Upload missing objects",
+      "request": {
+        "method": "POST",
+        "path": "/repo_main/objects",
+        "headers": {
+          "x-sorrel-acting-principal": "{\"type\":\"user\",\"id\":\"principal_maintainer\"}"
+        },
+        "body": {
+          "grantRefs": [{ "id": "grant_repo_object_write", "source": "core" }],
+          "objects": [
+            {
+              "id": "d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890ab",
+              "bytes": "eyJzY2hlbWFWZXJzaW9uIjoic29ycmVsLnByb3RvY29sLnYwIiwia2luZCI6IkJsb2IifQ=="
+            },
+            {
+              "id": "c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890",
+              "bytes": "eyJzY2hlbWFWZXJzaW9uIjoic29ycmVsLnByb3RvY29sLnYwIiwia2luZCI6IlRyZWUifQ=="
+            },
+            {
+              "id": "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678",
+              "bytes": "eyJzY2hlbWFWZXJzaW9uIjoic29ycmVsLnByb3RvY29sLnYwIiwia2luZCI6IlNuYXBzaG90In0="
+            }
+          ]
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "stored": [
+            "d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890ab",
+            "c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890",
+            "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678"
+          ],
+          "skipped": []
+        }
+      },
+      "notes": "Remote MUST verify BLAKE3(bytes) == id for each entry. Policy action: repo.object.write on { kind: repo, id: repo_main }. Client sends grantRefs; remote hydrates and evaluates."
+    },
+    {
+      "step": 4,
+      "label": "Advance ref to local snapshot",
+      "request": {
+        "method": "POST",
+        "path": "/repo_main/refs/lane%2Fmain",
+        "headers": {
+          "x-sorrel-acting-principal": "{\"type\":\"user\",\"id\":\"principal_maintainer\"}"
+        },
+        "body": {
+          "grantRefs": [{ "id": "grant_repo_ref_write", "source": "core" }],
+          "snapshot": "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678",
+          "expected": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+          "force": false
+        }
+      },
+      "response": {
+        "status": 200,
+        "body": {
+          "name": "lane/main",
+          "snapshot": "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef12345678",
+          "previous": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+        }
+      },
+      "notes": "Policy action: repo.ref.write on { kind: repo, id: repo_main }. Client sends grantRefs; remote hydrates and evaluates. Fast-forward required because force is false."
+    }
+  ],
+  "errorExamples": [
+    {
+      "when": "Upload with wrong id for bytes",
+      "response": {
+        "status": 400,
+        "body": {
+          "error": {
+            "code": "object_id_mismatch",
+            "message": "object c3d4e5f6…7890: BLAKE3(bytes) does not match claimed id"
+          }
+        }
+      }
+    },
+    {
+      "when": "Ref advance before closure is complete",
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "closure_incomplete",
+            "message": "snapshot b2c3d4e5…5678 closure is missing 1 object(s)",
+            "missing": [
+              "d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890ab"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "when": "Non-fast-forward ref update",
+      "response": {
+        "status": 409,
+        "body": {
+          "error": {
+            "code": "non_fast_forward",
+            "message": "snapshot b2c3d4e5…5678 is not a descendant of ref lane/main",
+            "current": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+          }
+        }
+      }
+    }
+  ]
+}

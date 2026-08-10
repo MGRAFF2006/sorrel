@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "module": "NodeNext",
+    "target": "ES2022"
+  },
+  "include": [
+    "src"
+  ]
+}

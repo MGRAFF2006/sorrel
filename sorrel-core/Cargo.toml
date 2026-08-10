@@ -1,0 +1,27 @@
+[package]
+name = "sorrel-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blake3 = "1.8.5"
+git2 = "0.21.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+thiserror = "2.0.18"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[[bench]]
+name = "engine"
+harness = false
+
+[lints]
+workspace = true
+
+[features]
+git2 = []

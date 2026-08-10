@@ -1,13 +1,17 @@
 {
   "name": "sorrel",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "private": true,
-  "description": "Sorrel monorepo coordinator — run the full-stack E2E happy path.",
+  "description": "Sorrel monorepo — agent-native VCS and full-stack E2E happy path.",
   "type": "module",
   "scripts": {
+    "dev": "node scripts/dev-dashboard.mjs",
+    "dashboard": "node scripts/dev-dashboard.mjs",
     "test": "node tests/e2e/happy-path.mjs",
     "test:e2e": "node tests/e2e/happy-path.mjs",
-    "test:modules": "node tests/e2e/run-module-tests.mjs"
+    "test:modules": "node tests/e2e/run-module-tests.mjs",
+    "validate:release": "node scripts/check-release.mjs",
+    "validate:conformance": "./scripts/sync-conformance.sh --check"
   },
   "engines": {
     "node": ">=22"

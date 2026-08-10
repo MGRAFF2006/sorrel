@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "ResourceRef",
+  "id": "resource_repo_main",
+  "scope": {
+    "type": "repo",
+    "ref": "repo_main"
+  },
+  "repo": "repo_main",
+  "description": "Entire main repository scope."
+}

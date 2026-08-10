@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Tree",
+  "id": "tree_root_001",
+  "entries": [
+    {
+      "name": "README.md",
+      "path": "README.md",
+      "type": "file",
+      "object": {
+        "kind": "Blob",
+        "id": "blob_readme_001"
+      },
+      "mode": "normal",
+      "size": 42,
+      "contentHash": {
+        "algorithm": "blake3",
+        "value": "4f8f1d2c3b4a59687766554433221100ffeeddccbbaa99887766554433221100"
+      }
+    },
+    {
+      "name": "src",
+      "path": "src",
+      "type": "directory",
+      "object": {
+        "kind": "Tree",
+        "id": "tree_src_001"
+      },
+      "mode": "directory"
+    }
+  ],
+  "contentHash": {
+    "algorithm": "blake3",
+    "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "metadata": {
+    "entryCount": 2
+  }
+}

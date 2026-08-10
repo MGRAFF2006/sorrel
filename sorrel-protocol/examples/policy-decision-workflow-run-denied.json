@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "PolicyDecision",
+  "id": "decision_workflow_run_denied",
+  "request": {
+    "principal": {
+      "kind": "Principal",
+      "id": "principal_unprivileged_agent"
+    },
+    "capability": {
+      "kind": "Capability",
+      "id": "capability_workflow_run"
+    },
+    "resource": {
+      "kind": "ResourceRef",
+      "id": "resource_validate_workflow"
+    },
+    "context": {
+      "note": "No grant authorizes this principal to run the workflow."
+    }
+  },
+  "decision": "deny",
+  "reason": "No active grant permits this principal to run the validation workflow.",
+  "matchedPolicies": [],
+  "matchedGrants": [],
+  "decidedAt": "2026-06-24T09:22:00Z",
+  "evaluator": {
+    "type": "system",
+    "id": "system_core"
+  }
+}

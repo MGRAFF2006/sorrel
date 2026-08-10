@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>API reference - Docs - Sorrel</title>
+    <meta name="description" content="Generated API reference for the Sorrel engine, built with rustdoc from the doc comments in the source code.">
+    <meta name="theme-color" content="#2e3440">
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("sorrel-theme");
+          document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="../styles.css">
+    <link rel="stylesheet" href="./docs.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="../index.html" aria-label="Sorrel home">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>Sorrel</span>
+      </a>
+      <nav class="nav" aria-label="Primary navigation">
+        <a href="./index.html">Docs</a>
+        <a href="./core.html">Core</a>
+        <a href="./cli.html">CLI</a>
+        <a href="./hub.html">Hub</a>
+        <a href="./workflows.html">Workflows</a>
+        <a href="https://github.com/MGRAFF2006/sorrel">GitHub</a>
+        <button class="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle theme">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+          </svg>
+        </button>
+      </nav>
+    </header>
+
+    <main>
+      <div class="doc-hero">
+        <p class="crumbs"><a href="../index.html">sorrel</a><span>/</span><a href="./index.html">docs</a><span>/</span><span>api</span></p>
+        <h1>API reference</h1>
+        <p class="lede">
+          Generated straight from the doc comments in the source with <code>rustdoc</code> —
+          the reference cannot drift from the code because it <em>is</em> the code.
+        </p>
+      </div>
+
+      <section class="section">
+        <div class="doc-body">
+          <h2>Engine (Rust)</h2>
+          <p>
+            The engine crate is documented inline (<code>///</code> and <code>//!</code>
+            comments on every public module, type, and function). The deployed site serves the
+            generated reference here:
+          </p>
+          <div class="doc-grid">
+            <a class="doc-card" href="../api/sorrel-core/sorrel_core/index.html">
+              <p class="eyebrow">rustdoc</p>
+              <h3>sorrel-core</h3>
+              <p>Object store, snapshots, changes, history, merge3, merge, conflicts, lanes, policy, authority, transport.</p>
+            </a>
+          </div>
+          <div class="doc-note">
+            <p>
+              Building this page's target locally: run <code>scripts/build-api-docs.sh</code>
+              from a checkout that has <code>sorrel-core</code> as a sibling directory (the
+              root monorepo layout). It runs <code>cargo doc --no-deps</code> and copies the
+              output into <code>api/</code>, which is gitignored — generated content never
+              gets committed, it is built fresh by CI on every deploy.
+            </p>
+          </div>
+
+          <h2>Where the docs come from</h2>
+          <p>
+            Rust has documentation generation built into the toolchain: <code>rustdoc</code>
+            turns doc comments into a fully cross-referenced, searchable site, and
+            <code>cargo test</code> even compiles the code examples inside comments so samples
+            cannot rot. No extra dependencies are needed, which fits Sorrel's zero-dependency
+            discipline.
+          </p>
+          <pre><code># anywhere, from the sorrel-core checkout
+cargo doc --no-deps --open</code></pre>
+
+          <h2>Node modules</h2>
+          <p>
+            The JS modules (<code>sorrel-hub</code>, <code>sorrel-vault</code>,
+            <code>sorrel-protocol</code>, ...) are documented with JSDoc-style comments in the
+            source and README/API sections per repo. A generated HTML reference for them
+            (via TypeDoc or JSDoc) is planned once the SDK surface stabilizes — the protocol
+            schemas themselves are already the machine-readable contract and live in
+            <a href="https://github.com/MGRAFF2006/sorrel-protocol">sorrel-protocol</a>.
+          </p>
+
+          <div class="doc-footer-nav">
+            <a class="button secondary" href="./index.html">Docs overview</a>
+            <a class="button secondary" href="https://github.com/MGRAFF2006/sorrel">Source on GitHub</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Sorrel</span>
+      <span>Agent-native version control, building in public.</span>
+    </footer>
+
+    <script src="../site.js"></script>
+  </body>
+</html>

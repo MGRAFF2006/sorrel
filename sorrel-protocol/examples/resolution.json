@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "sorrel.protocol.v0",
+  "kind": "Resolution",
+  "id": "resolution_readme_001",
+  "conflict": {
+    "kind": "Conflict",
+    "id": "conflict_readme_001"
+  },
+  "resolvedBy": {
+    "type": "user",
+    "id": "user_alice",
+    "displayName": "Alice"
+  },
+  "createdAt": "2026-06-24T08:09:00Z",
+  "changes": [
+    {
+      "kind": "Change",
+      "id": "chg_update_readme_001"
+    }
+  ],
+  "operations": [
+    {
+      "op": "modify",
+      "path": "README.md",
+      "object": {
+        "kind": "Blob",
+        "id": "blob_readme_resolved_001"
+      },
+      "hunks": [
+        {
+          "stableAnchor": "README.md#heading",
+          "oldText": "# Sorrel\n",
+          "newText": "# Sorrel\n\nAgent-native version control for humans and agents.\n"
+        }
+      ]
+    }
+  ],
+  "rationale": "Combines both descriptions while preserving the product thesis.",
+  "reusable": true,
+  "appliesTo": {
+    "paths": ["README.md"],
+    "symbols": ["document.heading"],
+    "conflictKinds": ["text"]
+  },
+  "verification": [
+    {
+      "kind": "Workflow",
+      "id": "workflow_validate_protocol"
+    }
+  ],
+  "status": "accepted"
+}
