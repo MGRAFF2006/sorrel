@@ -1,6 +1,6 @@
 # Sorrel feature audit
 
-Last updated: 2026-07-21 (implementation pass: merge continue, git export, stack CLI, hub-web UX, CI, ContainerRunner tests)
+Last updated: 2026-08-10 (monorepo absorption PR #49; secrets/devenv/logs roadmap slice)
 
 Master checklist of every claimed capability vs verification status.
 
@@ -16,11 +16,8 @@ Master checklist of every claimed capability vs verification status.
 
 **This pass evidence**
 
-- `cargo test` core (git_export + prior), cli (merge continue, git export, stack)
-- `cargo test` runners (ContainerRunner suite)
-- Hub-web UI: proposal detail + workflow mutate + Nord polish
-- Root CI workflow added; hub + hub-web CI workflows added
-- Root E2E extended for merge `--continue`, stack, git export
+- Monorepo on `main`: green root CI (release, conformance, clippy/fmt, modules, E2E)
+- Prior: merge continue, git export/sync, stack CLI, ContainerRunner, Hub UI write path
 
 ---
 
@@ -29,21 +26,21 @@ Master checklist of every claimed capability vs verification status.
 | Area | Working / shipped | Partial | Missing (high-signal) |
 | --- | --- | --- | --- |
 | Protocol | Schemas, examples, conformance | Workspace-links CLI emission | Shadow sync, report-only object types |
-| Core | Store, snapshot, change, merge, policy, git_import, **git_export**, transport | Conflict/MergeResult schema drift | Packfiles, embedding ABI, other backends |
-| CLI | Full local VCS + sync + lane submit + workflow + policy + **merge --continue** + **git export** + **stack** | — | undo / agent start wishlist |
-| Git | Import + export + git-map | — | Colocated sync, GH mirror |
+| Core | Store, snapshot, change, merge, policy, git_import/export, transport | — | Packfiles, embedding ABI, other backends |
+| CLI | Full local VCS + sync + lane submit + workflow + policy + git bridge + stack | Secret resolve/inject (SecretSpec bridge) | undo / agent start wishlist |
+| Git | Import + export + colocated sync + git-map | — | GH mirror |
 | Sync | 5 endpoints + bootstrap grants + CLI push/pull | Skeleton principal header | Production auth, shadow mode |
 | Hub API | Projects, admin CRUD/PATCH, lane-submit, sync | — | Issues, merge queue, marketplace, SSO |
 | Hub UI | Projects/proposals/comments write + proposal detail + workflow mutate + sync read | No login | Marketplace |
-| Vault | Spec, local CLI, conformance | — | Cloud providers |
-| Runners | LocalProcess + **ContainerRunner tested** + YAML parser + gates | CLI uses in-tree cli_runner | SSH/K8s/GHA/WASM |
+| Vault | Spec, local Node CLI, conformance | SecretSpec providers under Sorrel policy | Hub secret backend |
+| Runners | LocalProcess + ContainerRunner + YAML + gates | CLI in-tree `cli_runner` (DEBT-1); no secret inject yet | devenv backend, rich run logs, SSH/K8s |
 | Slices | TS/JS generator + CLI slice create | Prototype only | Multi-lang, sync, extract repo |
 | Agents | register / claim / activeWork | Hub mirror is soft | Overlays, AGENTS.md materialize |
 | SDKs | Hub JS client; Rust Workspace | Minimal surfaces | Embedding / full protocol SDKs |
 | Landing | Static site + local serve in E2E | — | — |
-| Infra | Root E2E + module suites; compose; **CI workflows** | — | Apps |
+| Infra | **Single monorepo**; root E2E + modules; compose; CI without submodule PAT | — | Apps |
 
-**Bottom line:** Happy-path stack is **WORKING**, including **merge --continue**, **git export**, **stack CLI**, richer Hub review UX, ContainerRunner tests, and root/module CI scaffolding. Still ahead: colocated Git sync, embedding surface, production auth, apps/marketplace.
+**Bottom line:** Local VCS + Git bridge + Hub collaboration are **WORKING** in one clone. Next product slice: SecretSpec-backed secrets → devenv-first runs → structured execution logs.
 
 ---
 
@@ -89,7 +86,8 @@ Master checklist of every claimed capability vs verification status.
 | --- | --- | --- | --- |
 | D1–D2 | Import + flags | WORKING | |
 | D3 | Export | WORKING | core + CLI |
-| D4–D5 | Colocated / GH mirror | MISSING | |
+| D4 | Colocated git sync | WORKING | CLI `git sync` |
+| D5 | GH mirror | MISSING | |
 
 ---
 
@@ -116,8 +114,10 @@ Unchanged: WORKING sync + collaboration; MISSING production auth / marketplace.
 | I1 | LocalProcessRunner | WORKING | |
 | I2 | ContainerRunner | WORKING | `tests/container_runner.rs` (docker when present) |
 | I3–I4 | YAML / policy / redaction | WORKING | |
-| I5 | CLI in-tree cli_runner | PARTIAL | intentional |
-| I6 | SSH / K8s / GHA / WASM | MISSING | |
+| I5 | CLI in-tree cli_runner | PARTIAL | intentional DEBT-1 (after injection) |
+| I6 | devenv backend + env ensure | MISSING | roadmap ENV-1 |
+| I7 | Structured run log store / CLI | PARTIAL | runners JSONL exists; CLI persist/show missing |
+| I8 | SSH / K8s / GHA / WASM | MISSING | |
 
 ---
 
@@ -133,8 +133,8 @@ Unchanged: WORKING sync + collaboration; MISSING production auth / marketplace.
 
 ## Recommended next
 
-1. Colocated / git sync  
-2. Conflict/MergeResult protocol alignment  
-3. Embedding surface (then richer SDKs)  
-4. Production auth  
-5. Apps / marketplace
+1. SecretSpec bridge + `sorrel secret *` + workflow inject (SECRETS-1)
+2. devenv-first env/workflow + local fallback (ENV-1)
+3. Structured run logs + `sorrel run show|logs` (LOGS-1)
+4. Production Hub auth; embedding surface; then SDKs/apps
+5. DEBT-1 collapse `cli_policy` / `cli_runner` after injection

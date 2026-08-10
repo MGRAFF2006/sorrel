@@ -4,11 +4,11 @@ Sorrel module: sorrel-hub.
 
 **Sorrel Hub is the collaboration API server** — a Node HTTP service exposing
 JSON endpoints. It is the **backend**, not a web interface. The browser frontend
-lives in a separate repo, [`sorrel-hub-web`](https://github.com/MGRAFF2006/sorrel-hub-web).
+is the sibling package [`sorrel-hub-web`](../sorrel-hub-web) in this monorepo.
 
-| Repo             | Role                                              |
+| Package          | Role                                              |
 | ---------------- | ------------------------------------------------- |
-| `sorrel-hub`     | Hub **API server** (this repo; JSON over HTTP)    |
+| `sorrel-hub`     | Hub **API server** (this package; JSON over HTTP) |
 | `sorrel-hub-web` | Hub **web interface** (browser frontend)          |
 | `sorrel-web`     | Public marketing landing page (static, unrelated) |
 

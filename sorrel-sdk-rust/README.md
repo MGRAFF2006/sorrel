@@ -1,7 +1,7 @@
 # sorrel-sdk-rust
 
 > **Experimental alpha:** this crate is a thin convenience SDK over
-> [`sorrel-core`](https://github.com/MGRAFF2006/sorrel-core). It is not
+> [`sorrel-core`](../sorrel-core). It is not
 > Sorrel's stable or complete Rust embedding surface, and its API may change
 > without compatibility guarantees before a stable release.
 
