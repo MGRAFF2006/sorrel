@@ -36,7 +36,7 @@ export async function handleCollaborationRoute(request, response, context) {
   throw new HttpError(404, 'collaboration route not found', 'not_found');
 }
 
-async function laneSubmit(request, response, { store }) {
+async function laneSubmit(request, response, { store, session }) {
   const body = await readJsonBody(request);
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -91,7 +91,8 @@ async function laneSubmit(request, response, { store }) {
       syncRepoId: typeof syncRepoId === 'string' ? syncRepoId.trim() : undefined,
       title: title.trim(),
       description: body.description,
-      authorPrincipal: body.authorPrincipal ?? { type: 'user', id: 'local' },
+      authorPrincipal:
+        session?.principal ?? body.authorPrincipal ?? { type: 'user', id: 'local' },
       authorRef: body.authorRef,
       sourceLane: sourceLane.trim(),
       targetLane: body.targetLane ?? 'lane_main',

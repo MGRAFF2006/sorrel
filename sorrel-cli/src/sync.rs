@@ -1,7 +1,8 @@
 //! HTTP sync transport client for sorrel-hub (see sorrel-protocol sync-transport spec).
 //!
-//! Mutating requests send `x-sorrel-acting-principal` as a JSON string. The CLI
-//! skeleton defaults to `{"type":"user","id":"local"}` until interactive auth lands.
+//! Development requests send `x-sorrel-acting-principal` as a JSON string. When
+//! `SORREL_HUB_TOKEN` is set, every request also carries the bearer token for a
+//! Hub configured with OIDC or WorkOS authentication.
 
 use std::io;
 
@@ -12,11 +13,14 @@ use sorrel_core::{
 
 use crate::repo::{self, Head, Remote};
 
-/// Default acting principal for mutating sync calls (skeleton).
+/// Default acting principal for local development calls.
 pub const DEFAULT_ACTING_PRINCIPAL: &str = r#"{"type":"user","id":"local"}"#;
 
+/// Environment variable used for a Hub OIDC/WorkOS bearer access token.
+pub const HUB_TOKEN_ENV: &str = "SORREL_HUB_TOKEN";
+
 /// Bootstrap grant ids recognized by sorrel-hub's local trusted-grant map
-/// (`SORREL_HUB_BOOTSTRAP_GRANTS`, default on). Matching Hub constants live in
+/// (`SORREL_HUB_BOOTSTRAP_GRANTS=1`, opt-in). Matching Hub constants live in
 /// `sorrel-hub/src/bootstrap-grants.js`.
 pub const BOOTSTRAP_OBJECT_WRITE_GRANT_ID: &str = "grant_local_object_write";
 pub const BOOTSTRAP_REF_WRITE_GRANT_ID: &str = "grant_local_ref_write";
@@ -53,24 +57,33 @@ pub struct SyncClient {
     repo_id: String,
     agent: ureq::Agent,
     principal_header: String,
+    authorization_header: Option<String>,
 }
 
 impl SyncClient {
     /// Builds a client for `remote` using a fresh ureq agent.
     #[must_use]
     pub fn new(remote: &Remote) -> Self {
-        Self::with_principal(remote, DEFAULT_ACTING_PRINCIPAL)
+        let token = hub_bearer_token();
+        Self::with_auth(remote, DEFAULT_ACTING_PRINCIPAL, token.as_deref())
     }
 
     /// Builds a client with a custom acting-principal JSON header value.
     #[must_use]
     pub fn with_principal(remote: &Remote, principal_header: &str) -> Self {
+        Self::with_auth(remote, principal_header, None)
+    }
+
+    /// Builds a client with explicit development principal and bearer token.
+    #[must_use]
+    pub fn with_auth(remote: &Remote, principal_header: &str, bearer_token: Option<&str>) -> Self {
         let base_url = remote.url.trim_end_matches('/').to_owned();
         Self {
             base_url,
             repo_id: remote.repo_id.clone(),
             agent: ureq::Agent::new(),
             principal_header: principal_header.to_owned(),
+            authorization_header: hub_authorization_value(bearer_token),
         }
     }
 
@@ -79,18 +92,23 @@ impl SyncClient {
     }
 
     fn get_json(&self, path: &str) -> io::Result<Value> {
-        let response = self.agent.get(&self.url(path)).call().map_err(http_error)?;
+        let request = apply_hub_authorization(
+            self.agent.get(&self.url(path)),
+            self.authorization_header.as_deref(),
+        );
+        let response = request.call().map_err(http_error)?;
         response
             .into_json()
             .map_err(|error| io::Error::other(error.to_string()))
     }
 
     fn post_json(&self, path: &str, body: &Value) -> io::Result<Value> {
-        let response = self
+        let request = self
             .agent
             .post(&self.url(path))
             .set("Content-Type", "application/json")
-            .set("x-sorrel-acting-principal", &self.principal_header)
+            .set("x-sorrel-acting-principal", &self.principal_header);
+        let response = apply_hub_authorization(request, self.authorization_header.as_deref())
             .send_json(body)
             .map_err(http_error)?;
         response
@@ -182,6 +200,33 @@ impl SyncClient {
         let encoded_name = ref_name.replace('/', "%2F");
         self.post_json(&format!("refs/{encoded_name}"), &body)
     }
+}
+
+pub(crate) fn hub_bearer_token() -> Option<String> {
+    std::env::var(HUB_TOKEN_ENV)
+        .ok()
+        .and_then(|token| normalize_hub_token(&token).map(str::to_owned))
+}
+
+pub(crate) fn apply_hub_authorization(
+    request: ureq::Request,
+    authorization_header: Option<&str>,
+) -> ureq::Request {
+    match authorization_header {
+        Some(value) => request.set("Authorization", value),
+        None => request,
+    }
+}
+
+fn hub_authorization_value(token: Option<&str>) -> Option<String> {
+    token
+        .and_then(normalize_hub_token)
+        .map(|token| format!("Bearer {token}"))
+}
+
+fn normalize_hub_token(token: &str) -> Option<&str> {
+    let token = token.trim();
+    (!token.is_empty()).then_some(token)
 }
 
 /// Pushes `local_snapshot_id` to `remote` ref `ref_name`.
@@ -465,6 +510,9 @@ fn base64_encode(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
 
     #[test]
     fn base64_roundtrip_length() {
@@ -485,5 +533,55 @@ mod tests {
         assert_eq!(base64_decode("abc"), None);
         assert_eq!(base64_decode("a=bc"), None);
         assert_eq!(base64_decode("!!!!"), None);
+    }
+
+    #[test]
+    fn bearer_authorization_trims_non_empty_tokens() {
+        assert_eq!(
+            hub_authorization_value(Some("  access-token  ")).as_deref(),
+            Some("Bearer access-token")
+        );
+        assert_eq!(hub_authorization_value(Some("  ")), None);
+        assert_eq!(hub_authorization_value(None), None);
+    }
+
+    #[test]
+    fn sync_client_forwards_explicit_bearer_token() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let address = listener.local_addr().expect("test server address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut request = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            loop {
+                let read = stream.read(&mut chunk).expect("read request");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..read]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let request = String::from_utf8_lossy(&request).to_ascii_lowercase();
+            assert!(request.contains("authorization: bearer test-token\r\n"));
+
+            let body = r#"{"refs":[]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .expect("write response");
+        });
+
+        let remote = Remote {
+            url: format!("http://{address}"),
+            repo_id: "repo_auth_test".to_owned(),
+        };
+        let client = SyncClient::with_auth(&remote, DEFAULT_ACTING_PRINCIPAL, Some("test-token"));
+        let refs = client.list_refs().expect("authenticated request succeeds");
+        assert_eq!(refs["refs"], json!([]));
+        server.join().expect("test server joins");
     }
 }

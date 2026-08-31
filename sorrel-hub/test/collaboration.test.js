@@ -4,8 +4,8 @@ import test from 'node:test';
 
 import { createApp } from '../src/app.js';
 
-async function withServer(callback) {
-  const app = createApp();
+async function withServer(callback, options = {}) {
+  const app = createApp(options);
   const server = http.createServer(app.handleRequest);
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -173,6 +173,45 @@ test('lane-submit creates open proposal and reuses same tip', async () => {
     assert.equal(summary.data.total, 1);
     assert.equal(summary.data.byStatus.open, 1);
   });
+});
+
+test('lane-submit attributes an authenticated session instead of a spoofed body principal', async () => {
+  const sessionPrincipal = { type: 'user', id: 'oidc:verified-user' };
+  const authAdapter = {
+    mode: 'oidc',
+    async resolveSession() {
+      return {
+        principal: sessionPrincipal,
+        sessionId: 'test-session',
+        authMode: 'oidc',
+      };
+    },
+    mapPrincipal(identity) {
+      return { type: 'user', id: identity.subject };
+    },
+  };
+
+  await withServer(async (baseUrl) => {
+    const project = (
+      await postJson(`${baseUrl}/projects`, {
+        organizationId: 'org_auth',
+        name: 'Authenticated Submit',
+      }).then((response) => response.json())
+    ).data;
+
+    const response = await postJson(`${baseUrl}/collaboration/lane-submit`, {
+      projectId: project.id,
+      syncRepoId: 'repo_auth',
+      title: 'Authenticated feature',
+      sourceLane: 'lane_auth',
+      sourceSnapshot: 'cc'.repeat(32),
+      authorPrincipal: { type: 'user', id: 'spoofed' },
+    });
+    const proposal = (await response.json()).data;
+
+    assert.equal(response.status, 201);
+    assert.deepEqual(proposal.authorPrincipal, sessionPrincipal);
+  }, { authAdapter });
 });
 
 test('workflow run status updates', async () => {

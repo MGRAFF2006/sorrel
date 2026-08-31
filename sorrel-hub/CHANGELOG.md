@@ -6,6 +6,8 @@ Notable changes to Sorrel Hub are documented here.
 
 ### Changed
 
+- Authenticated lane submissions now use the verified session principal as the
+  proposal author instead of trusting a caller-supplied body principal.
 - `GET /capabilities` no longer advertises environment-selected optional
   modules or an S3 backend that the server does not provide, and reports the
   in-memory sync store when selected.
