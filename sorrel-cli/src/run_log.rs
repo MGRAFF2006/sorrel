@@ -26,7 +26,7 @@ pub enum RunCommand {
     /// Print run log lines (JSONL).
     Logs {
         run_id: String,
-        /// Stream new lines as they appear (best-effort poll).
+        /// Reserved for streaming support; currently returns an unsupported error.
         #[arg(long)]
         follow: bool,
     },
@@ -248,6 +248,13 @@ fn show_output(run_id: &str) -> io::Result<CommandOutput> {
 }
 
 fn logs_output(run_id: &str, follow: bool) -> io::Result<CommandOutput> {
+    if follow {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "run log following is not implemented; omit `--follow` for a one-shot read",
+        ));
+    }
+
     let path = run_dir(run_id).join("log.jsonl");
     if !path.is_file() {
         return Err(io::Error::new(
@@ -272,16 +279,13 @@ fn logs_output(run_id: &str, follow: bool) -> io::Result<CommandOutput> {
             lines.push(json!({ "raw": line }));
         }
     }
-    if follow {
-        human.push_str("(follow: poll not implemented in this alpha; re-run `sorrel run logs`)\n");
-    }
     Ok(CommandOutput {
         json: json!({
             "command": "run logs",
             "mocked": false,
             "mediaType": LOG_MEDIA_TYPE,
             "runId": run_id,
-            "follow": follow,
+            "follow": false,
             "events": lines
         }),
         human: human.trim_end().to_owned(),
