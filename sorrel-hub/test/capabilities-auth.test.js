@@ -48,7 +48,7 @@ test('GET /capabilities advertises modular install defaults', async () => {
   }
 });
 
-test('capabilities flip optional modules and convex from env', () => {
+test('capabilities do not advertise unavailable modules or storage backends', () => {
   const caps = resolveCapabilities({
     env: {
       SORREL_HUB_AUTH: 'oidc',
@@ -56,13 +56,14 @@ test('capabilities flip optional modules and convex from env', () => {
       SORREL_HUB_MODULE_AGENTS: 'true',
       SORREL_HUB_MODULE_SECRETS: '1',
       SORREL_HUB_OBJECT_STORAGE: 's3',
+      SORREL_HUB_SYNC_STORE: 'memory',
       CONVEX_URL: 'http://127.0.0.1:3210',
     },
   });
-  assert.equal(caps.modules.actions, true);
-  assert.equal(caps.modules.agents, true);
-  assert.equal(caps.modules.secrets, true);
-  assert.equal(caps.modules.objectStorage, 's3');
+  assert.equal(caps.modules.actions, false);
+  assert.equal(caps.modules.agents, false);
+  assert.equal(caps.modules.secrets, false);
+  assert.equal(caps.modules.objectStorage, 'memory');
   assert.equal(caps.auth.mode, 'oidc');
   assert.equal(caps.deploy, 'selfhost');
   assert.equal(caps.convex.enabled, true);

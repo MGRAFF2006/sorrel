@@ -4,7 +4,11 @@ Notable changes to Sorrel Hub are documented here.
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+
+- `GET /capabilities` no longer advertises environment-selected optional
+  modules or an S3 backend that the server does not provide, and reports the
+  in-memory sync store when selected.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 

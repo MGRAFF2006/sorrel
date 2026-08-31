@@ -4,7 +4,10 @@ Notable changes to the shared Sorrel Hub UI (`sorrel-hub-ui`) are documented her
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+
+- Removed the Actions placeholder route and navigation until the Hub exposes a
+  real Actions module.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 

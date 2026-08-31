@@ -34,7 +34,7 @@ the complete shipped record.
 | **Runners** | Local + container runners (ContainerRunner tested), `sorrel.workflow.yml` → `JobBundle` parser, Core policy gate + log redaction. CLI prefers devenv when present (`backend: devenv`), else `local-fallback`. Structured logs under `.sorrel/runs/`. |
 | **Slices** | TS/JS slice manifest generator (prototype). |
 | **Hub API** | JSON HTTP server: health, projects, admin collections with GET/PATCH, proposals/reviews lifecycle, lane-submit collaboration endpoint, sync endpoints, FS persistence. |
-| **Hub UI** | Shared Solid `sorrel-hub-ui` — project-first (GitHub-like): home lists projects; Reviews/Sync/Actions nest under `/projects/:id`; hosted by thin `sorrel-hub-web`. |
+| **Hub UI** | Shared Solid `sorrel-hub-ui` — project-first (GitHub-like): home lists projects; implemented Reviews/Sync surfaces nest under `/projects/:id`; hosted by thin `sorrel-hub-web`. |
 | **Hub install seams** | `GET /capabilities` + `GET /session`; AuthAdapter (`dev` / `workos` / OIDC JWKS); shared `sorrel-hub/convex/` schema for SaaS + self-host. |
 | **Landing (`sorrel-web`)** | Static marketing site (Nord theme). Production deploy is Cloudflare Pages; local Docker is optional preview only. |
 | **Root E2E / CI** | `npm test` E2E and `npm run test:modules` from one checkout. Root Actions checks out the monorepo directly — no submodule PAT. |

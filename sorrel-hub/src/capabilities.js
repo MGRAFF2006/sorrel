@@ -10,7 +10,7 @@
  *     actions: boolean,
  *     agents: boolean,
  *     secrets: boolean,
- *     objectStorage: 'fs' | 's3',
+ *     objectStorage: 'fs' | 'memory',
  *   },
  *   auth: { mode: 'dev' | 'workos' | 'oidc', session: 'cookie' | 'bearer' | 'none' },
  *   convex: { enabled: boolean, url?: string },
@@ -31,10 +31,12 @@ export function resolveCapabilities(options = {}) {
     (env.SORREL_HUB_AUTH ?? 'dev').toLowerCase()
   );
 
-  const actions = env.SORREL_HUB_MODULE_ACTIONS === '1' || env.SORREL_HUB_MODULE_ACTIONS === 'true';
-  const agents = env.SORREL_HUB_MODULE_AGENTS === '1' || env.SORREL_HUB_MODULE_AGENTS === 'true';
-  const secrets = env.SORREL_HUB_MODULE_SECRETS === '1' || env.SORREL_HUB_MODULE_SECRETS === 'true';
-  const objectStorage = env.SORREL_HUB_OBJECT_STORAGE === 's3' ? 's3' : 'fs';
+  // Optional module flags are reserved until the Hub actually wires their
+  // routes and product surfaces. Never advertise an env toggle as installed.
+  const actions = false;
+  const agents = false;
+  const secrets = false;
+  const objectStorage = env.SORREL_HUB_SYNC_STORE === 'memory' ? 'memory' : 'fs';
 
   // Browsers cannot use an internal Compose/service URL. Operators can expose
   // a separate public origin while the Hub mirror keeps using CONVEX_URL.

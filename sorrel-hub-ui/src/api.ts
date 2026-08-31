@@ -8,7 +8,7 @@ export type HubCapabilities = {
     actions: boolean;
     agents: boolean;
     secrets: boolean;
-    objectStorage: 'fs' | 's3';
+    objectStorage: 'fs' | 'memory';
   };
   auth: {
     mode: 'dev' | 'workos' | 'oidc';
