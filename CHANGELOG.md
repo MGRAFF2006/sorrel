@@ -5,6 +5,8 @@ details live in each `sorrel-*` repository's changelog.
 
 ## Unreleased
 
+- Redesigned root README with Nord brand mark, wordmark, and social banner
+  assets under `assets/`.
 - Production authentication and stable embedding interfaces remain planned.
 
 ## 0.1.0-alpha.1 — 2026-07-30

@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="Sorrel - agent-native version control">
+  <title>Sorrel - agent-native version control</title>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1280" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#232831"/>
+      <stop offset="55%" stop-color="#2E3440"/>
+      <stop offset="100%" stop-color="#3B4252"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="470" y1="140" x2="810" y2="500" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#8FBCBB"/>
+      <stop offset="45%" stop-color="#88C0D0"/>
+      <stop offset="100%" stop-color="#5E81AC"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#D8DEE9" stroke-opacity="0.06" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="640" fill="url(#sky)"/>
+  <rect width="1280" height="640" fill="url(#grid)"/>
+  <circle cx="980" cy="120" r="220" fill="#5E81AC" fill-opacity="0.12"/>
+  <circle cx="220" cy="520" r="180" fill="#A3BE8C" fill-opacity="0.08"/>
+
+  <g transform="translate(476 156)">
+    <rect width="328" height="328" rx="72" fill="#2E3440" stroke="#434C5E" stroke-width="4"/>
+    <path
+      fill="url(#leaf)"
+      transform="translate(36 36) scale(2)"
+      d="M64 18
+         C74 34 86 48 96 58
+         C104 66 110 74 108 84
+         C106 94 96 98 86 94
+         C78 90 72 84 68 78
+         L64 72
+         L60 78
+         C56 84 50 90 42 94
+         C32 98 22 94 20 84
+         C18 74 24 66 32 58
+         C42 48 54 34 64 18Z"
+    />
+    <path
+      fill="none"
+      stroke="#ECEFF4"
+      stroke-opacity="0.92"
+      stroke-width="8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      transform="translate(36 36) scale(2)"
+      d="M64 30
+         C64 42 64 52 64 66
+         M64 66
+         C56 74 46 82 36 88
+         M64 66
+         C72 74 82 82 92 88
+         M64 66
+         V102"
+    />
+    <circle cx="164" cy="168" r="7" fill="#ECEFF4"/>
+  </g>
+
+  <text
+    x="640"
+    y="560"
+    text-anchor="middle"
+    fill="#ECEFF4"
+    font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
+    font-size="56"
+    font-weight="700"
+    letter-spacing="-1"
+  >Sorrel</text>
+  <text
+    x="640"
+    y="602"
+    text-anchor="middle"
+    fill="#88C0D0"
+    font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
+    font-size="24"
+    font-weight="500"
+  >Agent-native version control</text>
+</svg>

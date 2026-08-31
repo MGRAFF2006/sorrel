@@ -1,49 +1,73 @@
-# Sorrel
+<p align="center">
+  <img src="assets/logo.svg" alt="Sorrel" width="112" height="112">
+</p>
 
-Sorrel is an **agent-native version-control system** — a new VCS core built for
-modern software work: parallel AI agents, cloud and in-memory workspaces,
-first-class permissions and secrets, portable workflows, and shareable slices of
-unfinished work. It is not "Git but nicer"; it is a layered system with a
-content-addressed object store, changes/lanes/slices, a Core-native
-identity/permission/policy spine, a bidirectional Git bridge, and a collaboration
-product on top.
+<h1 align="center">Sorrel</h1>
 
-> **Release status:** `v0.1.0-alpha.1` is a local-first developer preview.
-> The Hub is for localhost development only; it does not provide production
-> authentication.
+<p align="center">
+  <strong>Agent-native version control</strong> for humans and parallel AI agents.
+</p>
 
-| Doc | Purpose |
+<p align="center">
+  <a href="https://github.com/MGRAFF2006/sorrel/releases"><img alt="Release" src="https://img.shields.io/github/v/release/MGRAFF2006/sorrel?include_prereleases&amp;style=flat-square&amp;color=5E81AC"></a>
+  <a href="LICENSE-MIT"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-A3BE8C?style=flat-square"></a>
+  <a href="LICENSE-APACHE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache%202.0-81A1C1?style=flat-square"></a>
+  <a href="sorrel-web/"><img alt="Landing" src="https://img.shields.io/badge/landing-sorrel--web-88C0D0?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="docs/GETTING_STARTED.md">Get started</a>
+  ·
+  <a href="docs/STATUS.md">Status</a>
+  ·
+  <a href="https://github.com/MGRAFF2006/sorrel/releases">Releases</a>
+  ·
+  <a href="ROADMAP.md">Roadmap</a>
+</p>
+
+---
+
+Sorrel is a new VCS core — not “Git but nicer.” It is a layered system with a
+content-addressed object store, changes / lanes / slices, a Core-native
+identity and policy spine, a bidirectional Git bridge, and a collaboration
+product on top. Built for parallel agents, portable workflows, first-class
+secrets, and shareable unfinished work.
+
+> **Latest preview:** [`v0.1.0-alpha.1`](https://github.com/MGRAFF2006/sorrel/releases)
+> is local-first. The Hub is for localhost development only and does **not**
+> provide production authentication.
+
+## Why Sorrel
+
+| Problem | Sorrel approach |
 | --- | --- |
-| [`docs/STATUS.md`](docs/STATUS.md) | **What works / what is missing** |
-| [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | **How to clone and run everything** |
-| [`docs/RELEASE.md`](docs/RELEASE.md) | Version, validation, and tagging process |
-| [`SECURITY.md`](SECURITY.md) | Security scope and vulnerability reporting |
-| [`ROADMAP.md`](ROADMAP.md) | Sequenced forward plan |
-| [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md) | Full architecture |
+| Many agents, one working tree | Changes, lanes, and slices as first-class units of work |
+| Permissions bolted on later | Policy / grants in the Core spine |
+| Secrets leaking into logs | SecretSpec resolution under Core grants + redaction |
+| “Just use Git” forever | Incremental Git import / export / colocated sync |
+| Collaboration as an afterthought | Hub API + writable UI companion (dev-only today) |
 
-The same status and getting-started docs are published on the landing site
-(`sorrel-web` → Cloudflare) under `/docs/`.
-
-## Status at a glance (2026-08-10)
+## Status at a glance
 
 **Working today**
 
-- Real engine + persistent CLI: init, status, change, diff, log, lanes, merge, push/pull
+- Real engine + persistent CLI: `init`, `status`, `change`, `diff`, `log`, lanes, merge, push / pull
 - Git import, export, and colocated bidirectional sync
-- Policy/conformance spine across protocol, core, CLI, hub, runners, vault
+- Policy / conformance spine across protocol, core, CLI, hub, runners, vault
 - Development Hub with FS-backed sync + metadata; writable Hub UI companion
-- Vault, runners, slices prototypes; public landing site live on Cloudflare
-- **Single monorepo** — clone once, no submodule tokens
+- Vault, runners, slices prototypes; public landing site on Cloudflare
+- Single monorepo — clone once, no submodule tokens
 
 **Still missing**
 
 - Production Hub authentication and signed client identity
 - Stable embedding surface (C ABI / N-API / WASM / daemon)
-- SecretSpec-backed resolve/inject under Core grants (in progress)
-- devenv-first runners + Blacksmith-grade execution logs (planned)
-- Production Hub authentication and desktop/mobile applications
+- Full devenv task mapping, run-log streaming, hosted / BYO secret backend
+- Desktop / mobile applications
 
-Details: [`docs/STATUS.md`](docs/STATUS.md).
+Details: [`docs/STATUS.md`](docs/STATUS.md). Progress lives in
+[GitHub Releases](https://github.com/MGRAFF2006/sorrel/releases) and
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ## Quick start
 
@@ -69,8 +93,6 @@ Full instructions: [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
 
 ## Repository layout
 
-Everything lives in this repository as normal packages:
-
 | Package | Role | Maturity |
 | --- | --- | --- |
 | `sorrel-protocol` | Schemas, examples, policy conformance | Active |
@@ -86,10 +108,25 @@ Everything lives in this repository as normal packages:
 | `sorrel-sdk-js` | Hub HTTP client SDK | Active |
 | `sorrel-sdk-rust` | Rust SDK over `sorrel-core` | Active |
 
-Hub is split three ways: `sorrel-hub` (API), `sorrel-hub-web` (product UI),
+Hub is split three ways: `sorrel-hub` (API), `sorrel-hub-web` (product UI), and
 `sorrel-web` (marketing landing — **not** the Hub UI).
 
-Rust crates form one Cargo workspace (`Cargo.toml` at the root).
+Rust crates form one Cargo workspace (`Cargo.toml` at the root). Brand assets
+used by this README live under [`assets/`](assets/).
+
+## Docs
+
+| Doc | Purpose |
+| --- | --- |
+| [`docs/STATUS.md`](docs/STATUS.md) | What works / what is missing |
+| [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | Clone and run everything |
+| [`docs/RELEASE.md`](docs/RELEASE.md) | Version, validation, tagging |
+| [`SECURITY.md`](SECURITY.md) | Security scope and reporting |
+| [`ROADMAP.md`](ROADMAP.md) | Sequenced forward plan |
+| [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md) | Full architecture write-up |
+
+Canonical status and getting-started guides are mirrored onto the landing site
+under `/docs/`.
 
 ## Toolchains
 
@@ -113,3 +150,6 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
+## License
+
+Dual-licensed under [MIT](LICENSE-MIT) and [Apache-2.0](LICENSE-APACHE).
