@@ -10,6 +10,11 @@ All notable changes to `sorrel-cli` are documented here.
   project discovery, and lane submission without persisting it in remote
   configuration.
 
+### Fixed
+
+- `run logs --follow` now returns an unsupported error instead of silently
+  performing a one-shot read while reporting `follow: true`.
+
 ## [0.1.0-alpha.1] - 2026-08-31
 
 Initial coordinated alpha release.

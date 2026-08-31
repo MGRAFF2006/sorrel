@@ -23,7 +23,9 @@ marketing site.
   (`src/fs-sync-store.js`, default `./data/sync`, override with
   `SORREL_HUB_DATA_DIR`, opt out with `SORREL_HUB_SYNC_STORE=memory` —
   which also keeps metadata in memory). Tests default to in-memory stores.
-- Modular install: `GET /capabilities` (env-driven modules + auth + Convex).
+- Modular install: `GET /capabilities` reports only wired modules and storage,
+  plus auth and Convex. Reserved environment toggles must not advertise an
+  implementation that is not actually installed.
 - Shared Convex metadata schema lives in `convex/` (SaaS Cloud and self-host).
   VCS objects must not move into Convex.
 - Keep internal `CONVEX_URL` separate from browser-facing

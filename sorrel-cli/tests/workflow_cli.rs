@@ -232,6 +232,15 @@ jobs:
     let logs = command_json(root, &["run", "logs", run_id, "--json"]);
     assert_eq!(logs["command"], "run logs");
     assert!(!logs["events"].as_array().unwrap().is_empty());
+
+    let follow = Command::cargo_bin("sorrel")
+        .expect("sorrel binary is available")
+        .current_dir(root)
+        .args(["run", "logs", run_id, "--follow"])
+        .output()
+        .expect("follow command runs");
+    assert!(!follow.status.success());
+    assert!(String::from_utf8_lossy(&follow.stderr).contains("following is not implemented"));
 }
 
 #[test]

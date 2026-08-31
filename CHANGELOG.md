@@ -16,6 +16,11 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Added `SORREL_HUB_TOKEN` bearer authentication for CLI Hub requests and made
   authenticated lane submissions derive their author from the verified Hub
   session.
+- Made Hub capabilities report only implemented modules and the active
+  filesystem or in-memory store; removed the unimplemented Actions route from
+  Hub UI navigation.
+- Changed unsupported `run logs --follow` requests to fail explicitly instead
+  of returning a one-shot log response labeled as following.
 - Improved public-site navigation on small screens and for keyboard users with
   an accessible compact menu, skip links, focus indicators, and clearer theme
   toggle labels.

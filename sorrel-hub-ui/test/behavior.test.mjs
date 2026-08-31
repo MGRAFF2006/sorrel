@@ -20,12 +20,11 @@ test('platform stubs expose expected capability matrix', async () => {
   assert.match(source, /createWebPlatform/);
 });
 
-test('App is project-first with nested feature routes', async () => {
+test('App is project-first and exposes only implemented feature routes', async () => {
   const app = await import('node:fs/promises').then((fs) =>
     fs.readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   );
-  assert.match(app, /modules\.actions === true|showActions/);
-  assert.match(app, /\/actions/);
+  assert.doesNotMatch(app, /ActionsPlaceholder|\/actions/);
   assert.match(app, /live-badge/);
   assert.match(app, /useOpenProposalsCount/);
   assert.match(app, /useOpenProposalsCountFromHub/);

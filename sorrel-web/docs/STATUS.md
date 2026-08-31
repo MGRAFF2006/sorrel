@@ -36,7 +36,7 @@ the complete shipped record.
 | **Runners** | Local + container runners (ContainerRunner tested), `sorrel.workflow.yml` → `JobBundle` parser, Core policy gate + log redaction. CLI prefers devenv when present (`backend: devenv`), else `local-fallback`. Structured logs under `.sorrel/runs/`. |
 | **Slices** | TS/JS slice manifest generator (prototype). |
 | **Hub API** | JSON HTTP server: health, projects, admin collections with GET/PATCH, proposals/reviews lifecycle, lane-submit collaboration endpoint, sync endpoints, FS persistence. |
-| **Hub UI** | Shared Solid `sorrel-hub-ui` — project-first (GitHub-like): home lists projects; Reviews/Sync/Actions nest under `/projects/:id`; hosted by thin `sorrel-hub-web`. |
+| **Hub UI** | Shared Solid `sorrel-hub-ui` — project-first (GitHub-like): home lists projects; implemented Reviews/Sync surfaces nest under `/projects/:id`; hosted by thin `sorrel-hub-web`. |
 | **Hub install seams** | `GET /capabilities` + `GET /session`; AuthAdapter (`dev` / `workos` / OIDC JWKS); shared `sorrel-hub/convex/` schema for SaaS + self-host. |
 | **Landing (`sorrel-web`)** | Static marketing site (Nord theme). Production deploy is Cloudflare Pages; local Docker is optional preview only. |
 | **Root E2E / CI** | `npm test` E2E and `npm run test:modules` from one checkout. Root Actions checks out the monorepo directly — no submodule PAT. |
@@ -52,7 +52,7 @@ the complete shipped record.
 | **Apps** | No desktop/mobile clients (intentionally after embedding surface). |
 | **Hub secret backend** | Optional hosted / BYO provider binding (Phase 4) not shipped; local keyring/dotenv remain default. |
 | **devenv task mapping** | Prefer devenv when present; full `sorrel.workflow.yml` → devenv tasks shim and remote runners are still thin. |
-| **Run log follow / Hub stream** | Local `.sorrel/runs/` + `run show|logs` shipped; `--follow` and Hub streaming are stubs. |
+| **Run log follow / Hub stream** | Local `.sorrel/runs/` + `run show|logs` shipped; unsupported `--follow` requests now fail explicitly, and Hub streaming is not implemented. |
 
 ## Module map
 
