@@ -53,7 +53,7 @@ cd sorrel
 
 # Local VCS demo
 cargo build -p sorrel-cli
-SORREL=target/debug/sorrel
+SORREL="$(pwd)/target/debug/sorrel"
 mkdir /tmp/sorrel-demo && cd /tmp/sorrel-demo
 $SORREL init
 echo hello > a.txt

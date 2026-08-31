@@ -29,7 +29,7 @@ Sorrel is a single monorepo. No submodules and no `SUBMODULES_TOKEN` are require
 
 ```sh
 cargo build -p sorrel-cli
-SORREL=target/debug/sorrel
+SORREL="$(pwd)/target/debug/sorrel"
 
 mkdir /tmp/sorrel-demo && cd /tmp/sorrel-demo
 $SORREL init
@@ -58,11 +58,11 @@ Git import/export/sync: [`sorrel-cli/GIT.md`](../sorrel-cli/GIT.md).
 
 ```sh
 cd /path/to/git-checkout
-# from a built CLI:
-/path/to/sorrel/target/debug/sorrel git import
+SORREL=/path/to/sorrel/target/debug/sorrel
+$SORREL git import
 # optional: --ref main --limit 20 --json
-sorrel log
-sorrel status
+$SORREL log
+$SORREL status
 ```
 
 Creates `.sorrel/` if needed, imports commits reachable from `HEAD` as Sorrel
