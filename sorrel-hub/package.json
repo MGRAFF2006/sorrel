@@ -5,11 +5,20 @@
   "type": "module",
   "description": "Collaboration app/server layer for Sorrel Hub.",
   "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MGRAFF2006/sorrel.git",
+    "directory": "sorrel-hub"
+  },
   "engines": {
     "node": ">=22"
   },
   "scripts": {
+    "check": "npm test",
     "start": "node src/server.js",
     "test": "node --test"
+  },
+  "devDependencies": {
+    "convex": "^1.43.0"
   }
 }

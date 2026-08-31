@@ -197,6 +197,10 @@ async function createCollectionItem(request, response, context, collection, coll
     throw error;
   }
 
+  if (collectionName === 'proposals' && context.convexMirror) {
+    void context.convexMirror.upsertProposal(item);
+  }
+
   sendJson(
     response,
     201,
@@ -233,6 +237,10 @@ async function updateCollectionItem(
       throw new HttpError(404, error.message, error.code);
     }
     throw error;
+  }
+
+  if (collectionName === 'proposals' && context.convexMirror) {
+    void context.convexMirror.upsertProposal(item);
   }
 
   sendJson(response, 200, { data: item });

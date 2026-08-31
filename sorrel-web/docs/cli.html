@@ -29,7 +29,7 @@
         <a href="./hub.html">Hub</a>
         <a href="./workflows.html">Workflows</a>
         <a href="./api.html">API</a>
-        <a href="https://github.com/MGRAFF2006/sorrel-cli">GitHub</a>
+        <a href="https://github.com/MGRAFF2006/sorrel/tree/main/sorrel-cli">GitHub</a>
         <button class="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle theme">
           <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
@@ -74,7 +74,10 @@ $ sorrel log                       # snapshot DAG walk with change ids,
           <h2>Lanes: parallel work without branch noise</h2>
           <pre><code>$ sorrel lane create --name agent/feature
 $ sorrel lane list                 # every lane, its head, the active one marked
-$ sorrel lane switch &lt;lane-id&gt;     # restores that lane's tree (refuses if dirty)</code></pre>
+$ sorrel lane switch &lt;lane-id&gt;     # restores that lane's tree (refuses if dirty)
+$ sorrel lane submit               # create a Hub proposal for the active lane
+$ sorrel stack create --name series &lt;change-id&gt;
+$ sorrel stack show &lt;stack-id&gt;</code></pre>
           <p>
             Each lane has its own head under <code>.sorrel/heads/</code>. Two lanes advance
             independently — exactly what parallel agents need to work without stepping on each
@@ -112,8 +115,8 @@ $ sorrel git sync                  # align colocated .git/ and .sorrel/</code></
 
           <h2>Hub sync: push and pull</h2>
           <pre><code>$ sorrel remote add origin http://127.0.0.1:3000
-$ sorrel push                      # negotiate missing objects, upload, advance ref
-$ sorrel pull                      # fetch refs, download closure, verify ids</code></pre>
+$ sorrel push origin               # negotiate missing objects, upload, advance ref
+$ sorrel pull origin               # fetch refs, download closure, verify ids</code></pre>
           <p>
             Push seeds the local snapshot closure, asks the Hub which objects are missing,
             uploads only those, and advances the remote ref with fast-forward and closure checks.
@@ -127,12 +130,28 @@ $ sorrel policy evaluate ...       # Core policy decision for an action
 $ sorrel grant create ...          # record a real Core grant decision
 $ sorrel slice create ...          # slice manifest for a subproject</code></pre>
 
+          <h2>Secrets, environments, and run logs</h2>
+          <pre><code>$ sorrel secret list                # handles only
+$ sorrel secret sync                # refresh secretspec.toml
+$ sorrel secret check --provider dotenv:.env
+$ sorrel env info                   # devenv or local-fallback
+$ sorrel workflow run test
+$ sorrel run list
+$ sorrel run show &lt;run-id&gt;
+$ sorrel run logs &lt;run-id&gt;</code></pre>
+          <p>
+            Secret resolution and injection use upstream SecretSpec only after Core grant
+            checks. Values are injected into the child process, never Sorrel objects, and
+            persisted output under <code>.sorrel/runs/</code> is redacted. Full devenv task
+            mapping, Hub log streaming, and a hosted secret backend remain future work.
+          </p>
+
           <div class="doc-note">
             <p>
               Full walkthroughs live in the repository:
-              <a href="https://github.com/MGRAFF2006/sorrel-cli/blob/main/DEMO.md">DEMO.md</a>
+              <a href="https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/DEMO.md">DEMO.md</a>
               (local flow) and
-              <a href="https://github.com/MGRAFF2006/sorrel-cli/blob/main/SYNC.md">SYNC.md</a>
+              <a href="https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/SYNC.md">SYNC.md</a>
               (push/pull against sorrel-hub).
             </p>
           </div>

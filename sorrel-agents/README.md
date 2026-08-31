@@ -25,5 +25,5 @@ console.log(await plane.activeWork());
 ## Checks
 
 ```sh
-npm test
+npm run check
 ```

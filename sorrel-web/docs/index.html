@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Docs - Sorrel</title>
-    <meta name="description" content="Sorrel documentation: the core engine, the CLI, the Hub, workflows and secrets, and the generated API reference.">
+    <meta name="description" content="Sorrel documentation: releases, status, architecture, setup, development, Core, CLI, Hub, workflows, and API reference.">
     <meta name="theme-color" content="#2e3440">
     <script>
       (function () {
@@ -81,6 +81,11 @@
             <h3>API reference</h3>
             <p>Rustdoc for the engine, generated from the doc comments in the source. Always as current as the code.</p>
           </a>
+          <a class="doc-card" href="./guides.html?doc=CHANGELOG.md">
+            <p class="eyebrow">Shipped progress</p>
+            <h3>Release notes</h3>
+            <p>The coordinated changelog behind every immutable GitHub Release.</p>
+          </a>
           <a class="doc-card" href="./guides.html?doc=STATUS.md">
             <p class="eyebrow">Live status</p>
             <h3>What works today</h3>
@@ -90,6 +95,16 @@
             <p class="eyebrow">How to run</p>
             <h3>Getting started</h3>
             <p>CLI happy path and local Hub compose. Source: GETTING_STARTED.md.</p>
+          </a>
+          <a class="doc-card" href="./guides.html?doc=ARCHITECTURE.md">
+            <p class="eyebrow">System map</p>
+            <h3>Architecture</h3>
+            <p>Current package boundaries, data flow, trust model, and integration seams.</p>
+          </a>
+          <a class="doc-card" href="./guides.html?doc=DEVELOPMENT.md">
+            <p class="eyebrow">Contributing</p>
+            <h3>Development guide</h3>
+            <p>Setup, focused checks, services, debugging, and safe workflows for humans and AI agents.</p>
           </a>
           <a class="doc-card" href="https://github.com/MGRAFF2006/sorrel/blob/main/AGENT_NATIVE_VERSION_CONTROL_REPORT.md">
             <p class="eyebrow">Background</p>
@@ -121,7 +136,10 @@
               <tr><td><code>sorrel-runners</code></td><td>Portable workflow runners and the <code>sorrel.workflow.yml</code> parser.</td></tr>
               <tr><td><code>sorrel-slices</code></td><td>Slice (subproject) manifest generator for TS/JS codebases.</td></tr>
               <tr><td><code>sorrel-hub</code></td><td>Collaboration API server (JSON over HTTP, no UI).</td></tr>
-              <tr><td><code>sorrel-hub-web</code></td><td>Browser frontend for the Hub API.</td></tr>
+              <tr><td><code>sorrel-hub-ui</code></td><td>Shared SolidJS Hub product UI.</td></tr>
+              <tr><td><code>sorrel-hub-web</code></td><td>Thin Vite browser host and Hub API proxy.</td></tr>
+              <tr><td><code>sorrel-agents</code></td><td>Minimal persistent register, claim, and active-work control plane.</td></tr>
+              <tr><td><code>sorrel-sdk-js</code> / <code>sorrel-sdk-rust</code></td><td>Early Hub HTTP client and Core workspace wrapper.</td></tr>
             </tbody>
           </table>
         </div>

@@ -5,6 +5,7 @@
 //! providers such as `keyring`, `dotenv`, and `env`.
 
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -23,6 +24,14 @@ pub const DEFAULT_PROVIDER: &str = "dotenv:.env";
 
 /// Local CLI principal used for secret and workflow authorization.
 pub const CLI_SECRET_PRINCIPAL: &str = "agent:agent_mock_cli";
+
+fn with_access_reason(spec: secretspec::Secrets, fallback: &str) -> secretspec::Secrets {
+    let reason = env::var("SECRETSPEC_REASON")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| fallback.to_owned());
+    spec.with_reason(reason)
+}
 
 /// Declared secret handle (values never stored here).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -437,8 +446,12 @@ pub fn resolve_handles(
     let provider = secretspec_provider_for(selected[0], provider_override);
     let profile = profile_for_environment(&selected[0].environment);
 
-    let mut spec = secretspec::Secrets::load_from(&spec_path)
+    let spec = secretspec::Secrets::load_from(&spec_path)
         .map_err(|error| BridgeError::Spec(error.to_string()))?;
+    let mut spec = with_access_reason(
+        spec,
+        "Sorrel secret resolution after Core grant authorization",
+    );
     spec.set_provider(&provider);
     spec.set_profile(&profile);
 
@@ -490,8 +503,9 @@ pub fn check_handles(
     let (spec_path, _) = ensure_secretspec_toml(cwd)?;
     let provider = secretspec_provider_for(&handles[0], provider_override);
     let profile = profile_for_environment(&handles[0].environment);
-    let mut spec = secretspec::Secrets::load_from(&spec_path)
+    let spec = secretspec::Secrets::load_from(&spec_path)
         .map_err(|error| BridgeError::Spec(error.to_string()))?;
+    let mut spec = with_access_reason(spec, "Sorrel secret availability check");
     spec.set_provider(&provider);
     spec.set_profile(&profile);
     spec.report()
@@ -508,8 +522,9 @@ pub fn set_secret_value(
     let (spec_path, _) = ensure_secretspec_toml(cwd)?;
     let provider = secretspec_provider_for(handle, provider_override);
     let profile = profile_for_environment(&handle.environment);
-    let mut spec = secretspec::Secrets::load_from(&spec_path)
+    let spec = secretspec::Secrets::load_from(&spec_path)
         .map_err(|error| BridgeError::Spec(error.to_string()))?;
+    let mut spec = with_access_reason(spec, "Sorrel secret update after Core grant authorization");
     spec.set_provider(&provider);
     spec.set_profile(&profile);
     spec.set(&handle.name, Some(value))

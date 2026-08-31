@@ -10,7 +10,7 @@
  *   npm run dev
  *
  * Flags:
- *   --skip-build   do not run cargo build
+ *   --skip-build   reuse existing CLI and Hub UI builds when present
  *   --no-open      do not open a browser
  *   --no-seed      skip demo workspace create/seed
  *   --port <n>     dashboard port (default 5200)
@@ -37,6 +37,7 @@ import { platform } from 'node:os';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const HUB_DIR = join(ROOT, 'sorrel-hub');
 const HUB_WEB_DIR = join(ROOT, 'sorrel-hub-web');
+const HUB_WEB_ENTRY = join(HUB_WEB_DIR, 'dist', 'index.html');
 const DEV_DIR = join(ROOT, '.dev');
 const HUB_DATA = join(DEV_DIR, 'hub-data');
 const WORKSPACE = join(DEV_DIR, 'workspace');
@@ -148,6 +149,15 @@ function buildCli() {
   }
   log('Building sorrel CLI…');
   run('cargo', ['build', '-p', 'sorrel-cli'], { cwd: ROOT, stdio: 'inherit' });
+}
+
+function buildHubWeb() {
+  if (skipBuild && existsSync(HUB_WEB_ENTRY)) {
+    log('Skipping Hub UI build (--skip-build)');
+    return;
+  }
+  log('Building Hub UI…');
+  run('npm', ['run', 'build'], { cwd: HUB_WEB_DIR, stdio: 'inherit' });
 }
 
 function seedWorkspace() {
@@ -441,6 +451,7 @@ async function main() {
   console.log('\nSorrel local test dashboard\n');
   ensureDirs();
   buildCli();
+  buildHubWeb();
   if (!existsSync(sorrelBin())) fail(`CLI binary missing at ${sorrelBin()}`);
 
   log(`Starting Hub on :${HUB_PORT}`);

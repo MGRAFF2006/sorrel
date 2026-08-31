@@ -7,6 +7,11 @@
 #   hub-web  — Hub UI (proxies /api)   http://localhost:5180
 #   web      — landing preview only    http://localhost:4173
 #
+# Optional Convex metadata (profile `convex`):
+#   docker compose --profile convex -f docker-compose.yml -f docker-compose.convex.yml up
+#   convex-backend  http://localhost:3210
+#   convex-dashboard http://localhost:6791
+#
 # Production landing is Cloudflare Pages (sorrel-web). The `web` service here
 # is an optional local mirror and does not replace that deploy.
 #
@@ -22,8 +27,12 @@ services:
       HOST: "0.0.0.0"
       PORT: "3000"
       SORREL_HUB_BOOTSTRAP_GRANTS: "1"
+      # Isolated compose demo only — never use this override on a public network.
+      SORREL_HUB_ALLOW_INSECURE_DEV_AUTH: "1"
       SORREL_HUB_DATA_DIR: /app/data/sync
       SORREL_HUB_METADATA_DIR: /app/data/metadata
+      SORREL_HUB_AUTH: "${SORREL_HUB_AUTH:-dev}"
+      CONVEX_URL: "${CONVEX_URL:-}"
     volumes:
       - hub-data:/app/data
     healthcheck:
@@ -33,7 +42,9 @@ services:
       retries: 10
 
   hub-web:
-    build: ./sorrel-hub-web
+    build:
+      context: .
+      dockerfile: sorrel-hub-web/Dockerfile
     ports:
       - "${SORREL_HUB_WEB_PORT:-5180}:5180"
     environment:

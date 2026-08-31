@@ -113,7 +113,9 @@ sorrel workflow run test --json
 Policy gates still apply to workflow execution. A run is denied when the CLI
 agent principal lacks grants for `workflow.run`, `runner.use`, or any declared
 secret permissions. Workflow parsing only records `secretRefs`; it does not
-resolve or inject secret values.
+resolve values while parsing. At execution time, the CLI resolves authorized
+references through SecretSpec, injects them into the local process, and redacts
+the persisted run output.
 
 ## Examples
 
@@ -246,6 +248,10 @@ sorrel workflow run test
 sorrel run list
 sorrel env ensure
 ```
+
+Sorrel supplies an operation-specific SecretSpec access reason by default.
+Set `SECRETSPEC_REASON` to a more specific non-empty reason when your audit
+policy requires caller context.
 
 List secret handles without resolving values:
 

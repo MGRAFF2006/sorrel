@@ -29,7 +29,7 @@
         <a href="./cli.html">CLI</a>
         <a href="./hub.html">Hub</a>
         <a href="./api.html">API</a>
-        <a href="https://github.com/MGRAFF2006/sorrel-runners">GitHub</a>
+        <a href="https://github.com/MGRAFF2006/sorrel/tree/main/sorrel-runners">GitHub</a>
         <button class="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle theme">
           <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
@@ -77,9 +77,10 @@ workflows:
           <p>
             Bundles declare the capabilities they need (<code>runner.use</code>,
             <code>workflow.run</code>) and are authorized through Core's policy path before a
-            single process starts. Local process execution works today; container-runtime jobs
-            are representable in the model and execute later. A forged bundle that skips the
-            policy gate is rejected — that path is covered by conformance tests.
+            single process starts. Local process execution and Docker/Podman container execution
+            both work experimentally today. A forged bundle that skips the policy gate is
+            rejected — that path is covered by conformance tests. The CLI also accepts the
+            single-workflow form with top-level <code>id</code> and <code>jobs</code> fields.
           </p>
 
           <h2>Secrets as references (sorrel-vault)</h2>
@@ -100,6 +101,16 @@ $ npm run vault -- redact run.log   # scrub resolved secrets from text</code></p
               conformance manifest.
             </p>
           </div>
+
+          <h2>CLI SecretSpec integration</h2>
+          <p>
+            The standalone runner and Node Vault packages never resolve values on their own.
+            The <code>sorrel</code> CLI adds the integration layer: it resolves declared handles
+            from <code>keyring</code>, <code>dotenv</code>, or environment SecretSpec providers
+            after Core grant checks, injects them into a local workflow process, redacts output,
+            and records structured results under <code>.sorrel/runs/</code>. It prefers devenv
+            when available and reports a <code>local-fallback</code> backend otherwise.
+          </p>
 
           <h2>Slices (sorrel-slices)</h2>
           <p>

@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 /**
- * Start hub-web on an ephemeral port and print one JSON line with the URL.
- * Requires HUB_API_URL to point at a running sorrel-hub.
+ * Start hub-web (built dist/) on an ephemeral port and print one JSON line
+ * with the URL. Requires HUB_API_URL to point at a running sorrel-hub.
+ * Run `npm run build` first so `dist/` exists.
  *
  * Stdout: {"url":"http://127.0.0.1:<port>","pid":N}
  */
 
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = fileURLToPath(new URL('../public', import.meta.url));
+const root = fileURLToPath(new URL('../dist', import.meta.url));
 const hubApiUrl = process.env.HUB_API_URL ?? 'http://127.0.0.1:3000';
 
 const CONTENT_TYPES = {
@@ -20,7 +21,16 @@ const CONTENT_TYPES = {
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.map': 'application/json; charset=utf-8',
 };
+
+try {
+  await access(join(root, 'index.html'));
+} catch {
+  console.error('dist/ missing — run `npm run build` in sorrel-hub-web first');
+  process.exit(1);
+}
 
 async function serveStatic(request, response) {
   const url = new URL(request.url ?? '/', 'http://localhost');
@@ -39,6 +49,15 @@ async function serveStatic(request, response) {
     const type = CONTENT_TYPES[extname(filePath)] ?? 'application/octet-stream';
     response.writeHead(200, { 'content-type': type }).end(body);
   } catch {
+    if (!extname(filePath)) {
+      try {
+        const fallback = await readFile(join(root, 'index.html'));
+        response.writeHead(200, { 'content-type': CONTENT_TYPES['.html'] }).end(fallback);
+        return;
+      } catch {
+        /* fall through */
+      }
+    }
     response.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
   }
 }
@@ -53,13 +72,16 @@ async function proxyApi(request, response) {
   }
   const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
   try {
+    const headers = {};
+    if (request.headers['content-type']) {
+      headers['content-type'] = request.headers['content-type'];
+    }
+    if (request.headers['x-sorrel-acting-principal']) {
+      headers['x-sorrel-acting-principal'] = request.headers['x-sorrel-acting-principal'];
+    }
     const upstream = await fetch(target, {
       method: request.method,
-      headers: {
-        'content-type': request.headers['content-type'] ?? 'application/json',
-        'x-sorrel-acting-principal':
-          request.headers['x-sorrel-acting-principal'] ?? '',
-      },
+      headers,
       body: body && request.method !== 'GET' && request.method !== 'HEAD' ? body : undefined,
     });
     const buf = Buffer.from(await upstream.arrayBuffer());
@@ -76,7 +98,7 @@ async function proxyApi(request, response) {
 
 const server = http.createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost');
-  if (url.pathname.startsWith('/api/')) {
+  if (url.pathname.startsWith('/api/') || url.pathname === '/api') {
     void proxyApi(request, response);
     return;
   }

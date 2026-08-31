@@ -18,12 +18,14 @@ ahead (see root `ROADMAP.md`).
 
 ## Common checks
 
-To be defined when implementation starts (match the chosen stack: Rust ->
-`cargo test`/`clippy`/`fmt`; Node -> `npm test`/`lint`).
+```sh
+npm ci
+npm run check
+```
 
 ## Workflow
 
-- Keep changes scoped to this repository.
+- Keep changes scoped to this package and required workspace consumers.
 - Prefer small, reviewable commits.
 - Do not commit secrets.
 - Coordinate shared contracts through `sorrel-protocol`.

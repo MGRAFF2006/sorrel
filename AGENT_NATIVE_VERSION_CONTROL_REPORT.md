@@ -1,5 +1,11 @@
 # Sorrel Core and Sorrel Hub: Agent-Native Version Control and Collaboration Report
 
+> **Design background, not a progress tracker.** This report records the
+> product thesis, research, and long-term architecture. Use the latest
+> [GitHub release](https://github.com/MGRAFF2006/sorrel/releases/latest),
+> [`CHANGELOG.md`](CHANGELOG.md), and [`docs/STATUS.md`](docs/STATUS.md) for
+> shipped state; use [`ROADMAP.md`](ROADMAP.md) for future work.
+
 ## Executive summary
 
 Sorrel Core and Sorrel Hub are the final selected names for a new version-control and collaboration system built for modern software work: humans, parallel AI agents, cloud workspaces, local-first development, secrets, portable workflows, and selective sharing of unfinished work.

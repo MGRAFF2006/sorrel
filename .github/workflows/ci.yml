@@ -11,27 +11,22 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Release consistency
-        run: npm run validate:release
-      - name: Conformance drift
-        run: npm run validate:conformance
+      - name: Repository consistency
+        run: npm run check:quick
       - name: Rust lint and format
         run: |
           cargo clippy --workspace --all-targets -- -D warnings
           cargo fmt --all -- --check
-      - name: Install Node package dependencies
-        run: |
-          for dir in sorrel-protocol sorrel-vault sorrel-slices sorrel-hub sorrel-hub-web sorrel-sdk-js sorrel-agents; do
-            (cd "$dir" && npm ci)
-          done
+      - name: Install workspace dependencies
+        run: npm run setup
       - name: Module suites
         run: npm run test:modules
       - name: Root E2E

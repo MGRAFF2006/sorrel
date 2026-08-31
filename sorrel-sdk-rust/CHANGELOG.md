@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.0-alpha.1 - 2026-07-30
+## [Unreleased]
+
+No changes yet.
+
+## [0.1.0-alpha.1] - 2026-08-31
 
 Initial experimental release.
 
@@ -18,3 +22,6 @@ Initial experimental release.
 - Only local filesystem storage and basic snapshot creation are wrapped.
 - Broader `sorrel-core` embedding, collaboration, runners, and remote
   operations are not covered.
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
+[0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1

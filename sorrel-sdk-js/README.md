@@ -24,5 +24,5 @@ await hub.listSyncRepos();
 ## Checks
 
 ```sh
-npm test
+npm run check
 ```

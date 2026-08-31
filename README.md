@@ -1,4 +1,31 @@
-# Sorrel
+<p align="center">
+  <img src="assets/logo.svg" alt="Sorrel" width="112" height="112">
+</p>
+
+<h1 align="center">Sorrel</h1>
+
+<p align="center">
+  <strong>Agent-native version control</strong> for humans and parallel AI agents.
+</p>
+
+<p align="center">
+  <a href="https://github.com/MGRAFF2006/sorrel/releases"><img alt="Release" src="https://img.shields.io/github/v/release/MGRAFF2006/sorrel?include_prereleases&amp;style=flat-square&amp;color=5E81AC"></a>
+  <a href="LICENSE-MIT"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-A3BE8C?style=flat-square"></a>
+  <a href="LICENSE-APACHE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache%202.0-81A1C1?style=flat-square"></a>
+  <a href="sorrel-web/"><img alt="Landing" src="https://img.shields.io/badge/landing-sorrel--web-88C0D0?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="docs/GETTING_STARTED.md">Get started</a>
+  ·
+  <a href="docs/STATUS.md">Status</a>
+  ·
+  <a href="https://github.com/MGRAFF2006/sorrel/releases">Releases</a>
+  ·
+  <a href="ROADMAP.md">Roadmap</a>
+</p>
+
+---
 
 Sorrel is an **agent-native version-control system** — a new VCS core built for
 modern software work: parallel AI agents, cloud and in-memory workspaces,
@@ -8,29 +35,35 @@ content-addressed object store, changes/lanes/slices, a Core-native
 identity/permission/policy spine, a bidirectional Git bridge, and a collaboration
 product on top.
 
-> **Release status:** `v0.1.0-alpha.1` is a local-first developer preview.
+> **Latest release:** [`v0.1.0-alpha.1`](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1)
+> is a local-first developer preview.
 > The Hub is for localhost development only; it does not provide production
 > authentication.
 
 | Doc | Purpose |
 | --- | --- |
+| [GitHub Releases](https://github.com/MGRAFF2006/sorrel/releases) / [`CHANGELOG.md`](CHANGELOG.md) | **Shipped progress and release history** |
 | [`docs/STATUS.md`](docs/STATUS.md) | **What works / what is missing** |
 | [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) | **How to clone and run everything** |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Current system boundaries and data flow |
+| [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) | Human and AI contributor workflow |
 | [`docs/RELEASE.md`](docs/RELEASE.md) | Version, validation, and tagging process |
 | [`SECURITY.md`](SECURITY.md) | Security scope and vulnerability reporting |
 | [`ROADMAP.md`](ROADMAP.md) | Sequenced forward plan |
 | [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md) | Full architecture |
 
-The same status and getting-started docs are published on the landing site
+The public guides and changelog are mirrored onto the landing site
 (`sorrel-web` → Cloudflare) under `/docs/`.
 
-## Status at a glance (2026-08-10)
+## Status at a glance (2026-08-31)
 
 **Working today**
 
 - Real engine + persistent CLI: init, status, change, diff, log, lanes, merge, push/pull
 - Git import, export, and colocated bidirectional sync
 - Policy/conformance spine across protocol, core, CLI, hub, runners, vault
+- SecretSpec-backed secret resolution/injection under Core grants, devenv-aware
+  local workflows, and structured redacted run logs
 - Development Hub with FS-backed sync + metadata; writable Hub UI companion
 - Vault, runners, slices prototypes; public landing site live on Cloudflare
 - **Single monorepo** — clone once, no submodule tokens
@@ -39,9 +72,8 @@ The same status and getting-started docs are published on the landing site
 
 - Production Hub authentication and signed client identity
 - Stable embedding surface (C ABI / N-API / WASM / daemon)
-- SecretSpec-backed resolve/inject under Core grants (in progress)
-- devenv-first runners + Blacksmith-grade execution logs (planned)
-- Production Hub authentication and desktop/mobile applications
+- Complete devenv task mapping, run-log streaming, and a hosted/BYO secret backend
+- Desktop/mobile applications
 
 Details: [`docs/STATUS.md`](docs/STATUS.md).
 
@@ -80,16 +112,19 @@ Everything lives in this repository as normal packages:
 | `sorrel-runners` | Workflow runners + YAML parser | Active |
 | `sorrel-slices` | TS/JS slice manifests | Active (prototype) |
 | `sorrel-hub` | Collaboration **API server** | Active (dev-only) |
-| `sorrel-hub-web` | Hub **web UI** (read/write companion) | Active (dev-only) |
+| `sorrel-hub-ui` | Shared SolidJS Hub product UI | Active (dev-only) |
+| `sorrel-hub-web` | Thin browser host for Hub UI | Active (dev-only) |
 | `sorrel-web` | Public landing (Cloudflare) | Live |
 | `sorrel-agents` | Agent control plane (minimal) | Active |
 | `sorrel-sdk-js` | Hub HTTP client SDK | Active |
 | `sorrel-sdk-rust` | Rust SDK over `sorrel-core` | Active |
 
-Hub is split three ways: `sorrel-hub` (API), `sorrel-hub-web` (product UI),
-`sorrel-web` (marketing landing — **not** the Hub UI).
+Hub is split four ways: `sorrel-hub` (API), `sorrel-hub-ui` (shared product
+UI), `sorrel-hub-web` (browser host), and `sorrel-web` (marketing landing —
+**not** the Hub UI).
 
-Rust crates form one Cargo workspace (`Cargo.toml` at the root).
+Rust crates form one Cargo workspace (`Cargo.toml` at the root). Brand assets
+used by this README live under [`assets/`](assets/).
 
 ## Toolchains
 
@@ -104,9 +139,19 @@ rustup default stable
 ## Common checks
 
 ```sh
+# Fresh checkout
+npm run setup
+
+# Fast consistency checks / full repository gate
+npm run check:quick
+npm run check
+
 # Full-stack E2E (no mocks) — from repo root
 npm test
 npm run test:modules
+
+# Focused package suite
+npm run test:module -- sorrel-hub
 
 # Rust workspace
 cargo test --workspace

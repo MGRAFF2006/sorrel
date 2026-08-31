@@ -10,18 +10,27 @@ Implementation packages live as normal directories:
 - sorrel-vault: secrets/environment spec, local backend, and dev CLI
 - sorrel-runners: local/container workflow runners + workflow-file parser
 - sorrel-slices: TypeScript/JavaScript slice manifest generator
-- sorrel-hub: collaboration **API server** (JSON over HTTP; no UI)
-- sorrel-hub-web: Hub **web interface** (browser frontend for the Hub API)
+- sorrel-hub: collaboration **API server** (JSON over HTTP; AuthAdapter + capabilities)
+- sorrel-hub-ui: shared SolidJS Hub product UI (web + future native shells)
+- sorrel-hub-web: thin browser host for `sorrel-hub-ui`
 - sorrel-web: public marketing/landing site (static)
 - sorrel-agents: minimal agent control plane (register / claim / active work)
 - sorrel-sdk-js: Hub HTTP client
 - sorrel-sdk-rust: thin Rust SDK over `sorrel-core`
 
-Hub is split: `sorrel-hub` is the API server, `sorrel-hub-web` is its web
-interface, and `sorrel-web` is the unrelated public landing page.
+Hub is split: `sorrel-hub` is the API server, `sorrel-hub-ui` is the shared
+product UI, `sorrel-hub-web` is the thin browser host, and `sorrel-web` is the
+unrelated public landing page.
 
-Key docs: [`docs/STATUS.md`](docs/STATUS.md), [`ROADMAP.md`](ROADMAP.md),
-[`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md).
+Start with [`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md) for change
+routing and [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for setup, validation,
+services, and release hygiene. Current architecture and behavior live in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
+[`docs/STATUS.md`](docs/STATUS.md).
+
+Project progress is recorded in [GitHub Releases](https://github.com/MGRAFF2006/sorrel/releases)
+and [`CHANGELOG.md`](CHANGELOG.md). `ROADMAP.md` is future work only. Do not add
+parallel agent task packs, progress dashboards, or feature-audit ledgers.
 
 ## Rust toolchain
 
@@ -43,14 +52,36 @@ cargo fmt --all -- --check
 
 ## Common checks
 
+Install every package's locked dependencies once: `npm run setup`
+
+Fast repository consistency checks: `npm run check:quick`
+
+Focused module suite: `npm run test:module -- <module>` (discover names with
+`npm run test:module -- --list`)
+
+All module suites (tests plus package-defined validation/builds):
+`npm run test:modules`
+
 Root E2E (no mocks, all active modules): `npm test`
 
-All package suites: `npm run test:modules`
+Complete repository gate: `npm run check`
 
-Node packages: `npm test` (+ `npm run validate` where defined) inside each package dir.
+Node packages expose `npm run check` as their complete local gate.
+
+After changing a canonical public Markdown guide or the root changelog, run
+`npm run sync:docs`; `npm run validate:docs` checks every public mirror and
+local Markdown link.
+
+Do not hand-edit vendored policy-conformance fixtures. Change
+`sorrel-protocol/conformance/`, then run `./scripts/sync-conformance.sh`.
 
 ## Workflow
 
-Edit files under `sorrel-core/`, `sorrel-cli/`, etc. directly. Commit once in this
-root repository — there are no submodule pointer advances and no
-`SUBMODULES_TOKEN` requirement for CI.
+Edit files under `sorrel-core/`, `sorrel-cli/`, etc. directly. Package-level
+`AGENTS.md` files add local boundaries and checks. Commit once in this root
+repository — there are no submodule pointer advances and no `SUBMODULES_TOKEN`
+requirement for CI.
+
+Preserve a dirty worktree: existing changes may belong to another human or
+agent. Inspect `git status` and relevant diffs before editing, avoid unrelated
+formatting, and never discard changes you did not create.

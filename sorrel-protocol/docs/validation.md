@@ -9,7 +9,7 @@ process, or accepted from untrusted input.
 From this package directory:
 
 ```bash
-npm install
+npm ci
 npm run validate
 ```
 

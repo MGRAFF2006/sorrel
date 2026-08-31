@@ -7,7 +7,8 @@
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MGRAFF2006/sorrel-agents.git"
+    "url": "git+https://github.com/MGRAFF2006/sorrel.git",
+    "directory": "sorrel-agents"
   },
   "exports": {
     ".": "./src/index.js"
@@ -20,6 +21,7 @@
     "LICENSE-MIT"
   ],
   "scripts": {
+    "check": "npm run lint && npm test",
     "test": "node --test test/*.test.js",
     "lint": "node --check src/index.js && node --check test/control-plane.test.js"
   },

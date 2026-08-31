@@ -1,5 +1,8 @@
 import { URL } from 'node:url';
 
+import { createAuthAdapterFromEnv } from './auth/adapter.js';
+import { resolveCapabilities } from './capabilities.js';
+import { createConvexMirror } from './convex-mirror.js';
 import { PolicyDeniedError, PolicyEvaluationError } from './core-policy.js';
 import { HttpError, sendJson, sendNotFound } from './http.js';
 import { ModelValidationError } from './models.js';
@@ -16,10 +19,21 @@ import {
 export function createApp(options = {}) {
   const store = options.store ?? createInMemoryStore();
   const trustedGrantsById = options.trustedGrantsById ?? {};
+  const authAdapter = options.authAdapter ?? createAuthAdapterFromEnv(options.env);
+  const convexMirror = options.convexMirror ?? createConvexMirror(options.env);
+  const capabilities =
+    options.capabilities ??
+    resolveCapabilities({
+      authMode: authAdapter.mode,
+      env: options.env,
+    });
 
   return {
     store,
     trustedGrantsById,
+    authAdapter,
+    convexMirror,
+    capabilities,
     async handleRequest(request, response) {
       const url = new URL(request.url ?? '/', 'http://localhost');
 
@@ -31,24 +45,57 @@ export function createApp(options = {}) {
           });
         }
 
-        if (url.pathname === '/projects' || url.pathname.startsWith('/projects/')) {
-          return await handleProjectsRoute(request, response, { store, url });
+        if (request.method === 'GET' && url.pathname === '/capabilities') {
+          return sendJson(response, 200, { data: capabilities });
         }
 
-        if (url.pathname.startsWith('/collaboration/')) {
-          return await handleCollaborationRoute(request, response, {
-            store,
-            url,
-            trustedGrantsById,
+        // Resolve session once per request (auth off the hot object path).
+        const session = await authAdapter.resolveSession(request);
+
+        if (request.method === 'GET' && url.pathname === '/session') {
+          return sendJson(response, 200, {
+            data: {
+              auth: {
+                mode: authAdapter.mode,
+                session: capabilities.auth.session,
+              },
+              session: session
+                ? {
+                    sessionId: session.sessionId,
+                    authMode: session.authMode,
+                    principal: session.principal,
+                    idpSubject: session.idpSubject ?? null,
+                    expiresAt: session.expiresAt ?? null,
+                  }
+                : null,
+            },
           });
         }
 
+        const routeContext = {
+          store,
+          url,
+          trustedGrantsById,
+          authAdapter,
+          session,
+          convexMirror,
+          capabilities,
+        };
+
+        if (url.pathname === '/projects' || url.pathname.startsWith('/projects/')) {
+          return await handleProjectsRoute(request, response, routeContext);
+        }
+
+        if (url.pathname.startsWith('/collaboration/')) {
+          return await handleCollaborationRoute(request, response, routeContext);
+        }
+
         if (url.pathname.startsWith('/admin/')) {
-          return await handleAdminRoute(request, response, { store, url, trustedGrantsById });
+          return await handleAdminRoute(request, response, routeContext);
         }
 
         if (isSyncPath(url.pathname)) {
-          return await handleSyncRoute(request, response, { store, url, trustedGrantsById });
+          return await handleSyncRoute(request, response, routeContext);
         }
 
         return sendNotFound(response);

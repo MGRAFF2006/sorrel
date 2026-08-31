@@ -3,7 +3,7 @@
 ## What this module is
 
 The `sorrel` command-line interface. It drives the real `sorrel-core` engine
-(via git dependency) for persistent local version control. All commands are now
+(via its workspace path dependency) for persistent local version control. All commands are now
 real and persist on-disk state under `.sorrel/`: `init`, `status`, `diff`, `log`,
 `change create`/`change list`, `lane create`/`lane list`/`lane switch`/
 `lane submit`, `merge`/`merge --abort`, `git import`/`git export`/`git sync`
@@ -22,13 +22,11 @@ merge). Registry helpers are in `src/repo.rs`.
 
 ## Stack and conventions
 
-- Rust, edition 2021, **rust-version 1.85+** (the `sorrel-core` git dep requires
-  edition2024-era toolchain).
+- Rust, edition 2021, **rust-version 1.85+**.
 - `unsafe_code = "forbid"`.
-- `sorrel-core` is a **git dependency** pinned by `rev` in `Cargo.toml`. When the
-  engine changes, bump the `rev`. Prefer the git dep over vendored copies. Do
-  not reintroduce a local core stub or `[patch]` table — pin a real
-  `sorrel-core` revision that is fetchable.
+- `sorrel-core` is the workspace package at `../sorrel-core`, referenced with a
+  Cargo path dependency. Change Core first when a CLI feature needs a new
+  engine API; do not add a vendored copy or a competing stub.
 - The crate is **lib + bin**: shared modules live in `src/lib.rs`
   (`cli_policy`, `cli_runner`, `repo`, `linediff`, `workflow_cmd`,
   `CommandOutput`); `src/main.rs` is the thin binary. Integration tests consume
@@ -60,9 +58,10 @@ live in `src/repo.rs`; a corrupt cache is treated as empty (pure optimization).
 ## Common checks
 
 ```sh
-cargo build
-cargo test --workspace
-cargo clippy --all-targets
+# From the monorepo root
+cargo build -p sorrel-cli
+cargo test -p sorrel-cli
+cargo clippy -p sorrel-cli --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
@@ -72,7 +71,7 @@ assertions (assert stable shapes for non-deterministic ids/timestamps).
 
 ## Workflow
 
-- Keep changes scoped to this repository.
+- Keep changes scoped to this package and required workspace consumers.
 - Prefer small, reviewable commits.
 - Do not commit secrets.
 - Coordinate shared contracts through `sorrel-protocol`.

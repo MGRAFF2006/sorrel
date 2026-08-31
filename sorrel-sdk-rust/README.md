@@ -13,7 +13,7 @@ alpha surface and known limitations.
 ## Checks
 
 ```sh
-cargo test
-cargo clippy --all-targets
+cargo test -p sorrel-sdk
+cargo clippy -p sorrel-sdk --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```

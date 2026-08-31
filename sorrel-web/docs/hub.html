@@ -29,7 +29,7 @@
         <a href="./cli.html">CLI</a>
         <a href="./workflows.html">Workflows</a>
         <a href="./api.html">API</a>
-        <a href="https://github.com/MGRAFF2006/sorrel-hub">GitHub</a>
+        <a href="https://github.com/MGRAFF2006/sorrel/tree/main/sorrel-hub">GitHub</a>
         <button class="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle theme">
           <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
@@ -49,18 +49,19 @@
         <p class="lede">
           The collaboration layer: a zero-dependency Node API server that stores project
           metadata, transports content-addressed objects between machines, and administers
-          Core policy — plus a framework-free browser interface on top.
+          Core policy — plus a shared SolidJS product UI and thin browser host.
         </p>
       </div>
 
       <section class="section">
         <div class="doc-body">
-          <h2>Three repos, three roles</h2>
+          <h2>Four packages, four roles</h2>
           <table class="doc-table">
             <thead><tr><th>Repo</th><th>Role</th></tr></thead>
             <tbody>
               <tr><td><code>sorrel-hub</code></td><td>The <strong>API server</strong>: JSON over HTTP, no UI.</td></tr>
-              <tr><td><code>sorrel-hub-web</code></td><td>The <strong>web interface</strong>: plain HTML/CSS/ES modules calling the Hub API.</td></tr>
+              <tr><td><code>sorrel-hub-ui</code></td><td>The shared <strong>SolidJS product UI</strong> for browser and future native shells.</td></tr>
+              <tr><td><code>sorrel-hub-web</code></td><td>The thin <strong>Vite browser host</strong> and development API proxy.</td></tr>
               <tr><td><code>sorrel-web</code></td><td>This site — public landing and docs, unrelated to the product UI.</td></tr>
             </tbody>
           </table>
@@ -105,15 +106,28 @@
             trust, rotation rules, and audit semantics remain Core's job.
           </p>
 
+          <h2>Installation and authentication seams</h2>
+          <p>
+            <code>GET /capabilities</code> describes optional server features and
+            <code>GET /session</code> returns the current AuthAdapter identity. Development,
+            WorkOS, and OIDC/JWKS adapters exist, and unsafe development auth or bootstrap
+            grants cannot bind beyond loopback without an explicit override. WorkOS sealed
+            sessions, login UI, and production identity provisioning are not complete.
+          </p>
+          <p>
+            The filesystem remains authoritative for VCS objects. An optional Convex schema
+            and mirror can provide metadata such as open-proposal counts; the UI falls back to
+            the Hub API when that capability is unavailable.
+          </p>
+
           <h2>The web interface</h2>
           <p>
-            <code>sorrel-hub-web</code> is deliberately framework-free: static HTML/CSS/ES
-            modules and a small dev server that proxies <code>/api/*</code> to the Hub. It
-            can create projects, proposals, and review comments; transition proposal and
-            workflow status; and resolve comments. Sync remains read-only in the browser.
-            This alpha companion sends the development <code>user:local</code> acting principal
-            on mutations and has no production authentication; do not expose it to an untrusted
-            network.
+            <code>sorrel-hub-ui</code> provides project-first navigation with Reviews, Sync,
+            and Actions nested under each project. It can create projects, proposals, and
+            review comments; transition proposal and workflow status; and resolve comments.
+            <code>sorrel-hub-web</code> builds that shared UI and proxies <code>/api/*</code>
+            during development. Sync remains read-only in the browser. This alpha has no
+            complete production login flow; do not expose it to an untrusted network.
           </p>
 
           <div class="doc-footer-nav">

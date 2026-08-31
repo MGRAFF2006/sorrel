@@ -3,14 +3,16 @@
 Sorrel module: sorrel-hub.
 
 **Sorrel Hub is the collaboration API server** — a Node HTTP service exposing
-JSON endpoints. It is the **backend**, not a web interface. The browser frontend
-is the sibling package [`sorrel-hub-web`](../sorrel-hub-web) in this monorepo.
+JSON endpoints. It is the **backend**, not a web interface. The shared product
+UI is [`sorrel-hub-ui`](../sorrel-hub-ui), hosted in browsers by
+[`sorrel-hub-web`](../sorrel-hub-web).
 
-| Package          | Role                                              |
-| ---------------- | ------------------------------------------------- |
-| `sorrel-hub`     | Hub **API server** (this package; JSON over HTTP) |
-| `sorrel-hub-web` | Hub **web interface** (browser frontend)          |
-| `sorrel-web`     | Public marketing landing page (static, unrelated) |
+| Package | Role |
+| --- | --- |
+| `sorrel-hub` | Hub **API server** (this package; JSON over HTTP) |
+| `sorrel-hub-ui` | Shared SolidJS product UI |
+| `sorrel-hub-web` | Thin browser host and API proxy |
+| `sorrel-web` | Public marketing landing page (static, unrelated) |
 
 Hub stores product metadata and administration surfaces over Core policy
 semantics; it does not define a separate authorization language. Principals use
@@ -18,8 +20,9 @@ the protocol `Principal` shape, policies reference protocol `Policy` and
 `AgentPolicy` objects, and Core grants, policy decisions, and audit events are
 kept as external references.
 
-The `v0.1.0-alpha.1` server intentionally has **no production authentication**.
-It is a localhost development server, not an internet-facing service. It also
+The `v0.1.0-alpha.1` server has development, WorkOS, and OIDC AuthAdapter seams,
+but production session/login integration is incomplete. Treat it as a localhost
+development server, not an internet-facing service. It also
 omits merge queue behavior, hosted compute, and secret values. Two further
 declared gaps: list endpoints return full arrays (no pagination), and object
 upload verifies BLAKE3 content ids but does not JSON-Schema-validate object
@@ -43,11 +46,11 @@ The vendored manifest is paired with a sidecar `policy-conformance.meta.json`
 (version + SHA-256) from `sorrel-protocol`. `test/conformance-sync.test.js`
 recomputes the manifest hash and fails if it drifts from the sidecar, so a stale
 vendored copy is caught by `npm test`. To refresh, re-export from a
-`sorrel-protocol` checkout:
+canonical package:
 
 ```sh
-# from sorrel-protocol/
-npm run export:conformance -- <path-to>/sorrel-hub/test/conformance
+# from the monorepo root
+./scripts/sync-conformance.sh
 ```
 
 (or run the root `scripts/sync-conformance.sh`), then re-run `npm test`. See
@@ -57,16 +60,16 @@ npm run export:conformance -- <path-to>/sorrel-hub/test/conformance
 
 ```sh
 npm ci
-npm test
+npm run check
 npm start
 ```
 
 The server listens on `127.0.0.1` and `PORT=3000` by default. `HOST` overrides
 the bind address.
 
-> **Local development only:** changing `HOST` to a non-loopback address does
-> not add authentication. Do not expose this alpha server to an untrusted
-> network.
+> **Local development only:** dev auth and bootstrap grants are rejected on a
+> non-loopback bind unless `SORREL_HUB_ALLOW_INSECURE_DEV_AUTH=1` is explicitly
+> set for an isolated demo. Do not expose that override to an untrusted network.
 
 ### Persistence
 

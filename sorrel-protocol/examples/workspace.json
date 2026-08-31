@@ -12,9 +12,8 @@
       "name": "sorrel-core",
       "role": "member",
       "location": {
-        "type": "git",
-        "url": "https://github.com/MGRAFF2006/sorrel-core.git",
-        "path": "sorrel-core"
+        "type": "path",
+        "url": "sorrel-core"
       },
       "tracking": {
         "mode": "branch",
@@ -25,9 +24,8 @@
       "name": "sorrel-cli",
       "role": "member",
       "location": {
-        "type": "git",
-        "url": "https://github.com/MGRAFF2006/sorrel-cli.git",
-        "path": "sorrel-cli"
+        "type": "path",
+        "url": "sorrel-cli"
       },
       "tracking": {
         "mode": "branch",
@@ -35,11 +33,11 @@
       }
     },
     {
-      "name": "sorrel-core",
+      "name": "example-engine",
       "role": "dependency",
       "location": {
         "type": "git",
-        "url": "https://github.com/MGRAFF2006/sorrel-core.git"
+        "url": "https://github.com/example/engine.git"
       },
       "tracking": {
         "mode": "revision",

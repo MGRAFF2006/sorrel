@@ -1,16 +1,15 @@
 # Sorrel CLI — Sync with sorrel-hub
 
 This document covers pushing and pulling Sorrel snapshots over the HTTP sync
-transport against [sorrel-hub](https://github.com/MGRAFF2006/sorrel-hub) (R3).
+transport against [`sorrel-hub`](../sorrel-hub/).
 For the local-only persistent workflow, see [`DEMO.md`](DEMO.md).
 
 ## Prerequisites
 
 1. **sorrel-hub** running locally (default `http://127.0.0.1:3000`).
 2. A Sorrel workspace initialized in your project (`sorrel init`).
-3. **sorrel-core** pinned to the current `sorrel-core/main` in `Cargo.toml`
-   (`7a5d7f676092c76ac24b161e252b888f30a587f2`, which includes the stat-cache
-   API merged in PR #7 / `3a8f3be`).
+3. The monorepo dependencies installed with `npm run setup`; the CLI consumes
+   `sorrel-core` through the workspace path dependency.
 
 ## Build
 
@@ -21,10 +20,10 @@ SORREL=target/debug/sorrel
 
 ## 1. Start sorrel-hub
 
-From the sorrel-hub repository (R3):
+From the monorepo root:
 
 ```bash
-npm start
+cd sorrel-hub && npm start
 # listening on http://127.0.0.1:3000
 ```
 

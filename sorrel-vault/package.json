@@ -7,7 +7,8 @@
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MGRAFF2006/sorrel-vault.git"
+    "url": "git+https://github.com/MGRAFF2006/sorrel.git",
+    "directory": "sorrel-vault"
   },
   "vaultSpecVersion": "sorrel.vault.v0",
   "files": [
@@ -20,6 +21,7 @@
     "README.md"
   ],
   "scripts": {
+    "check": "npm run validate && npm test",
     "validate:schemas": "node scripts/validate.mjs --schema-only",
     "validate:examples": "node scripts/validate.mjs --examples-only",
     "validate": "npm run validate:schemas && npm run validate:examples",

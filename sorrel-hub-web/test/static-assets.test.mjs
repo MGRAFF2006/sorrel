@@ -3,57 +3,37 @@ import assert from 'node:assert/strict';
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
-const publicDir = fileURLToPath(new URL('../public/', import.meta.url));
-
-test('core static assets exist', async () => {
-  for (const name of ['index.html', 'app.js', 'styles.css']) {
-    const info = await stat(new URL(name, `file://${publicDir}`));
+test('thin host entrypoints exist', async () => {
+  for (const name of ['index.html', 'src/main.tsx', 'vite.config.ts', 'server/static-server.mjs']) {
+    const info = await stat(new URL(`../${name}`, import.meta.url));
     assert.ok(info.isFile(), `${name} should be a file`);
   }
 });
 
-test('index.html references the app and styles', async () => {
-  const html = await readFile(new URL('index.html', `file://${publicDir}`), 'utf8');
-  assert.match(html, /styles\.css/);
-  assert.match(html, /app\.js/);
+test('index.html mounts shared hub-ui', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, /Sorrel Hub/);
+  assert.match(html, /id="root"/);
+  assert.match(html, /src\/main\.tsx/);
 });
 
-test('index.html includes Sync nav and collaboration write forms', async () => {
-  const html = await readFile(new URL('index.html', `file://${publicDir}`), 'utf8');
-  assert.match(html, /data-view="sync"/);
-  assert.match(html, />Sync</);
-  assert.match(html, /id="view-sync"/);
-  assert.match(html, /id="sync-repos"/);
-  assert.match(html, /id="proposal-form"/);
-  assert.match(html, /id="comment-form"/);
-  assert.match(html, /data-collection="review-comments"/);
-  assert.match(html, /id="project-form"/);
+test('main.tsx mounts sorrel-hub-ui with web platform', async () => {
+  const main = await readFile(new URL('../src/main.tsx', import.meta.url), 'utf8');
+  assert.match(main, /mountHubApp/);
+  assert.match(main, /sorrel-hub-ui/);
+  assert.match(main, /platformKind:\s*'web'/);
 });
 
-test('app.js calls the Hub API under the /api prefix with mutations', async () => {
-  const js = await readFile(new URL('app.js', `file://${publicDir}`), 'utf8');
-  assert.match(js, /\/api/);
-  assert.match(js, /\/projects/);
-  assert.match(js, /\/healthz/);
-  assert.match(js, /apiPost/);
-  assert.match(js, /apiPatch/);
-  assert.match(js, /unwrapList/);
-  assert.match(js, /\/admin\/proposals/);
-  assert.match(js, /\/admin\/review-comments/);
+test('package depends on shared hub-ui', async () => {
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(pkg.name, 'sorrel-hub-web');
+  assert.ok(pkg.dependencies['sorrel-hub-ui']);
+  assert.ok(pkg.dependencies['solid-js']);
+  assert.match(pkg.scripts.dev, /vite/);
+  assert.match(pkg.scripts.build, /vite build/);
 });
 
-test('app.js loads sync repos and refs endpoints', async () => {
-  const js = await readFile(new URL('app.js', `file://${publicDir}`), 'utf8');
-  assert.match(js, /\/admin\/sync-repos/);
-  assert.match(js, /encodeURIComponent\(repoId\)/);
-  assert.match(js, /\/refs/);
-  assert.match(js, /loadSyncRepos/);
-  assert.match(js, /No repositories have been synced yet/);
-  assert.match(js, /No refs/);
-});
-
-test('dev server module imports without side effects on import', async () => {
-  const url = fileURLToPath(new URL('../server/dev-server.mjs', import.meta.url));
-  assert.ok(url.endsWith('dev-server.mjs'));
+test('static server module path resolves', async () => {
+  const url = fileURLToPath(new URL('../server/static-server.mjs', import.meta.url));
+  assert.ok(url.endsWith('static-server.mjs'));
 });

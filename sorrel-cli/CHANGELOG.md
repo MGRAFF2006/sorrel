@@ -2,29 +2,11 @@
 
 All notable changes to `sorrel-cli` are documented here.
 
-## Unreleased
+## [Unreleased]
 
-### Added
+No changes yet.
 
-- SecretSpec-backed `sorrel secret list|refs|sync|check|get|set|run` under Core
-  `secret.read` / `secret.inject` grants (providers: keyring, dotenv, env).
-- Workflow `secretRefs` injection into the local process env with log redaction.
-- devenv-first `sorrel env init|ensure|info|shell` with `local-fallback` backend.
-- Structured run logs under `.sorrel/runs/` and `sorrel run list|show|logs`.
-
-### Changed
-
-- Default `sorrel grant create --agent` is now `agent_mock_cli` (matches CLI
-  workflow principal).
-- Secret providers in protocol/vault schemas include `keyring`, `dotenv`, `env`.
-
-### Limitations
-
-- devenv task shim from `sorrel.workflow.yml` is still thin; secret injection
-  uses the local runner when secrets are present.
-- `sorrel run logs --follow` is a stub; Hub run streaming is not shipped.
-
-## 0.1.0-alpha.1 - 2026-07-30
+## [0.1.0-alpha.1] - 2026-08-31
 
 Initial coordinated alpha release.
 
@@ -36,13 +18,28 @@ Initial coordinated alpha release.
 - Git history import/export and bidirectional colocated mirror sync.
 - Hub push/pull remotes and lane proposal submission.
 - Policy evaluation plus policy-gated local workflow validation and execution.
+- SecretSpec-backed `secret list|refs|sync|check|get|set|run` under Core
+  `secret.read` / `secret.inject` grants (`keyring`, `dotenv`, and `env`).
+- Authorized workflow `secretRefs` injection with persisted-output redaction.
+- devenv-aware `env init|ensure|info|shell` with local-process fallback.
+- Structured run records under `.sorrel/runs/` and `run list|show|logs`.
 - Stable structured output through the global `--json` flag.
+
+### Changed
+
+- Default `grant create --agent` is `agent_mock_cli`, matching the CLI workflow
+  principal.
+- SecretSpec operations provide an operation-specific audit reason and honor a
+  non-empty `SECRETSPEC_REASON` override.
 
 ### Limitations
 
 - Alpha storage and JSON contracts may change before a stable release.
 - Hub operations require a separately deployed compatible `sorrel-hub`.
-- Secret references are resolved via SecretSpec after Core grants; use
-  `sorrel secret *` rather than the Node vault-cli for day-to-day work.
+- The devenv task shim is thin; secret-bearing workflows use the local runner.
+- `run logs --follow` and Hub run streaming are not implemented.
 - Git import rejects symlinks and submodule gitlinks.
 - Hub clone and force-push workflows are not exposed.
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
+[0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1

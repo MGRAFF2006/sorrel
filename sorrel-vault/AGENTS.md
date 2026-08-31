@@ -24,8 +24,8 @@ after a Core-grant policy decision allows the requesting principal.
 ## Common checks
 
 ```sh
-npm test
-npm run validate
+npm ci
+npm run check
 node scripts/vault-cli.mjs --help
 ```
 
@@ -34,7 +34,7 @@ Do not modify `tests/conformance/`, `tests/policy-conformance.test.mjs`, or
 
 ## Workflow
 
-- Keep changes scoped to this repository.
+- Keep changes scoped to this package and required workspace consumers.
 - Prefer small, reviewable commits.
 - Never commit real secrets.
 - Coordinate shared contracts through `sorrel-protocol`.

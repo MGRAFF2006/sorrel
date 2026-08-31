@@ -4,7 +4,7 @@
 
 The canonical, language-neutral contracts for Sorrel: JSON schemas, examples,
 and the **policy-conformance manifest** that every consumer vendors and tests
-against. This repo is the source of truth for shared object shapes (`Principal`,
+against. This package is the source of truth for shared object shapes (`Principal`,
 `Policy`, `Grant`, `PolicyDecision`, `SecretRef`, `AuthorityRoot`,
 `PolicyChange`, ...) and for cross-language policy-decision conformance.
 
@@ -26,12 +26,13 @@ against. This repo is the source of truth for shared object shapes (`Principal`,
 ## Common checks
 
 ```sh
-npm test
-npm run validate    # schema + examples + sidecar currency
+npm ci
+npm run check       # schema + examples + sidecar currency + tests
 ```
 
 ## Workflow
 
-- Keep changes scoped to this repository (it *is* the shared-contract home).
+- Keep changes scoped to this package and required workspace consumers (this
+  package is the shared-contract home).
 - Prefer small, reviewable commits.
 - Do not commit secrets.

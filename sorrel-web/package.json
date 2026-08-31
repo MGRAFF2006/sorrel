@@ -3,6 +3,12 @@
   "version": "0.1.0-alpha.1",
   "private": true,
   "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MGRAFF2006/sorrel.git",
+    "directory": "sorrel-web"
+  },
   "scripts": {
     "check": "npm run lint && npm test",
     "lint": "node --check site.js && node --check docs/docs.js",

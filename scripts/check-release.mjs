@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,10 +14,10 @@ function read(path) {
   return readFileSync(join(ROOT, path), 'utf8');
 }
 
-function packageVersion(module) {
+function nodePackage(module) {
   const path = join(ROOT, module, 'package.json');
   if (!existsSync(path)) return undefined;
-  return JSON.parse(readFileSync(path, 'utf8')).version;
+  return JSON.parse(readFileSync(path, 'utf8'));
 }
 
 function cargoVersion(module) {
@@ -47,13 +46,26 @@ check(
   JSON.parse(read('package.json')).version === expectedVersion,
   `root package version must be ${expectedVersion}`,
 );
+check(
+  read('CHANGELOG.md').includes(`## [${expectedVersion}] - ${manifest.releaseDate}`),
+  `CHANGELOG.md must contain ${expectedVersion} dated ${manifest.releaseDate}`,
+);
 
 check(!existsSync(join(ROOT, '.gitmodules')), '.gitmodules must not exist in the monorepo');
+
+const manifestModules = new Set(Object.keys(manifest.modules));
+const workspaceModules = readdirSync(ROOT, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && entry.name.startsWith('sorrel-'))
+  .map((entry) => entry.name);
+for (const module of workspaceModules) {
+  check(manifestModules.has(module), `${module}/ is missing from release/manifest.json`);
+}
 
 for (const module of Object.keys(manifest.modules)) {
   check(existsSync(join(ROOT, module)), `${module}/ is missing`);
 
-  const version = packageVersion(module) ?? cargoVersion(module);
+  const pkg = nodePackage(module);
+  const version = pkg?.version ?? cargoVersion(module);
   if (version !== undefined) {
     check(
       version === expectedVersion,
@@ -61,8 +73,32 @@ for (const module of Object.keys(manifest.modules)) {
     );
   }
 
-  for (const file of ['LICENSE-APACHE', 'LICENSE-MIT', 'CHANGELOG.md']) {
+  for (const file of ['AGENTS.md', 'README.md', 'LICENSE-APACHE', 'LICENSE-MIT', 'CHANGELOG.md']) {
     check(existsSync(join(ROOT, module, file)), `${module}/${file} is missing`);
+  }
+
+  if (existsSync(join(ROOT, module, 'CHANGELOG.md'))) {
+    const changelog = read(`${module}/CHANGELOG.md`);
+    check(
+      changelog.includes('## [Unreleased]'),
+      `${module}/CHANGELOG.md must keep an [Unreleased] section`,
+    );
+    check(
+      changelog.includes(`## [${expectedVersion}] - ${manifest.releaseDate}`),
+      `${module}/CHANGELOG.md must contain ${expectedVersion} dated ${manifest.releaseDate}`,
+    );
+  }
+
+  if (pkg) {
+    check(existsSync(join(ROOT, module, 'package-lock.json')), `${module}/package-lock.json is missing`);
+    check(typeof pkg.scripts?.check === 'string', `${module} must define an npm check script`);
+  }
+
+  if (existsSync(join(ROOT, module, 'Cargo.toml'))) {
+    check(
+      read('Cargo.toml').includes(`"${module}"`),
+      `${module} must be listed in the root Cargo workspace`,
+    );
   }
 }
 
@@ -83,7 +119,6 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-assert.equal(Object.keys(manifest.modules).length, 12);
 console.log(
-  `Release ${manifest.release}: monorepo modules, versions, licenses, changelogs, and path deps are consistent.`,
+  `Release ${manifest.release}: ${manifestModules.size} modules, metadata, docs, checks, and workspace links are consistent.`,
 );

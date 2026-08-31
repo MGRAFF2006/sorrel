@@ -1,6 +1,6 @@
 # Getting started
 
-Last updated: 2026-08-10
+Last updated: 2026-08-31
 
 How to clone Sorrel, run the local VCS demo, and start the Hub stack.
 
@@ -24,6 +24,13 @@ cd sorrel
 ```
 
 Sorrel is a single monorepo. No submodules and no `SUBMODULES_TOKEN` are required.
+
+Install the locked Node dependencies for every package and prefetch the Rust
+workspace dependencies:
+
+```sh
+npm run setup
+```
 
 ## Local VCS happy path (CLI)
 
@@ -71,6 +78,31 @@ to the tip. Use `sorrel git export` for one-way export or `sorrel git sync` to
 incrementally keep colocated Git and Sorrel histories aligned. Divergence is
 parked on a normal `git/<branch>` lane for explicit merge resolution.
 
+## Secrets, environments, and run logs
+
+Secret values never enter Sorrel objects. The CLI discovers `SecretRef`
+declarations, uses upstream SecretSpec providers after Core grant checks, and
+redacts persisted workflow output:
+
+```sh
+$SORREL secret list               # handles only, never values
+$SORREL secret sync               # generate/refresh secretspec.toml
+$SORREL secret check --provider dotenv:.env
+$SORREL env info                  # devenv when available, local fallback otherwise
+$SORREL workflow run test
+$SORREL run list
+$SORREL run show <run-id>
+$SORREL run logs <run-id>
+```
+
+Resolution, `secret set`, and injection require scoped `secret.read` and/or
+`secret.inject` grants. Prefer stdin over `--value` in real scripts, keep
+provider files ignored, and set `SECRETSPEC_REASON` when you need an audit
+reason more specific than Sorrel's operation default. See
+[`sorrel-cli/README.md`](../sorrel-cli/README.md) for the complete grant and
+workflow examples. Full devenv task mapping, log streaming to Hub, and a hosted
+secret backend are not part of this alpha.
+
 ## Hub API + Hub UI
 
 ### One-command local dashboard (recommended for testing)
@@ -82,12 +114,13 @@ npm run dev
 # or: node scripts/dev-dashboard.mjs
 ```
 
-This builds the CLI, seeds `.dev/workspace`, starts Hub (:3000) + Hub UI
+This builds the CLI and Hub UI, seeds `.dev/workspace`, starts Hub (:3000) + Hub UI
 (:5180) with bootstrap grants and FS persistence under `.dev/hub-data`, then
 opens a status dashboard at http://127.0.0.1:5200 with health checks and
 copy-paste commands. Stop with Ctrl+C.
 
-Flags: `--skip-build`, `--no-open`, `--no-seed`, `--port 5200`.
+Flags: `--skip-build` (reuse existing builds), `--no-open`, `--no-seed`,
+`--port 5200`.
 
 ### With Docker Compose (from repo root)
 
@@ -116,7 +149,8 @@ SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start  # http://127.0.0.1:3000
 
 # terminal 2 — UI (proxies /api → Hub)
 cd sorrel-hub-web
-npm start          # http://0.0.0.0:5180
+npm run dev        # http://127.0.0.1:5180
+# or: npm run build && npm start
 ```
 
 Useful Hub env vars:
@@ -127,7 +161,25 @@ Useful Hub env vars:
   isolated container/network)
 - `SORREL_HUB_BOOTSTRAP_GRANTS=1` — explicitly enable broad local demo grants
   (disabled by default)
+- `SORREL_HUB_AUTH` — `dev` (default), `workos`, or `oidc`; production login
+  and sealed WorkOS sessions are not complete in this alpha
+- `SORREL_HUB_ALLOW_INSECURE_DEV_AUTH=1` — permit dev auth/bootstrap grants on
+  a non-loopback bind for an isolated demo only
 - `HUB_API_URL` — hub-web upstream (default `http://localhost:3000`)
+
+### Optional Convex metadata profile
+
+The filesystem store remains authoritative for VCS objects. To exercise the
+optional Convex metadata mirror, configure the documented Convex environment
+variables and layer the profile over the normal stack:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.convex.yml up --build
+```
+
+`CONVEX_URL` is the Hub's internal endpoint; `CONVEX_PUBLIC_URL` is the
+browser-visible endpoint injected into the web build. This profile is an
+integration spike, not a production deployment recipe.
 
 ## CLI ↔ Hub sync
 
@@ -154,24 +206,28 @@ From the repo root, run the full-stack E2E (real Hub + CLI + vault + slices +
 hub-web + SDKs + agents — **no mocks**):
 
 ```sh
+npm run check:quick   # release metadata, conformance, docs and links
+npm run test:module -- sorrel-hub  # focused package suite
 npm test              # tests/e2e/happy-path.mjs
 npm run test:modules  # each package's own suite
+npm run check         # complete repository gate
 ```
 
 Rust (`sorrel-core`, `sorrel-cli`, `sorrel-runners`, `sorrel-sdk-rust`):
 
 ```sh
-cargo test
-cargo clippy --all-targets
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
-Node (`sorrel-protocol`, `sorrel-hub`, `sorrel-hub-web`, `sorrel-vault`,
-`sorrel-slices`, `sorrel-sdk-js`, `sorrel-agents`):
+Node (`sorrel-protocol`, `sorrel-hub`, `sorrel-hub-ui`, `sorrel-hub-web`,
+`sorrel-vault`, `sorrel-slices`, `sorrel-sdk-js`, `sorrel-agents`). Run each
+package's complete local gate:
 
 ```sh
 npm test
-npm run validate   # where defined (protocol, vault)
+npm run check
 ```
 
 ## Landing site
@@ -183,5 +239,9 @@ npm run validate   # where defined (protocol, vault)
 ## More reading
 
 - [STATUS.md](STATUS.md) — working vs missing
+- [ARCHITECTURE.md](ARCHITECTURE.md) — package boundaries and data flow
+- [DEVELOPMENT.md](DEVELOPMENT.md) — contributor and AI-agent workflow
+- [RELEASE.md](RELEASE.md) — changelogs, tags, and publication
 - [ROADMAP.md](../ROADMAP.md) — sequenced plan
-- [AGENT_NATIVE_VERSION_CONTROL_REPORT.md](../AGENT_NATIVE_VERSION_CONTROL_REPORT.md) — architecture
+- [CHANGELOG.md](../CHANGELOG.md) — shipped progress
+- [AGENT_NATIVE_VERSION_CONTROL_REPORT.md](../AGENT_NATIVE_VERSION_CONTROL_REPORT.md) — design background
