@@ -10,22 +10,42 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const releaseManifest = JSON.parse(
+  readFileSync(join(ROOT, 'release/manifest.json'), 'utf8'),
+);
 
-const JOBS = [
-  { name: 'sorrel-protocol', cwd: 'sorrel-protocol', cmd: ['npm', 'run', 'check'] },
-  { name: 'sorrel-core', cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-core'] },
-  { name: 'sorrel-cli', cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-cli'] },
-  { name: 'sorrel-vault', cwd: 'sorrel-vault', cmd: ['npm', 'run', 'check'] },
-  { name: 'sorrel-runners', cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-runners'] },
-  { name: 'sorrel-slices', cwd: 'sorrel-slices', cmd: ['npm', 'run', 'check'] },
-  { name: 'sorrel-hub', cwd: 'sorrel-hub', cmd: ['npm', 'run', 'check'] },
-  { name: 'sorrel-hub-ui', cwd: 'sorrel-hub-ui', cmd: ['npm', 'run', 'check'] },
-  { name: 'sorrel-hub-web', cwd: 'sorrel-hub-web', cmd: ['npm', 'run', 'check'] },
-  { name: 'sorrel-sdk-js', cwd: 'sorrel-sdk-js', cmd: ['npm', 'run', 'check'] },
-  { name: 'sorrel-sdk-rust', cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-sdk'] },
-  { name: 'sorrel-agents', cwd: 'sorrel-agents', cmd: ['npm', 'run', 'check'] },
-  { name: 'sorrel-web', cwd: 'sorrel-web', cmd: ['npm', 'run', 'check'] },
-];
+const JOB_DEFINITIONS = {
+  'sorrel-protocol': { cwd: 'sorrel-protocol', cmd: ['npm', 'run', 'check'] },
+  'sorrel-core': { cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-core'] },
+  'sorrel-cli': { cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-cli'] },
+  'sorrel-vault': { cwd: 'sorrel-vault', cmd: ['npm', 'run', 'check'] },
+  'sorrel-runners': { cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-runners'] },
+  'sorrel-slices': { cwd: 'sorrel-slices', cmd: ['npm', 'run', 'check'] },
+  'sorrel-hub': { cwd: 'sorrel-hub', cmd: ['npm', 'run', 'check'] },
+  'sorrel-hub-ui': { cwd: 'sorrel-hub-ui', cmd: ['npm', 'run', 'check'] },
+  'sorrel-hub-web': { cwd: 'sorrel-hub-web', cmd: ['npm', 'run', 'check'] },
+  'sorrel-sdk-js': { cwd: 'sorrel-sdk-js', cmd: ['npm', 'run', 'check'] },
+  'sorrel-sdk-rust': { cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-sdk'] },
+  'sorrel-agents': { cwd: 'sorrel-agents', cmd: ['npm', 'run', 'check'] },
+  'sorrel-web': { cwd: 'sorrel-web', cmd: ['npm', 'run', 'check'] },
+};
+
+const manifestModules = Object.keys(releaseManifest.modules);
+const undefinedModules = manifestModules.filter((name) => !JOB_DEFINITIONS[name]);
+const unregisteredJobs = Object.keys(JOB_DEFINITIONS).filter(
+  (name) => !(name in releaseManifest.modules),
+);
+if (undefinedModules.length > 0 || unregisteredJobs.length > 0) {
+  if (undefinedModules.length > 0) {
+    console.error(`Modules without test jobs: ${undefinedModules.join(', ')}`);
+  }
+  if (unregisteredJobs.length > 0) {
+    console.error(`Test jobs missing from release manifest: ${unregisteredJobs.join(', ')}`);
+  }
+  process.exit(2);
+}
+
+const JOBS = manifestModules.map((name) => ({ name, ...JOB_DEFINITIONS[name] }));
 
 const requested = process.argv.slice(2);
 if (requested.includes('--list')) {
