@@ -50,7 +50,7 @@ the complete shipped record.
 | **Apps** | No desktop/mobile clients (intentionally after embedding surface). |
 | **Hub secret backend** | Optional hosted / BYO provider binding (Phase 4) not shipped; local keyring/dotenv remain default. |
 | **devenv task mapping** | Prefer devenv when present; full `sorrel.workflow.yml` → devenv tasks shim and remote runners are still thin. |
-| **Run log follow / Hub stream** | Local `.sorrel/runs/` + `run show|logs` shipped; `--follow` and Hub streaming are stubs. |
+| **Run log follow / Hub stream** | Local `.sorrel/runs/` + `run show|logs` shipped; unsupported `--follow` requests now fail explicitly, and Hub streaming is not implemented. |
 
 ## Module map
 
