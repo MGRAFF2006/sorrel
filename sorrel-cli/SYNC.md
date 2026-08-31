@@ -11,6 +11,16 @@ For the local-only persistent workflow, see [`DEMO.md`](DEMO.md).
 3. The monorepo dependencies installed with `npm run setup`; the CLI consumes
    `sorrel-core` through the workspace path dependency.
 
+For a Hub using OIDC or WorkOS bearer authentication, provide the access token
+through the process environment. It is never written to `.sorrel/remotes.json`:
+
+```bash
+export SORREL_HUB_TOKEN="$(your-idp-token-command)"
+$SORREL push
+```
+
+Unset `SORREL_HUB_TOKEN` when returning to development acting-principal auth.
+
 ## Build
 
 ```bash

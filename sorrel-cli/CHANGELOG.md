@@ -4,7 +4,11 @@ All notable changes to `sorrel-cli` are documented here.
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- `SORREL_HUB_TOKEN` forwards an OIDC/WorkOS bearer access token for sync,
+  project discovery, and lane submission without persisting it in remote
+  configuration.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 

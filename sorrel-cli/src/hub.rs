@@ -8,7 +8,7 @@ use std::io;
 use serde_json::{json, Value};
 
 use crate::repo::Remote;
-use crate::sync::DEFAULT_ACTING_PRINCIPAL;
+use crate::sync::{apply_hub_authorization, hub_bearer_token, DEFAULT_ACTING_PRINCIPAL};
 
 /// Result of `POST /collaboration/lane-submit`.
 #[derive(Debug, Clone)]
@@ -22,11 +22,11 @@ pub struct LaneSubmitResult {
 pub fn ensure_project(hub_base_url: &str, organization_id: &str, name: &str) -> io::Result<String> {
     let base = hub_base_url.trim_end_matches('/');
     let agent = ureq::Agent::new();
+    let token = hub_bearer_token();
 
     // Prefer an existing project with the same name in the org.
     let list_url = format!("{base}/projects?organizationId={organization_id}");
-    let listed: Value = agent
-        .get(&list_url)
+    let listed: Value = apply_hub_authorization(agent.get(&list_url), token.as_deref())
         .call()
         .map_err(http_error)?
         .into_json()
@@ -41,9 +41,10 @@ pub fn ensure_project(hub_base_url: &str, organization_id: &str, name: &str) -> 
         }
     }
 
-    let created: Value = agent
+    let request = agent
         .post(&format!("{base}/projects"))
-        .set("Content-Type", "application/json")
+        .set("Content-Type", "application/json");
+    let created: Value = apply_hub_authorization(request, token.as_deref())
         .send_json(json!({
             "organizationId": organization_id,
             "name": name,
@@ -70,6 +71,7 @@ pub fn lane_submit(
     target_lane: &str,
 ) -> io::Result<LaneSubmitResult> {
     let base = remote.url.trim_end_matches('/');
+    let token = hub_bearer_token();
     let body = json!({
         "projectId": project_id,
         "syncRepoId": remote.repo_id,
@@ -82,10 +84,11 @@ pub fn lane_submit(
         "open": true,
     });
 
-    let response = ureq::Agent::new()
+    let request = ureq::Agent::new()
         .post(&format!("{base}/collaboration/lane-submit"))
         .set("Content-Type", "application/json")
-        .set("x-sorrel-acting-principal", DEFAULT_ACTING_PRINCIPAL)
+        .set("x-sorrel-acting-principal", DEFAULT_ACTING_PRINCIPAL);
+    let response = apply_hub_authorization(request, token.as_deref())
         .send_json(&body)
         .map_err(http_error)?;
 

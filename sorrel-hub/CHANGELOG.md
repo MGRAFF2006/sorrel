@@ -4,7 +4,10 @@ Notable changes to Sorrel Hub are documented here.
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+
+- Authenticated lane submissions now use the verified session principal as the
+  proposal author instead of trusting a caller-supplied body principal.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
