@@ -27,7 +27,7 @@ import {
   setActingPrincipal,
   useActingPrincipal,
 } from './session.ts';
-import { EmptyState, ErrorText, Loading } from './components/ui.tsx';
+import { ErrorText, Loading } from './components/ui.tsx';
 import { ProjectsHome } from './views/ProjectsView.tsx';
 import { ProjectOverview } from './views/ProjectOverview.tsx';
 import { ReviewsView } from './views/ReviewsView.tsx';
@@ -165,7 +165,6 @@ function ProjectLayout(
   props: RouteSectionProps & {
     platform: Platform;
     capabilities: HubCapabilities | null | undefined;
-    showActions: boolean;
   },
 ) {
   const params = useParams<{ projectId: string }>();
@@ -215,11 +214,6 @@ function ProjectLayout(
           <A href={`${base()}/sync`} class="nav-item" activeClass="active">
             Sync
           </A>
-          <Show when={props.showActions}>
-            <A href={`${base()}/actions`} class="nav-item" activeClass="active">
-              Actions
-            </A>
-          </Show>
         </nav>
 
         <div class="side-meta">
@@ -243,34 +237,14 @@ function ProjectLayout(
   );
 }
 
-function ActionsPlaceholder() {
-  return (
-    <div class="page view-enter">
-      <header class="page-header">
-        <div class="page-header-text">
-          <h1>Actions</h1>
-          <p class="muted lede">Project runners module — productization still ahead.</p>
-        </div>
-      </header>
-      <div class="surface">
-        <EmptyState
-          title="Not productized yet"
-          body="Workflow runners land with the Actions module (Phase 5)."
-        />
-      </div>
-    </div>
-  );
-}
-
 export function CapabilitiesHint(props: { capabilities: HubCapabilities | null | undefined }) {
   const caps = () => props.capabilities;
   return (
     <Show when={caps()}>
       {(c) => (
         <p>
-          deploy={c().deploy} · auth={c().auth.mode} · actions=
-          {c().modules.actions ? 'on' : 'off'} · convex=
-          {c().convex.enabled ? 'on' : 'off'}
+          deploy={c().deploy} · auth={c().auth.mode} · storage=
+          {c().modules.objectStorage} · convex={c().convex.enabled ? 'on' : 'off'}
         </p>
       )}
     </Show>
@@ -300,8 +274,6 @@ export function HubApp(props: HubAppOptions) {
     () => !convexUrl() && apiOk() === true,
   );
   const openCount = createMemo(() => convexCount() ?? hubFallbackCount());
-  const showActions = () => capabilities()?.modules.actions === true;
-
   onMount(() => {
     void (async () => {
       try {
@@ -354,7 +326,6 @@ export function HubApp(props: HubAppOptions) {
               {...routeProps}
               platform={props.platform}
               capabilities={capabilities()}
-              showActions={showActions()}
             />,
           )
         }
@@ -362,7 +333,6 @@ export function HubApp(props: HubAppOptions) {
         <Route path="/" component={ProjectOverview} />
         <Route path="/reviews" component={() => <ReviewsView />} />
         <Route path="/sync" component={() => <SyncView />} />
-        <Route path="/actions" component={ActionsPlaceholder} />
       </Route>
     </Router>
   );

@@ -14,7 +14,8 @@ mobile hosts mount the same package; they do not fork the product UI.
 
 - SolidJS + Vite + Solid Router
 - Nord visual language with sidebar product shell
-- **Project-first IA** (GitHub-like): `/` lists projects; Reviews / Sync / Actions nest under `/projects/:id`
+- **Project-first IA** (GitHub-like): `/` lists projects; Reviews and Sync nest
+  under `/projects/:id`; unimplemented modules stay out of navigation.
 - Motion for route/panel enter only — **never** on diff scroll (diff island later)
 - Platform seams via `platform.ts` (`web` | `desktop` | `mobile` stubs)
 - Live metadata via Convex when configured; Hub API fallback otherwise
