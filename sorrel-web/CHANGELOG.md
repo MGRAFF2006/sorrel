@@ -8,6 +8,9 @@ Notable changes to the Sorrel public website are documented here.
 
 - Replaced the placeholder letter mark across the landing and documentation
   pages with the current Sorrel leaf logo, also used as the site favicon.
+- Added a compact, keyboard-accessible mobile navigation menu across the landing
+  and documentation pages, plus skip links and visible focus indicators.
+- Updated the theme toggle label to announce the action it will perform.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 

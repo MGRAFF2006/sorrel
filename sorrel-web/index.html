@@ -28,12 +28,21 @@
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
+    <a class="skip-link" href="#top">Skip to main content</a>
     <header class="site-header">
       <a class="brand" href="#top" aria-label="Sorrel home">
         <img class="brand-logo" src="./assets/logo.svg" alt="" aria-hidden="true">
         <span>Sorrel</span>
       </a>
-      <nav class="nav" aria-label="Primary navigation">
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation" title="Open navigation">
+        <svg class="icon-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 6h16M4 12h16M4 18h16"></path>
+        </svg>
+        <svg class="icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18"></path>
+        </svg>
+      </button>
+      <nav class="nav" id="primary-nav" aria-label="Primary navigation">
         <a href="#why">Why</a>
         <a href="#architecture">Architecture</a>
         <a href="#primitives">Primitives</a>
@@ -53,7 +62,7 @@
       </nav>
     </header>
 
-    <main id="top">
+    <main id="top" tabindex="-1">
       <section class="hero section">
         <div class="hero-copy">
           <p class="eyebrow">v0.1.0-alpha.1 · developer preview</p>

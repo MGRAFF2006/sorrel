@@ -17,8 +17,9 @@ async function filesUnder(directory) {
 
 test('landing page exposes its primary navigation and theme controls', async () => {
   const html = await readFile(resolve(ROOT, 'index.html'), 'utf8');
-  assert.match(html, /<main id="top">/);
+  assert.match(html, /<main id="top" tabindex="-1">/);
   assert.match(html, /aria-label="Primary navigation"/);
+  assert.match(html, /class="nav-toggle"/);
   assert.match(html, /class="theme-toggle"/);
   assert.match(html, /src="\.\/site\.js"/);
   assert.match(html, /href="\.\/docs\/index\.html"/);
@@ -31,6 +32,19 @@ test('every page uses the current Sorrel logo for its brand and favicon', async 
     const html = await readFile(htmlFile, 'utf8');
     assert.match(html, /<link rel="icon" href="(?:\.\.\/|\.\/)assets\/logo\.svg" type="image\/svg\+xml">/);
     assert.match(html, /<img class="brand-logo" src="(?:\.\.\/|\.\/)assets\/logo\.svg" alt="" aria-hidden="true">/);
+  }
+});
+
+test('every page exposes keyboard and compact-navigation controls', async () => {
+  const htmlFiles = (await filesUnder(ROOT)).filter((path) => path.endsWith('.html'));
+
+  for (const htmlFile of htmlFiles) {
+    const html = await readFile(htmlFile, 'utf8');
+    const skipTarget = /<a class="skip-link" href="#([^"]+)">Skip to main content<\/a>/.exec(html)?.[1];
+    assert.ok(skipTarget, `${htmlFile}: missing skip link`);
+    assert.match(html, new RegExp(`<main[^>]*id="${skipTarget}"[^>]*tabindex="-1"`));
+    assert.match(html, /<button class="nav-toggle"[^>]*aria-expanded="false"[^>]*aria-controls="primary-nav"/);
+    assert.match(html, /<nav class="nav" id="primary-nav" aria-label="Primary navigation">/);
   }
 });
 
