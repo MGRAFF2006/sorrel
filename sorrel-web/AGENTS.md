@@ -16,12 +16,15 @@ backend, no build step, no framework. This is **not** the Hub product UI (that i
 ## Common checks
 
 ```sh
+npm run check
+
 # Static preview:
 python3 -m http.server 4173
 ```
 
-Validate HTML/CSS/JS by eye and with any static linters available; there is no
-test runner.
+The automated gate checks JavaScript syntax and verifies that local links and
+assets referenced by HTML pages resolve. Continue to preview visual changes by
+eye.
 
 ## Workflow
 
