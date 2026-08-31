@@ -43,6 +43,7 @@ scripts/build-api-docs.sh            # or: scripts/build-api-docs.sh /path/to/so
 ## Local preview
 
 ```bash
+npm run check
 python3 -m http.server 4173
 # http://localhost:4173
 # http://localhost:4173/docs/

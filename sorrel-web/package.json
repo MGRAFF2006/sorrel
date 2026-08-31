@@ -1,0 +1,14 @@
+{
+  "name": "@sorrel/web",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "npm run lint && npm test",
+    "lint": "node --check site.js && node --check docs/docs.js",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

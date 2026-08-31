@@ -23,6 +23,7 @@ const JOBS = [
   { name: 'sorrel-sdk-js', cwd: 'sorrel-sdk-js', cmd: ['npm', 'test'] },
   { name: 'sorrel-sdk-rust', cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-sdk'] },
   { name: 'sorrel-agents', cwd: 'sorrel-agents', cmd: ['npm', 'test'] },
+  { name: 'sorrel-web', cwd: 'sorrel-web', cmd: ['npm', 'run', 'check'] },
 ];
 
 function ensureNodeModules(cwd) {
