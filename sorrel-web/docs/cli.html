@@ -19,12 +19,21 @@
     <link rel="stylesheet" href="./docs.css">
   </head>
   <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <header class="site-header">
       <a class="brand" href="../index.html" aria-label="Sorrel home">
         <img class="brand-logo" src="../assets/logo.svg" alt="" aria-hidden="true">
         <span>Sorrel</span>
       </a>
-      <nav class="nav" aria-label="Primary navigation">
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-nav" aria-label="Open navigation" title="Open navigation">
+        <svg class="icon-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M4 6h16M4 12h16M4 18h16"></path>
+        </svg>
+        <svg class="icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18"></path>
+        </svg>
+      </button>
+      <nav class="nav" id="primary-nav" aria-label="Primary navigation">
         <a href="./index.html">Docs</a>
         <a href="./core.html">Core</a>
         <a href="./hub.html">Hub</a>
@@ -43,7 +52,7 @@
       </nav>
     </header>
 
-    <main>
+    <main id="main-content" tabindex="-1">
       <div class="doc-hero">
         <p class="crumbs"><a href="../index.html">sorrel</a><span>/</span><a href="./index.html">docs</a><span>/</span><span>cli</span></p>
         <h1>The <code>sorrel</code> CLI</h1>

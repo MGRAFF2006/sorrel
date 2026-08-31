@@ -18,6 +18,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Added `SORREL_HUB_TOKEN` bearer authentication for CLI Hub requests and made
   authenticated lane submissions derive their author from the verified Hub
   session.
+- Improved public-site navigation on small screens and for keyboard users with
+  an accessible compact menu, skip links, focus indicators, and clearer theme
+  toggle labels.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
