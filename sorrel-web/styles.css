@@ -138,6 +138,34 @@ pre {
   color: var(--on-accent);
 }
 
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+main[tabindex="-1"]:focus {
+  outline: none;
+}
+
+.skip-link {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 100;
+  padding: 10px 14px;
+  color: var(--on-accent);
+  font-weight: 700;
+  text-decoration: none;
+  background: var(--accent);
+  border-radius: var(--radius);
+  transform: translateY(calc(-100% - 14px));
+  transition: transform 140ms ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
 /* ---------- Header ---------- */
 
 .site-header {
@@ -197,6 +225,7 @@ pre {
   background: var(--panel);
 }
 
+.nav-toggle,
 .theme-toggle {
   display: inline-grid;
   place-items: center;
@@ -212,14 +241,33 @@ pre {
   transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
 }
 
+.nav-toggle:hover,
 .theme-toggle:hover {
   color: var(--accent);
   border-color: var(--line-strong);
 }
 
+.nav-toggle {
+  display: none;
+  margin-left: auto;
+}
+
+.nav-toggle svg,
 .theme-toggle svg {
   width: 18px;
   height: 18px;
+}
+
+.nav-toggle .icon-close {
+  display: none;
+}
+
+.site-header.is-nav-open .nav-toggle .icon-menu {
+  display: none;
+}
+
+.site-header.is-nav-open .nav-toggle .icon-close {
+  display: block;
 }
 
 .theme-toggle .icon-sun {
@@ -1060,9 +1108,52 @@ p {
     gap: 10px;
   }
 
-  .nav {
+  .site-header:not(.has-nav-toggle) .nav {
     flex-wrap: wrap;
     gap: 4px;
+  }
+
+  .site-header.has-nav-toggle {
+    flex-wrap: nowrap;
+  }
+
+  .site-header.has-nav-toggle .nav-toggle {
+    display: inline-grid;
+    width: 44px;
+    height: 44px;
+  }
+
+  .site-header.has-nav-toggle .nav {
+    position: absolute;
+    top: calc(100% - 1px);
+    right: 18px;
+    left: 18px;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    align-items: stretch;
+    padding: 8px;
+    background: var(--panel);
+    border: var(--border-width) solid var(--line-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .site-header.has-nav-toggle.is-nav-open .nav {
+    display: flex;
+  }
+
+  .site-header.has-nav-toggle .nav a {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    padding: 10px 12px;
+  }
+
+  .site-header.has-nav-toggle .theme-toggle {
+    width: 44px;
+    height: 44px;
+    margin: 4px 0 0 auto;
   }
 
   .section {
