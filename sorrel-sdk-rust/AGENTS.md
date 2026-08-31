@@ -12,20 +12,21 @@ init/snapshot. Broader embedding surface still ahead (see root `ROADMAP.md`).
 
 - Rust, edition 2021, **rust-version 1.85+**, `unsafe_code = "forbid"`.
 - Re-export and wrap `sorrel-core` types rather than redefining them; depend on
-  the engine as a versioned git dependency.
+  the engine through the workspace path dependency.
 
 ## Common checks
 
 ```sh
-cargo build
-cargo test
-cargo clippy --all-targets
+# From the monorepo root
+cargo build -p sorrel-sdk
+cargo test -p sorrel-sdk
+cargo clippy -p sorrel-sdk --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
 ## Workflow
 
-- Keep changes scoped to this repository.
+- Keep changes scoped to this package and required workspace consumers.
 - Prefer small, reviewable commits.
 - Do not commit secrets.
 - Coordinate shared contracts through `sorrel-protocol`.

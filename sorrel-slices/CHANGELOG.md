@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.0-alpha.1 - 2026-07-30
+## [Unreleased]
+
+No changes yet.
+
+## [0.1.0-alpha.1] - 2026-08-31
 
 ### Capabilities
 
@@ -17,3 +21,6 @@
 - It does not yet project permissions or secret-schema references.
 - Dynamic, external, unsupported, and outside-root imports are reported but not
   resolved.
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
+[0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1

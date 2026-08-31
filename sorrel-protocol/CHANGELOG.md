@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.0-alpha.1 - 2026-07-30
+## [Unreleased]
+
+No changes yet.
+
+## [0.1.0-alpha.1] - 2026-08-31
 
 ### Capabilities
 
@@ -8,6 +12,8 @@
   version-control, policy, secret-reference, workflow, runner, and agent objects.
 - Provides the canonical policy-conformance manifest and metadata used by
   Sorrel consumers.
+- Supports `keyring`, `dotenv`, and environment SecretSpec provider identifiers
+  in secret declarations.
 - Documents workspace links, merge-conflict objects, and the push/pull sync
   transport.
 
@@ -18,3 +24,6 @@
   vendored conformance updates.
 - Hosted identity, shadow-mode sync, and automatic object migration are not
   defined or implemented by this package.
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
+[0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1

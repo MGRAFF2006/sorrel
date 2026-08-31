@@ -3,8 +3,9 @@
 ## What this module is
 
 The **public marketing/landing site** for Sorrel. Static HTML/CSS/JS only — no
-backend, no build step, no framework. This is **not** the Hub product UI (that is
-`sorrel-hub-web`) and not the Hub API (`sorrel-hub`).
+backend, no build step, no framework. This is **not** the shared Hub product UI
+(`sorrel-hub-ui`), its browser host (`sorrel-hub-web`), or the Hub API
+(`sorrel-hub`).
 
 ## Stack and conventions
 
@@ -28,6 +29,8 @@ eye.
 
 ## Workflow
 
-- Keep changes scoped to this repository.
+- Keep changes scoped to this package; edit canonical public Markdown under
+  root `docs/` (or root `CHANGELOG.md`) and run `npm run sync:docs` from the
+  monorepo root.
 - Prefer small, reviewable commits.
 - Do not commit secrets.

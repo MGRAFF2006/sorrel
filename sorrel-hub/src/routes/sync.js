@@ -1,6 +1,6 @@
 import { evaluateWithTrustedGrants } from '../core-policy.js';
 import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
-import { parseActingPrincipal } from '../policy-guard.js';
+import { resolveActingPrincipal } from '../policy-guard.js';
 import {
   isDescendant,
   missingObjects,
@@ -168,7 +168,7 @@ function getObject(response, context, repoId, objectIdValue) {
 
 async function advanceRef(request, response, context, repoId, refName) {
   const body = await readJsonBody(request);
-  const actingPrincipal = parseActingPrincipal(request);
+  const actingPrincipal = resolveActingPrincipal(request, context);
   const snapshot = normalizeObjectId(body.snapshot, 'snapshot');
   const expected = body.expected === null || body.expected === undefined
     ? undefined
@@ -231,7 +231,7 @@ async function advanceRef(request, response, context, repoId, refName) {
 }
 
 function assertObjectUploadPolicy(request, body, repoId, context) {
-  const actingPrincipal = parseActingPrincipal(request);
+  const actingPrincipal = resolveActingPrincipal(request, context);
   const grantRefs = requireGrantRefs(body);
 
   evaluateWithTrustedGrants(

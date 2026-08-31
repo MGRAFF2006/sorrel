@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,15 @@ import { test } from 'node:test';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const HUB_DIR = join(ROOT, '..', 'sorrel-hub');
+
+test('build shared UI host before live proxy checks', () => {
+  const result = spawnSync('npm', ['run', 'build'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: process.env,
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
 
 async function spawnReady(cwd, script, env = {}) {
   const child = spawn('node', [script], {
@@ -45,7 +54,11 @@ test('hub-web proxies live hub health and sync-repos', async () => {
 
       const page = await fetch(`${ui.url}/`).then((r) => r.text());
       assert.match(page, /Sorrel Hub/);
-      assert.match(page, /proposal-form/);
+      assert.match(page, /id="root"/);
+
+      const capabilities = await fetch(`${ui.url}/api/capabilities`).then((r) => r.json());
+      assert.equal(capabilities.data.modules.core, true);
+      assert.ok(capabilities.data.auth.mode);
 
       const sync = await fetch(`${ui.url}/api/admin/sync-repos`).then((r) => r.json());
       assert.ok(Array.isArray(sync.repos));

@@ -136,7 +136,7 @@ No values are persisted by this prototype.
 Install dependencies once:
 
 ```sh
-npm install
+npm ci
 ```
 
 Validate the schema and bundled YAML examples:

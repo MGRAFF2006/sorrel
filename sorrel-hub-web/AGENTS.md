@@ -2,44 +2,36 @@
 
 ## What this module is
 
-The **web interface** (browser frontend) for Sorrel Hub. It is a thin client over
-the `sorrel-hub` HTTP API. It is **not** the API server and **not** the public
-marketing site.
+Thin **browser host** for the shared `sorrel-hub-ui` Solid product UI. It is
+**not** the API server and **not** the public marketing site.
 
-- `sorrel-hub-web` (this repo): Hub UI.
-- `sorrel-hub`: Hub API server.
-- `sorrel-web`: public marketing landing page.
+- `sorrel-hub-ui`: shared Solid UI (web + future Tauri shells)
+- `sorrel-hub-web` (this package): Vite browser host + static/proxy server
+- `sorrel-hub`: Hub API server
+- `sorrel-web`: public marketing landing page
 
 ## Stack and conventions
 
-- Framework-free, build-step-free: plain HTML, CSS, and ES modules in `public/`.
-- A tiny dependency-free Node server in `server/dev-server.mjs` serves the
-  static assets and proxies `/api/*` to the Hub API (`HUB_API_URL`). Same
-  process is used for local development and container deploys.
-- Node >= 22. No runtime dependencies; avoid adding frameworks or bundlers
-  unless explicitly requested.
+- Vite + Solid; mounts `mountHubApp(..., { platformKind: 'web' })`
+- Dev: `npm run dev` (Vite proxies `/api` → `HUB_API_URL`)
+- Prod: `npm run build` then `npm start` serves `dist/` + API proxy
+- Node >= 22
 
 ## Core boundary (do not violate)
 
-- This UI holds **no authoritative state** and defines **no permissions**.
-  Identity, policy, grants, and decisions are owned by Sorrel Core and reached
-  only through the Hub API. Never reimplement authorization logic here.
+- This host holds **no authoritative state** and defines **no permissions**.
+  Product UI lives in `sorrel-hub-ui`; identity/policy stay Core via Hub API.
 - Treat secrets as opaque references; never display or persist secret values.
 
 ## Common checks
 
 ```sh
-npm test          # static assets + live Hub proxy write path
-npm start         # serves the UI and proxies to the Hub API
+npm ci
+npm run check     # host wiring + live Hub proxy write path + production build
+npm run dev       # Vite on :5180
 ```
-
-The UI creates projects, proposals, and review comments against a live Hub.
-Sync remains read-only in the browser.
 
 ## Workflow
 
-- Keep changes scoped to this repository.
-- Prefer small, reviewable commits.
+- Prefer UI changes in `sorrel-hub-ui`, not here.
 - Do not commit secrets.
-- Coordinate shared contracts (object shapes, endpoints) through `sorrel-protocol`
-  and the `sorrel-hub` API, not by inventing new client-only models.

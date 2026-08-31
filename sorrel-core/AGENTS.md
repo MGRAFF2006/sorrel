@@ -18,8 +18,8 @@ policy surface now.
 
 - Rust, edition 2021, **rust-version 1.85+** (edition2024-era toolchain).
 - `unsafe_code = "forbid"`.
-- Keep the public API additive; many crates depend on it (the CLI depends on it
-  as a git dependency).
+- Keep the public API additive; several workspace crates depend on it through
+  path dependencies.
 
 ## Core boundary
 
@@ -31,11 +31,12 @@ policy surface now.
 ## Common checks
 
 ```sh
-cargo build
-cargo test
-cargo clippy --all-targets
+# From the monorepo root
+cargo build -p sorrel-core
+cargo test -p sorrel-core
+cargo clippy -p sorrel-core --all-targets -- -D warnings
 cargo fmt --all -- --check
-cargo bench --bench engine
+cargo bench -p sorrel-core --bench engine
 ```
 
 `benches/engine.rs` is a `harness = false` (no criterion) micro-benchmark for
@@ -54,7 +55,7 @@ Do not modify `tests/conformance/`, `tests/policy_conformance.rs`, or
 
 ## Workflow
 
-- Keep changes scoped to this repository.
+- Keep changes scoped to this package and required workspace consumers.
 - Prefer small, reviewable commits.
 - Do not commit secrets.
 - Coordinate shared contracts through `sorrel-protocol`.

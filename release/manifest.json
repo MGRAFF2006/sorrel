@@ -1,5 +1,6 @@
 {
   "release": "v0.1.0-alpha.1",
+  "releaseDate": "2026-08-31",
   "protocol": "sorrel.protocol.v0",
   "scope": "local-first developer preview",
   "layout": "monorepo",
@@ -8,6 +9,7 @@
     "sorrel-cli": true,
     "sorrel-core": true,
     "sorrel-hub": true,
+    "sorrel-hub-ui": true,
     "sorrel-hub-web": true,
     "sorrel-protocol": true,
     "sorrel-runners": true,

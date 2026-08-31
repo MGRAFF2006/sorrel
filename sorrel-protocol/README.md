@@ -106,6 +106,7 @@ Run schema and semantic tests:
 ```bash
 npm run validate
 npm test
+npm run check  # both of the above
 ```
 
 ## Headless Core permission spine
@@ -182,7 +183,7 @@ or other storage-specific indexes behind these protocol fields.
 Install dependencies and validate the schema bundle plus examples:
 
 ```bash
-npm install
+npm ci
 npm run validate
 ```
 

@@ -5,6 +5,28 @@ const ACTING_PRINCIPAL_HEADER = 'x-sorrel-acting-principal';
 
 const PRIVILEGED_ADMIN_COLLECTIONS = new Set(['repositories', 'policies']);
 
+/**
+ * Prefer AuthAdapter session principal; fall back to the acting-principal header
+ * (dev / CLI compatibility). Authorization still happens in Core via grants.
+ *
+ * @param {import('node:http').IncomingMessage} request
+ * @param {{ session?: { principal?: { type: string, id: string } } | null }} [context]
+ * @returns {{ type: string, id: string }}
+ */
+export function resolveActingPrincipal(request, context = {}) {
+  const fromSession = context.session?.principal;
+  if (
+    fromSession &&
+    typeof fromSession === 'object' &&
+    typeof fromSession.type === 'string' &&
+    typeof fromSession.id === 'string'
+  ) {
+    return fromSession;
+  }
+
+  return parseActingPrincipal(request);
+}
+
 export function parseActingPrincipal(request) {
   const rawHeader = request.headers[ACTING_PRINCIPAL_HEADER];
   const rawValue = Array.isArray(rawHeader) ? rawHeader[0] : rawHeader;
@@ -29,7 +51,7 @@ export function assertPrivilegedAdminAccess(request, body, collectionName, conte
     return undefined;
   }
 
-  const actingPrincipal = parseActingPrincipal(request);
+  const actingPrincipal = resolveActingPrincipal(request, context);
   const grantRefs = body.grantRefs ?? [];
   const resource = resolveAdminResource(collectionName, body);
   const policyContext = {

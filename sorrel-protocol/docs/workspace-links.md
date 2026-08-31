@@ -3,7 +3,8 @@
 A Sorrel **Workspace** (`.sorrel/manifest.json`) describes a local repository.
 Optional **`componentLinks`** declare how this workspace relates to other
 components — the protocol counterpart to package path members and pinned
-dependencies.
+dependencies. Sorrel's own packages live directly in one monorepo and do not
+require component links for checkout.
 
 ## Roles
 
@@ -58,7 +59,7 @@ See [`examples/workspace.json`](../examples/workspace.json).
 | --- | --- |
 | Protocol schema | `Workspace` + `ComponentLink` in `sorrel-object.schema.json` |
 | `sorrel-cli` `manifest.json` | Writes core fields today; `componentLinks` optional, not yet emitted |
-| Monorepo packages | Live in-tree; see root `docs/AGENT_WORKSPACE.md` |
+| Sorrel monorepo | Packages are normal directories with path/workspace dependencies; component links are unnecessary |
 | Hub / sync | Unchanged; sync transport moves objects, not component link metadata |
 
 Tools **SHOULD** reject `member` links with `tracking.mode` other than `branch`, and

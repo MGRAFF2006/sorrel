@@ -3,18 +3,34 @@
   "version": "0.1.0-alpha.1",
   "private": true,
   "type": "module",
-  "description": "Sorrel Hub web interface: the browser frontend for the sorrel-hub collaboration API.",
+  "description": "Thin browser host for the shared sorrel-hub-ui Solid product UI.",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MGRAFF2006/sorrel-hub-web.git"
+    "url": "git+https://github.com/MGRAFF2006/sorrel.git",
+    "directory": "sorrel-hub-web"
   },
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "start": "node server/dev-server.mjs",
+    "check": "npm test && npm run build",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/static-server.mjs",
     "test": "node --test"
+  },
+  "dependencies": {
+    "@solidjs/router": "^0.15.3",
+    "convex": "^1.25.0",
+    "solid-js": "^1.9.5",
+    "sorrel-hub-ui": "file:../sorrel-hub-ui"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2",
+    "vite": "^6.2.2",
+    "vite-plugin-solid": "^2.11.6"
   },
   "keywords": [
     "sorrel",
@@ -22,5 +38,8 @@
     "web",
     "frontend",
     "collaboration"
-  ]
+  ],
+  "allowScripts": {
+    "esbuild": true
+  }
 }

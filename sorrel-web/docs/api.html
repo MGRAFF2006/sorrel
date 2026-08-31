@@ -57,13 +57,12 @@
           <h2>Engine (Rust)</h2>
           <p>
             The engine crate is documented inline (<code>///</code> and <code>//!</code>
-            comments on every public module, type, and function). The deployed site serves the
-            generated reference here:
+            comments. A local preview can serve the generated reference here after it is built:
           </p>
           <div class="doc-grid">
-            <a class="doc-card" href="../api/sorrel-core/sorrel_core/index.html">
-              <p class="eyebrow">rustdoc</p>
-              <h3>sorrel-core</h3>
+            <a class="doc-card" href="https://github.com/MGRAFF2006/sorrel/tree/main/sorrel-core/src">
+              <p class="eyebrow">source</p>
+              <h3>sorrel-core API</h3>
               <p>Object store, snapshots, changes, history, merge3, merge, conflicts, lanes, policy, authority, transport.</p>
             </a>
           </div>
@@ -72,8 +71,9 @@
               Building this page's target locally: run <code>scripts/build-api-docs.sh</code>
               from a checkout that has <code>sorrel-core</code> as a sibling directory (the
               root monorepo layout). It runs <code>cargo doc --no-deps</code> and copies the
-              output into <code>api/</code>, which is gitignored — generated content never
-              gets committed, it is built fresh by CI on every deploy.
+              output into <code>api/</code>, which is gitignored. Static Cloudflare deploys do
+              not currently build or publish this generated directory, so use source docs or
+              build it locally when the link is absent.
             </p>
           </div>
 
@@ -95,7 +95,7 @@ cargo doc --no-deps --open</code></pre>
             source and README/API sections per repo. A generated HTML reference for them
             (via TypeDoc or JSDoc) is planned once the SDK surface stabilizes — the protocol
             schemas themselves are already the machine-readable contract and live in
-            <a href="https://github.com/MGRAFF2006/sorrel-protocol">sorrel-protocol</a>.
+            <a href="https://github.com/MGRAFF2006/sorrel/tree/main/sorrel-protocol">sorrel-protocol</a>.
           </p>
 
           <div class="doc-footer-nav">

@@ -2,22 +2,25 @@
 
 Notable changes to the Sorrel Hub web companion are documented here.
 
-## [0.1.0-alpha.1] - 2026-07-30
+## [Unreleased]
+
+No changes yet.
+
+## [0.1.0-alpha.1] - 2026-08-31
 
 ### Added
 
-- Framework-free Projects, Reviews, Administration, and Sync views over the
-  Sorrel Hub API.
-- Project, proposal, review-comment, and workflow-status mutation flows.
-- Acting-principal headers on every mutation, consistent with the Sorrel
-  JavaScript SDK.
-- Development server and `/api/*` proxy for local and container use.
+- A thin Vite/Solid browser host for the shared `sorrel-hub-ui` package.
+- Development and production static servers with `/api/*` proxying to Hub.
+- Forwarding for development acting principals and bearer authorization.
+- Locked multi-stage container builds from the monorepo root context.
 
 ### Alpha limitations
 
 - This is a development-only companion to a compatible `sorrel-hub`; it has no
-  login, SSO, or production authentication.
-- Mutations use the development principal `user:local`; the acting-principal
-  header is not proof of identity.
-- Sync is read-only in the browser.
-- Review UX is intentionally minimal, with no merge queue or conflict editor.
+  complete login/SSO flow or production authentication.
+- Product behavior belongs to `sorrel-hub-ui`; this package intentionally owns
+  only browser mounting, build configuration, static serving, and API proxying.
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
+[0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1

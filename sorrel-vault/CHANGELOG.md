@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.0-alpha.1 - 2026-07-30
+## [Unreleased]
+
+No changes yet.
+
+## [0.1.0-alpha.1] - 2026-08-31
 
 ### Capabilities
 
@@ -9,6 +13,8 @@
   including import, listing, grant checks, and redaction.
 - Requires a trusted Core-style policy decision before resolving a secret
   handle.
+- Accepts `keyring`, `dotenv`, and environment SecretSpec provider identifiers
+  for CLI interoperability.
 
 ### Limitations
 
@@ -16,3 +22,6 @@
 - No cloud secret managers or hosted provider integrations are implemented.
 - Secret values remain in memory, and the package intentionally persists only
   handles, bindings, redaction metadata, and audit metadata.
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
+[0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1

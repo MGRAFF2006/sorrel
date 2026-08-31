@@ -1,19 +1,21 @@
 # Sorrel Roadmap
 
-Last updated: 2026-08-10
+Last updated: 2026-08-31
 
-Forward plan for the Sorrel monorepo. Live status:
-[`docs/STATUS.md`](docs/STATUS.md). Architecture:
-[`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](AGENT_NATIVE_VERSION_CONTROL_REPORT.md).
+Forward-only plan for the Sorrel monorepo. Shipped progress belongs in
+[GitHub Releases](https://github.com/MGRAFF2006/sorrel/releases) and
+[`CHANGELOG.md`](CHANGELOG.md); current behavior is in
+[`docs/STATUS.md`](docs/STATUS.md); current architecture is in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Sequenced plan
 
-### 0. `v0.1.0-alpha.1` stabilization — IN PROGRESS
+### 0. `v0.1.0-alpha.1` stabilization — DONE
 
-Freeze one coordinated release, make localhost/dev-only security boundaries
-explicit, keep CI a truthful gate, and record correctness/performance baselines.
-**Monorepo absorption is done** (PR #49): one clone, path deps, green CI on
-`main`.
+Released the first coordinated module set with aligned versions, explicit
+localhost/dev-only security boundaries, release/legal metadata, and a truthful
+repository-wide CI gate. Monorepo absorption, SecretSpec-backed CLI injection,
+devenv-aware execution, and structured local run logs are included.
 
 ### 1. Hub persistence — FS-backed object/ref store (`sorrel-hub`) — DONE
 
@@ -38,38 +40,32 @@ for the normal Sorrel merge flow, then exported on the next sync.
 Per-lane heads, `lane list` / `switch`, merge integration, **`lane submit`** →
 Hub proposal via `/collaboration/lane-submit`. Remaining: stacked changes UX.
 
-### 5. Hub collaboration surface (`sorrel-hub` + `sorrel-hub-web`) — MOSTLY DONE
+### 5. Hub collaboration surface (`sorrel-hub` + `sorrel-hub-ui` + `sorrel-hub-web`) — IN PROGRESS
 
-FS metadata + Sync view + proposal/review write path (GET/PATCH, lane-submit,
-hub-web forms). Remaining: production auth and richer review UX.
+FS metadata, Sync view, and the proposal/review write path are shipped. Shared
+Solid UI (`sorrel-hub-ui`) + thin web host, `GET /capabilities`, AuthAdapter
+(WorkOS/OIDC JWKS / dev), `GET /session`, and Convex metadata spike
+(`proposals.countOpen`) are the Phase-1 foundation. Remaining: WorkOS sealed
+sessions + IdP login UI, full Convex metadata migration, virtualized diffs,
+Tauri shells.
 
-### 6. Secrets + SecretSpec → devenv-backed runs → log UX — ACTIVE
+### 6. Secrets + SecretSpec → devenv-backed runs → log UX — MOSTLY DONE
 
-Consume upstream SecretSpec and devenv (**do not fork**). Sorrel keeps
-`SecretRef` + Core grants as source of truth; SecretSpec is the
-provider/resolver. Execution prefers devenv when present, with
-`LocalProcessRunner` as a compat fallback. Structured run logs land as a
-product surface (Blacksmith-grade detail), then an optional Hub secret backend.
-
-Suggested sequencing:
-
-1. SecretSpec resolve + `sorrel secret *` + inject into local workflow
-2. devenv backend for `workflow run` / `env ensure` + local fallback
-3. Rich run logs under `.sorrel/runs/<id>/`
-4. Optional Hub-hosted / BYO secret backend (same SecretRef + grant contracts)
-
-Intentional follow-up (**DEBT-1**): do **not** fully unify `cli_policy` /
-`cli_runner` until secret injection ships.
+The alpha ships upstream SecretSpec resolution/injection under Core grants,
+devenv detection with local fallback, and structured redacted logs under
+`.sorrel/runs/<id>/`. Remaining work: fuller workflow-to-devenv task mapping,
+log following and Hub streaming, an optional hosted/BYO provider binding, and
+then removal of the intentional `cli_policy` / `cli_runner` duplication.
 
 ### 7. Stable embedding surface (`sorrel-core`)
 
 Versioned library API + C ABI / N-API / WASM / IPC daemon — the contract for
 SDKs and apps.
 
-### 8. Agent control plane + SDKs
+### 8. Mature the agent control plane + SDKs
 
-`sorrel-agents`, `sorrel-sdk-js`, `sorrel-sdk-rust` after lanes and embedding
-settle.
+Minimal `sorrel-agents`, `sorrel-sdk-js`, and `sorrel-sdk-rust` surfaces shipped
+in the alpha. Stabilize and extend them after lanes and embedding settle.
 
 ### 9. Apps — desktop then mobile (last)
 

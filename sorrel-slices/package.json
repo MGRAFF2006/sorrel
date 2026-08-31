@@ -7,7 +7,8 @@
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MGRAFF2006/sorrel-slices.git"
+    "url": "git+https://github.com/MGRAFF2006/sorrel.git",
+    "directory": "sorrel-slices"
   },
   "bin": {
     "sorrel-slices": "./src/index.js"
@@ -21,6 +22,7 @@
     "README.md"
   ],
   "scripts": {
+    "check": "npm run lint && npm test",
     "test": "node --test test/*.test.js",
     "lint": "node --check src/index.js && node --check src/slice.js && node --check test/slice.test.js"
   },

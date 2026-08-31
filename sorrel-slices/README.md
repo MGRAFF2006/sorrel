@@ -24,9 +24,8 @@ project permissions, or call external package registries.
 ## Install and test
 
 ```bash
-npm install
-npm test
-npm run lint
+npm ci
+npm run check
 ```
 
 The package has no runtime dependencies.

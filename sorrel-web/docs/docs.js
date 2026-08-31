@@ -1,7 +1,14 @@
 // Minimal Markdown renderer for Sorrel docs (no dependencies).
 // Supports headings, paragraphs, lists, tables, fenced code, links, inline code, bold.
 
-const ALLOWED = new Set(["STATUS.md", "GETTING_STARTED.md"]);
+const ALLOWED = new Set([
+  "STATUS.md",
+  "GETTING_STARTED.md",
+  "ARCHITECTURE.md",
+  "DEVELOPMENT.md",
+  "RELEASE.md",
+  "CHANGELOG.md",
+]);
 
 const contentEl = document.getElementById("docs-content");
 const navLinks = document.querySelectorAll(".docs-nav a[data-doc]");
@@ -14,16 +21,30 @@ function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
-function inlineFormat(text) {
+function inlineFormat(text, references = new Map()) {
   let out = escapeHtml(text);
   out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  out = out.replace(/\[([^\]]+)\]/g, (match, label) => {
+    const href = references.get(label.toLowerCase());
+    return href ? `<a href="${escapeHtml(href)}">${label}</a>` : match;
+  });
   out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
   out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   return out;
 }
 
 function renderMarkdown(src) {
-  const lines = src.replace(/\r\n/g, "\n").split("\n");
+  const references = new Map();
+  const withoutComments = src.replace(/<!--[\s\S]*?-->/g, "");
+  const lines = withoutComments
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter((line) => {
+      const definition = /^\[([^\]]+)\]:\s+(\S+)\s*$/.exec(line);
+      if (!definition) return true;
+      references.set(definition[1].toLowerCase(), definition[2]);
+      return false;
+    });
   const html = [];
   let i = 0;
 
@@ -59,11 +80,11 @@ function renderMarkdown(src) {
       const header = parseRow(rows[0]);
       const body = rows.slice(2).map(parseRow);
       html.push("<table><thead><tr>");
-      header.forEach((cell) => html.push(`<th>${inlineFormat(cell)}</th>`));
+      header.forEach((cell) => html.push(`<th>${inlineFormat(cell, references)}</th>`));
       html.push("</tr></thead><tbody>");
       body.forEach((row) => {
         html.push("<tr>");
-        row.forEach((cell) => html.push(`<td>${inlineFormat(cell)}</td>`));
+        row.forEach((cell) => html.push(`<td>${inlineFormat(cell, references)}</td>`));
         html.push("</tr>");
       });
       html.push("</tbody></table>");
@@ -73,7 +94,7 @@ function renderMarkdown(src) {
     const heading = /^(#{1,3})\s+(.+)$/.exec(line);
     if (heading) {
       const level = heading[1].length;
-      html.push(`<h${level}>${inlineFormat(heading[2])}</h${level}>`);
+      html.push(`<h${level}>${inlineFormat(heading[2], references)}</h${level}>`);
       i += 1;
       continue;
     }
@@ -81,8 +102,13 @@ function renderMarkdown(src) {
     if (/^[-*]\s+/.test(line)) {
       html.push("<ul>");
       while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
-        html.push(`<li>${inlineFormat(lines[i].replace(/^[-*]\s+/, ""))}</li>`);
+        const item = [lines[i].replace(/^[-*]\s+/, "")];
         i += 1;
+        while (i < lines.length && lines[i].trim() && !/^[-*]\s+/.test(lines[i])) {
+          item.push(lines[i].trim());
+          i += 1;
+        }
+        html.push(`<li>${inlineFormat(item.join(" "), references)}</li>`);
       }
       html.push("</ul>");
       continue;
@@ -91,8 +117,13 @@ function renderMarkdown(src) {
     if (/^\d+\.\s+/.test(line)) {
       html.push("<ol>");
       while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
-        html.push(`<li>${inlineFormat(lines[i].replace(/^\d+\.\s+/, ""))}</li>`);
+        const item = [lines[i].replace(/^\d+\.\s+/, "")];
         i += 1;
+        while (i < lines.length && lines[i].trim() && !/^\d+\.\s+/.test(lines[i])) {
+          item.push(lines[i].trim());
+          i += 1;
+        }
+        html.push(`<li>${inlineFormat(item.join(" "), references)}</li>`);
       }
       html.push("</ol>");
       continue;
@@ -117,7 +148,7 @@ function renderMarkdown(src) {
       para.push(lines[i]);
       i += 1;
     }
-    html.push(`<p>${inlineFormat(para.join(" "))}</p>`);
+    html.push(`<p>${inlineFormat(para.join(" "), references)}</p>`);
   }
 
   return html.join("\n");

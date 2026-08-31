@@ -38,6 +38,7 @@
         <a href="#primitives">Primitives</a>
         <a href="#roadmap">Roadmap</a>
         <a href="./docs/index.html">Docs</a>
+        <a href="https://github.com/MGRAFF2006/sorrel/releases">Releases</a>
         <a href="https://github.com/MGRAFF2006/sorrel">GitHub</a>
         <button class="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle theme">
           <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -54,7 +55,7 @@
     <main id="top">
       <section class="hero section">
         <div class="hero-copy">
-          <p class="eyebrow">v0.1.0 alpha · building in public</p>
+          <p class="eyebrow">v0.1.0-alpha.1 · developer preview</p>
           <h1>Version control built for <span class="accent">humans and AI agents</span>.</h1>
           <p class="hero-lede">
             Sorrel is an open, agent-native version-control project for parallel development,
@@ -234,15 +235,15 @@
           </article>
           <article>
             <h3>Vault</h3>
-            <p>Secrets and environment management with refs, grants, local backends, and redaction.</p>
+            <p>SecretRef policy plus SecretSpec-backed CLI resolution/injection, local providers, and redacted run logs.</p>
           </article>
           <article>
             <h3>Git bridge</h3>
             <p>Compatibility for import, export, mirroring, and migration so teams can adopt gradually.</p>
           </article>
           <article>
-            <h3>Building in public</h3>
-            <p>Progress is tracked in the open as each module moves from skeleton to integrated system.</p>
+            <h3>Release-driven progress</h3>
+            <p>GitHub Releases and package changelogs record what shipped; status and roadmap stay focused on the present and future.</p>
           </article>
         </div>
       </section>
@@ -316,7 +317,7 @@
             <span>Later</span>
             <div>
               <h3>Embedding surface, agents, SDKs</h3>
-              <p>Stable Core library API, then agent control plane and language SDKs.</p>
+              <p>Stable Core library API, then mature the minimal agent control plane and language SDKs shipped in this alpha.</p>
             </div>
           </li>
         </ol>
@@ -338,6 +339,7 @@
                 <li>Local init / change / diff / log</li>
                 <li>Lanes, merge continue, push &amp; pull</li>
                 <li>Git import, export &amp; colocated sync</li>
+                <li>SecretSpec injection, devenv fallback &amp; run logs</li>
                 <li>Hub API + FS persistence</li>
                 <li>Hub proposal/review write UI + this site</li>
               </ul>
@@ -347,19 +349,19 @@
               <ul>
                 <li>Production Hub authentication</li>
                 <li>Richer review UX and merge queue</li>
+                <li>Hosted secret backend and run streaming</li>
                 <li>Stable embedding surface</li>
                 <li>Desktop and mobile apps</li>
               </ul>
             </div>
           </div>
           <div class="link-row">
+            <a href="https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1">v0.1.0-alpha.1 release</a>
+            <a href="./docs/guides.html?doc=CHANGELOG.md">Release notes</a>
             <a href="./docs/guides.html?doc=STATUS.md">Full status doc</a>
             <a href="./docs/guides.html?doc=GETTING_STARTED.md">How to run it</a>
             <a href="./docs/index.html">Browse the documentation</a>
-            <a href="./docs/api.html">Generated API reference</a>
-            <a href="https://github.com/MGRAFF2006/sorrel/blob/main/SORREL_PROGRESS.md">
-              Progress dashboard
-            </a>
+            <a href="./docs/api.html">API reference</a>
           </div>
         </div>
       </section>
@@ -367,10 +369,11 @@
       <section class="section cta">
         <div>
           <p class="eyebrow">Early interest</p>
-          <h2>Follow the build, inspect the architecture, and help shape the workflow.</h2>
+          <h2>Try the release, inspect the architecture, and help shape the workflow.</h2>
         </div>
         <div class="cta-actions">
           <a class="button primary" href="https://github.com/MGRAFF2006/sorrel">Star or watch on GitHub</a>
+          <a class="button secondary" href="https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1">Read the release</a>
           <a class="button secondary" href="./docs/guides.html?doc=GETTING_STARTED.md">
             Read getting started
           </a>

@@ -2,7 +2,11 @@
 
 All notable changes to `sorrel-core` are documented in this file.
 
-## [0.1.0-alpha.1] - 2026-07-30
+## [Unreleased]
+
+No changes yet.
+
+## [0.1.0-alpha.1] - 2026-08-31
 
 Initial alpha release of the Sorrel version-control engine.
 
@@ -39,3 +43,6 @@ Initial alpha release of the Sorrel version-control engine.
 
 See [the v0 compatibility policy](docs/COMPATIBILITY.md) for upgrade and
 object-store expectations.
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
+[0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1

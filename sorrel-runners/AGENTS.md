@@ -26,9 +26,10 @@ Portable workflow execution for Sorrel: the `JobBundle` model, a
 ## Common checks
 
 ```sh
-cargo build
-cargo test
-cargo clippy --all-targets
+# From the monorepo root
+cargo build -p sorrel-runners
+cargo test -p sorrel-runners
+cargo clippy -p sorrel-runners --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
@@ -37,7 +38,7 @@ Do not modify `tests/conformance/`, `tests/policy_conformance.rs`, or
 
 ## Workflow
 
-- Keep changes scoped to this repository.
+- Keep changes scoped to this package and required workspace consumers.
 - Prefer small, reviewable commits.
 - Do not commit secrets.
 - Coordinate shared contracts through `sorrel-protocol`.
