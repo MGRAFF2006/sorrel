@@ -53,6 +53,8 @@ First coordinated, local-first developer preview of the Sorrel monorepo.
 - A public static website and developer documentation, a one-command local
   dashboard, Docker Compose previews, deterministic workspace setup, focused
   module checks, documentation drift guards, and a no-mock full-stack E2E.
+- A Node 24-based GitHub Actions toolchain using the current checkout and
+  setup-node action majors.
 - Nord-themed brand marks, a wordmark, and a social banner under `assets/`,
   with the root README refreshed around the release and documentation paths.
 
