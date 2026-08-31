@@ -11,7 +11,10 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-No coordinated changes yet.
+### Changed
+
+- Updated the public website and documentation pages to use the current Sorrel
+  leaf logo for their header branding and favicon.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 

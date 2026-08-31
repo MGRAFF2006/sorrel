@@ -24,6 +24,16 @@ test('landing page exposes its primary navigation and theme controls', async () 
   assert.match(html, /href="\.\/docs\/index\.html"/);
 });
 
+test('every page uses the current Sorrel logo for its brand and favicon', async () => {
+  const htmlFiles = (await filesUnder(ROOT)).filter((path) => path.endsWith('.html'));
+
+  for (const htmlFile of htmlFiles) {
+    const html = await readFile(htmlFile, 'utf8');
+    assert.match(html, /<link rel="icon" href="(?:\.\.\/|\.\/)assets\/logo\.svg" type="image\/svg\+xml">/);
+    assert.match(html, /<img class="brand-logo" src="(?:\.\.\/|\.\/)assets\/logo\.svg" alt="" aria-hidden="true">/);
+  }
+});
+
 test('relative HTML assets and page links resolve to files', async () => {
   const htmlFiles = (await filesUnder(ROOT)).filter((path) => path.endsWith('.html'));
   assert.ok(htmlFiles.length > 1, 'expected landing and documentation HTML');

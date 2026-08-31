@@ -4,7 +4,10 @@ Notable changes to the Sorrel public website are documented here.
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+
+- Replaced the placeholder letter mark across the landing and documentation
+  pages with the current Sorrel leaf logo, also used as the site favicon.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
