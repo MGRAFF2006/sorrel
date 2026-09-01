@@ -1,6 +1,6 @@
 {
   "name": "@sorrel/sdk-js",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "private": false,
   "description": "JavaScript client for the Sorrel Hub HTTP API.",
   "type": "module",

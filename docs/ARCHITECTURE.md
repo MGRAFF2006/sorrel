@@ -1,8 +1,8 @@
 # Sorrel architecture
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
-This document describes the architecture that exists in `v0.1.0-alpha.1`.
+This document describes the architecture that exists in `v0.1.0-alpha.2`.
 Long-term product research lives in
 [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](../AGENT_NATIVE_VERSION_CONTROL_REPORT.md);
 it is design background, not a statement that every described feature ships.

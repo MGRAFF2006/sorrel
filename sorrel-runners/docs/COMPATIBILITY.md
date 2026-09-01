@@ -1,7 +1,7 @@
 # Workflow-file compatibility
 
 This document describes the `sorrel.workflow.yml` contract supported by
-`sorrel-runners` `0.1.0-alpha.1`. The format and its Rust data model are alpha
+`sorrel-runners` `0.1.0-alpha.2`. The format and its Rust data model are alpha
 interfaces and may change incompatibly before a stable release. Pin the exact
 prerelease version when relying on them.
 

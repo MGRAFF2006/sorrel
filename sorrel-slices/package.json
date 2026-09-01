@@ -1,6 +1,6 @@
 {
   "name": "@sorrel/slices",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "private": false,
   "description": "Prototype dependency-closure and manifest generation for Sorrel slices.",
   "type": "module",

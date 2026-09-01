@@ -16,10 +16,11 @@ wires every active module together. Still ahead: production auth, richer
 agents/SDKs, and apps.
 
 The latest coordinated release is
-**[`v0.1.0-alpha.1`](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1)**,
-explicitly scoped as a local-first developer preview. The Hub is not safe for
-untrusted network exposure. See the root [`CHANGELOG.md`](../CHANGELOG.md) for
-the complete shipped record.
+**[`v0.1.0-alpha.2`](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2)**,
+an installable developer preview with downloadable CLI artifacts and hostable
+server images. The Hub is not safe for untrusted network exposure without a
+production AuthAdapter and network controls. See the root
+[`CHANGELOG.md`](../CHANGELOG.md) for the complete shipped record.
 
 ## Working
 

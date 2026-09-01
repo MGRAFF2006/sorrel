@@ -2,7 +2,7 @@
 
 Public landing site for Sorrel. Static HTML/CSS/JS (Nord theme). **Production
 deploy is Cloudflare Pages** — publish this package directory with no build step.
-The published status describes the coordinated `v0.1.0-alpha.1` scope; the Hub
+The published status describes the coordinated `v0.1.0-alpha.2` scope; the Hub
 and Hub UI it documents remain development-only and lack production auth.
 
 ## Files

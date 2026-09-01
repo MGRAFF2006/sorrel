@@ -1,6 +1,6 @@
 {
   "name": "sorrel-hub-web",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "private": true,
   "type": "module",
   "description": "Thin browser host for the shared sorrel-hub-ui Solid product UI.",

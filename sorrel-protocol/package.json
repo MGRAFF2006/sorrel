@@ -1,6 +1,6 @@
 {
   "name": "@sorrel/protocol",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "private": false,
   "description": "Versioned JSON Schema specifications and examples for Sorrel protocol objects.",
   "type": "module",
