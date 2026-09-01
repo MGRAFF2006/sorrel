@@ -32,6 +32,13 @@ Project progress is recorded in [GitHub Releases](https://github.com/MGRAFF2006/
 and [`CHANGELOG.md`](CHANGELOG.md). `ROADMAP.md` is future work only. Do not add
 parallel agent task packs, progress dashboards, or feature-audit ledgers.
 
+Changelog entries are intentionally curated, not generated from commit titles.
+For every user-visible or operator-visible change, add a concise entry under
+`Unreleased` in the root changelog and every affected package changelog. If a
+change genuinely needs no changelog entry, explain why in the pull request.
+After changing the root changelog, run `npm run sync:docs` and commit its public
+mirror.
+
 ## Rust toolchain
 
 Rust modules require stable Rust 1.85+ with clippy and rustfmt. If needed:
@@ -85,3 +92,10 @@ requirement for CI.
 Preserve a dirty worktree: existing changes may belong to another human or
 agent. Inspect `git status` and relevant diffs before editing, avoid unrelated
 formatting, and never discard changes you did not create.
+
+Use the repository pull-request template and keep its impact checklist intact.
+PR descriptions must explain why the change is needed, summarize user-visible
+and compatibility effects, and list the checks actually run. Issues should use
+the closest matching issue form and include reproducible evidence or concrete
+acceptance criteria. Never include secrets in issue or PR text, screenshots,
+logs, or fixtures.
