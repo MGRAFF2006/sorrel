@@ -9,50 +9,63 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+No changes yet.
+
+## [0.1.0-alpha.2] - 2026-09-01
+
+Second developer preview focused on installability, a more complete Hub
+interface, and repeatable releases. It adds downloadable CLI artifacts and
+hostable server images while preserving Sorrel's prerelease boundaries.
+
+### Added
+
+- Add automatic coordinated changelog preparation ([#73](https://github.com/MGRAFF2006/sorrel/pull/73)).
+- Publish hostable Sorrel server releases ([#75](https://github.com/MGRAFF2006/sorrel/pull/75)).
+
 ### Changed
 
-- Reworked the Hub interface around a familiar developer-platform shell with
-  review-first project overviews, clearer onboarding, human-readable
-  deployment status, an explicit local-compute product boundary, public-site
-  visual language, and focused modal project creation.
-- Added the public Sorrel favicon to Hub, labeled the current deployment as
-  local development, and refined Reviews and Repositories toward product
-  language instead of transport and administration terminology.
-- Made the redesigned Hub shell, navigation, status controls, master-detail
-  views, tables, forms, and dialogs responsive across tablet and phone widths.
-- Overhauled the public documentation with a consistent editorial reading
-  system, clearer navigation, improved code and table treatments, responsive
-  guide layouts, browser-history-aware guide switching, syntax-highlighted
-  code with block and per-line copy actions, and generated page sidebars.
-- Overhauled the public landing page with a new editorial layout, interactive
-  lane-graph visual, clearer architecture and workflow storytelling, and a
-  more candid developer-preview status presentation.
-- Added cross-platform CLI release binaries, SHA-256 checksums, and shell and
-  PowerShell installers for Linux, macOS, and Windows; `sorrel init` now ends
-  with a short guided first-change workflow.
-- Added structured pull-request, bug-report, and feature-request templates with
-  explicit testing, compatibility, documentation, and changelog prompts.
-- Added zero-input contributor changelog automation: maintainers can generate
-  coordinated root and package release sections from merged PR metadata and
-  open a reviewable preparation PR from GitHub Actions.
-- Removed the agent-control-plane workaround that represented agent
-  registrations as unrelated Hub projects; agent coordination remains local
-  until Hub exposes a real agent contract.
-- Replaced the deprecated, unmaintained Rust `serde_yaml` parser with the
-  maintained `serde_yaml_ng` continuation for CLI and runner YAML inputs.
-- Updated the public website and documentation pages to use the current Sorrel
-  leaf logo for their header branding and favicon.
-- Added `SORREL_HUB_TOKEN` bearer authentication for CLI Hub requests and made
-  authenticated lane submissions derive their author from the verified Hub
-  session.
-- Made Hub capabilities report only implemented modules and the active
-  filesystem or in-memory store; removed the unimplemented Actions route from
-  Hub UI navigation.
-- Changed unsupported `run logs --follow` requests to fail explicitly instead
-  of returning a one-shot log response labeled as following.
-- Improved public-site navigation on small screens and for keyboard users with
-  an accessible compact menu, skip links, focus indicators, and clearer theme
-  toggle labels.
+- Test rendered Hub UI behavior ([#55](https://github.com/MGRAFF2006/sorrel/pull/55)).
+- Use current logo on public website ([#56](https://github.com/MGRAFF2006/sorrel/pull/56)).
+- Improve mobile navigation accessibility ([#58](https://github.com/MGRAFF2006/sorrel/pull/58)).
+- Report only implemented Hub capabilities ([#60](https://github.com/MGRAFF2006/sorrel/pull/60)).
+- Forward Hub bearer tokens from the CLI ([#61](https://github.com/MGRAFF2006/sorrel/pull/61)).
+- Overhaul public website design ([#62](https://github.com/MGRAFF2006/sorrel/pull/62)).
+- Share Hub web server implementation ([#63](https://github.com/MGRAFF2006/sorrel/pull/63)).
+- Replace deprecated Rust YAML parser ([#65](https://github.com/MGRAFF2006/sorrel/pull/65)).
+- Build Hub web from its declared UI package ([#69](https://github.com/MGRAFF2006/sorrel/pull/69)).
+- Polish CLI installation and contribution workflow ([#71](https://github.com/MGRAFF2006/sorrel/pull/71)).
+- Overhaul public documentation design ([#72](https://github.com/MGRAFF2006/sorrel/pull/72)).
+- Establish review-first Sorrel Hub product interface ([#74](https://github.com/MGRAFF2006/sorrel/pull/74)).
+
+### Removed
+
+- Remove confirmed dead code ([#64](https://github.com/MGRAFF2006/sorrel/pull/64)).
+- Remove unused Rust SDK dependencies ([#67](https://github.com/MGRAFF2006/sorrel/pull/67)).
+- Eliminate redundant Rust clones ([#68](https://github.com/MGRAFF2006/sorrel/pull/68)).
+- Remove agent project mirroring workaround ([#70](https://github.com/MGRAFF2006/sorrel/pull/70)).
+
+### Fixed
+
+- Guard module test inventory against release manifest ([#57](https://github.com/MGRAFF2006/sorrel/pull/57)).
+- Reject unsupported run log following ([#59](https://github.com/MGRAFF2006/sorrel/pull/59)).
+- Correct policy conformance architecture notes ([#66](https://github.com/MGRAFF2006/sorrel/pull/66)).
+
+### Security
+
+- Published server images run as non-root users, include provenance and SBOM
+  attestations, and ship with a localhost-only, read-only Compose example.
+- Hosting the images on an untrusted network still requires a production
+  AuthAdapter and carefully scoped bootstrap grants; development auth and the
+  insecure-demo override are not production-safe.
+
+### Known limitations
+
+- This remains a prerelease. Protocol, CLI JSON, Rust APIs, and persisted
+  formats may change before 1.0, and general workspace/Hub migrations are not
+  available yet.
+- Hub production sessions and login UI remain incomplete. WorkOS sealed
+  sessions, IdP login, and a production authorization-provisioning path are not
+  shipped in this release.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
@@ -128,5 +141,7 @@ First coordinated, local-first developer preview of the Sorrel monorepo.
   and merge queue, hosted compute, virtualized review diffs, and sophisticated
   conflict resolution remain future work.
 
-[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
 [0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2

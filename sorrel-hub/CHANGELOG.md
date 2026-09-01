@@ -4,13 +4,22 @@ Notable changes to Sorrel Hub are documented here.
 
 ## [Unreleased]
 
+No changes yet.
+
+## [0.1.0-alpha.2] - 2026-09-01
+
+### Added
+
+- Publish hostable Sorrel server releases ([#75](https://github.com/MGRAFF2006/sorrel/pull/75)).
+
 ### Changed
 
-- Authenticated lane submissions now use the verified session principal as the
-  proposal author instead of trusting a caller-supplied body principal.
-- `GET /capabilities` no longer advertises environment-selected optional
-  modules or an S3 backend that the server does not provide, and reports the
-  in-memory sync store when selected.
+- Report only implemented Hub capabilities ([#60](https://github.com/MGRAFF2006/sorrel/pull/60)).
+- Forward Hub bearer tokens from the CLI ([#61](https://github.com/MGRAFF2006/sorrel/pull/61)).
+
+### Removed
+
+- Remove confirmed dead code ([#64](https://github.com/MGRAFF2006/sorrel/pull/64)).
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
@@ -47,5 +56,7 @@ Notable changes to Sorrel Hub are documented here.
   object bodies.
 - There is no merge queue, hosted compute, or secret-value storage.
 
-[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
 [0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2

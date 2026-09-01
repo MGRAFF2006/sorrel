@@ -4,12 +4,19 @@ Notable changes to the Sorrel Hub web companion are documented here.
 
 ## [Unreleased]
 
+No changes yet.
+
+## [0.1.0-alpha.2] - 2026-09-01
+
+### Added
+
+- Publish hostable Sorrel server releases ([#75](https://github.com/MGRAFF2006/sorrel/pull/75)).
+
 ### Changed
 
-- Added the public Sorrel leaf favicon and product-facing page metadata.
-- The Vite host now resolves the declared `sorrel-hub-ui` package dependency
-  without reaching into the sibling package's private source path, so a clean
-  `sorrel-hub-web` install can build independently.
+- Share Hub web server implementation ([#63](https://github.com/MGRAFF2006/sorrel/pull/63)).
+- Build Hub web from its declared UI package ([#69](https://github.com/MGRAFF2006/sorrel/pull/69)).
+- Establish review-first Sorrel Hub product interface ([#74](https://github.com/MGRAFF2006/sorrel/pull/74)).
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
@@ -27,5 +34,7 @@ Notable changes to the Sorrel Hub web companion are documented here.
 - Product behavior belongs to `sorrel-hub-ui`; this package intentionally owns
   only browser mounting, build configuration, static serving, and API proxying.
 
-[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
 [0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2

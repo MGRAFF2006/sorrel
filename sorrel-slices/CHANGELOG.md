@@ -4,6 +4,10 @@
 
 No changes yet.
 
+## [0.1.0-alpha.2] - 2026-09-01
+
+No package-specific changes.
+
 ## [0.1.0-alpha.1] - 2026-08-31
 
 ### Capabilities
@@ -22,5 +26,7 @@ No changes yet.
 - Dynamic, external, unsupported, and outside-root imports are reported but not
   resolved.
 
-[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
 [0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2

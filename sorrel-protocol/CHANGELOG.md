@@ -4,6 +4,12 @@
 
 No changes yet.
 
+## [0.1.0-alpha.2] - 2026-09-01
+
+### Fixed
+
+- Correct policy conformance architecture notes ([#66](https://github.com/MGRAFF2006/sorrel/pull/66)).
+
 ## [0.1.0-alpha.1] - 2026-08-31
 
 ### Capabilities
@@ -25,5 +31,7 @@ No changes yet.
 - Hosted identity, shadow-mode sync, and automatic object migration are not
   defined or implemented by this package.
 
-[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
 [0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2

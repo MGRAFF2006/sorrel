@@ -4,29 +4,23 @@ All notable changes to `sorrel-cli` are documented here.
 
 ## [Unreleased]
 
-### Added
+No changes yet.
 
-- Prebuilt CLI archives, SHA-256 checksums, and shell and PowerShell installers
-  for Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows x64 releases.
+## [0.1.0-alpha.2] - 2026-09-01
 
 ### Changed
 
-- `sorrel init` now prints the next commands needed to review and record a first
-  change while preserving its existing `--json` contract.
+- Forward Hub bearer tokens from the CLI ([#61](https://github.com/MGRAFF2006/sorrel/pull/61)).
+- Replace deprecated Rust YAML parser ([#65](https://github.com/MGRAFF2006/sorrel/pull/65)).
+- Polish CLI installation and contribution workflow ([#71](https://github.com/MGRAFF2006/sorrel/pull/71)).
 
-- Replaced the deprecated, unmaintained `serde_yaml` parser with
-  `serde_yaml_ng` for workflow and secret-spec inputs.
+### Removed
 
-### Added
-
-- `SORREL_HUB_TOKEN` forwards an OIDC/WorkOS bearer access token for sync,
-  project discovery, and lane submission without persisting it in remote
-  configuration.
+- Eliminate redundant Rust clones ([#68](https://github.com/MGRAFF2006/sorrel/pull/68)).
 
 ### Fixed
 
-- `run logs --follow` now returns an unsupported error instead of silently
-  performing a one-shot read while reporting `follow: true`.
+- Reject unsupported run log following ([#59](https://github.com/MGRAFF2006/sorrel/pull/59)).
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
@@ -63,5 +57,7 @@ Initial coordinated alpha release.
 - Git import rejects symlinks and submodule gitlinks.
 - Hub clone and force-push workflows are not exposed.
 
-[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
 [0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2
