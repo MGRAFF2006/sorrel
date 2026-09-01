@@ -47,7 +47,7 @@ Solid UI (`sorrel-hub-ui`) + thin web host, `GET /capabilities`, AuthAdapter
 (WorkOS/OIDC JWKS / dev), `GET /session`, and Convex metadata spike
 (`proposals.countOpen`) are the Phase-1 foundation. Remaining: WorkOS sealed
 sessions + IdP login UI, full Convex metadata migration, virtualized diffs,
-Tauri shells.
+authenticated remote-Hub configuration for the desktop shell.
 
 ### 6. Secrets + SecretSpec → devenv-backed runs → log UX — MOSTLY DONE
 
@@ -69,10 +69,11 @@ in the alpha. Stabilize and extend them after lanes and embedding settle.
 
 ### 9. Apps — desktop then mobile — IN PROGRESS
 
-A thin native mobile Hub companion now covers projects, reviews/comments, and
-repository refs on iOS/iPadOS/Android without pretending to embed Core. Tauri
-desktop distribution and on-device workspace/VCS workflows remain ahead. Local
-workspace features still wait for item 7's stable embedding surface.
+The shared Hub UI now has a Tauri desktop host for Windows, macOS, and Linux.
+It connects to a local Hub, while a thin native mobile companion covers
+projects, reviews/comments, and repository refs on iOS/iPadOS/Android. Next:
+signed desktop installers, authenticated remote-Hub selection, and local
+workspace/VCS integration after item 7's stable embedding contract.
 
 ## Not yet
 

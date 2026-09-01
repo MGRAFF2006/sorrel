@@ -7,6 +7,7 @@ The native React Native mobile companion shares Hub API/SDK contracts rather
 than mounting this DOM UI.
 
 - `sorrel-hub-ui` (this package): shared UI + platform stubs
+- `sorrel-hub-desktop`: native Tauri host
 - `sorrel-hub-web`: thin browser host
 - `sorrel-hub`: Hub API server
 - `sorrel-web`: unrelated public marketing site
@@ -18,7 +19,7 @@ than mounting this DOM UI.
 - **Project-first IA** (GitHub-like): `/` lists projects; Reviews and Sync nest
   under `/projects/:id`; unimplemented modules stay out of navigation.
 - Motion for route/panel enter only — **never** on diff scroll (diff island later)
-- Platform seams via `platform.ts` (`web` | `desktop` | `mobile` stubs)
+- Platform seams via `platform.ts` (`web` | `desktop` | `mobile`)
 - Live metadata via Convex when configured; Hub API fallback otherwise
 - Dev identity via acting-principal presets (`session.ts`); `GET /session` for Hub auth mode
 

@@ -34,6 +34,7 @@ otherwise; do not reset, overwrite, or reformat them as drive-by cleanup.
 | `sorrel-core` objects / policy / storage | CLI, runners, Rust SDK, Hub contract assumptions |
 | `sorrel-hub` routes / auth / capabilities | Hub UI, web host proxy, JS SDK, agents, root E2E |
 | `sorrel-hub-ui` product behavior | web host and root E2E |
+| `sorrel-hub-desktop` | Tauri host, native adapters, desktop bundles only |
 | `sorrel-hub-web` | browser hosting, proxying, Docker only; product UI belongs in `sorrel-hub-ui` |
 | `sorrel-hub-mobile` | native Hub companion behavior, secure device storage, mobile/tablet navigation |
 | `sorrel-web` | public marketing/docs only; never Hub product behavior |

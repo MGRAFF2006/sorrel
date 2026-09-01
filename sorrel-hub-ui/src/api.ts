@@ -36,7 +36,22 @@ export type HubSessionInfo = {
   } | null;
 };
 
-const API_BASE = '/api';
+export type ApiFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+let apiBase = '/api';
+const browserFetch: ApiFetch = (input, init) => globalThis.fetch(input, init);
+let apiFetch: ApiFetch = browserFetch;
+
+export type ApiClientOptions = {
+  baseUrl?: string;
+  fetch?: ApiFetch;
+};
+
+/** Configure transport for the active host. Each host mounts one Hub app. */
+export function configureApiClient(options: ApiClientOptions = {}) {
+  apiBase = (options.baseUrl ?? '/api').replace(/\/$/, '');
+  apiFetch = options.fetch ?? browserFetch;
+}
 
 /** Optional override for hosts/tests — defaults to session store principal. */
 let principalProvider: (() => Principal) | null = null;
@@ -60,7 +75,7 @@ export async function apiRequest(method: string, path: string, body?: unknown) {
     headers['content-type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
-  const response = await fetch(`${API_BASE}${path}`, init);
+  const response = await apiFetch(`${apiBase}${path}`, init);
   const text = await response.text();
   let payload: unknown;
   try {

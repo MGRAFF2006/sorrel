@@ -60,6 +60,47 @@ check(
 
 check(!existsSync(join(ROOT, '.gitmodules')), '.gitmodules must not exist in the monorepo');
 
+const distConfig = read('dist-workspace.toml');
+check(
+  distConfig.includes('"aarch64-pc-windows-msvc"'),
+  'dist targets must include Windows ARM64 (aarch64-pc-windows-msvc)',
+);
+check(
+  distConfig.includes('local-artifacts-jobs = ["./build-desktop"]'),
+  'dist must register the reusable desktop artifact workflow',
+);
+
+const releaseWorkflow = read('.github/workflows/release.yml');
+check(
+  releaseWorkflow.includes('uses: ./.github/workflows/build-desktop.yml'),
+  'generated release workflow must call the desktop artifact workflow',
+);
+
+const desktopReleaseWorkflow = read('.github/workflows/build-desktop.yml');
+for (const target of [
+  'aarch64-apple-darwin',
+  'aarch64-pc-windows-msvc',
+  'aarch64-unknown-linux-gnu',
+  'x86_64-apple-darwin',
+  'x86_64-pc-windows-msvc',
+  'x86_64-unknown-linux-gnu',
+]) {
+  check(
+    desktopReleaseWorkflow.includes(`target: ${target}`),
+    `desktop release matrix must include ${target}`,
+  );
+}
+
+const desktopCargo = read('sorrel-hub-desktop/src-tauri/Cargo.toml');
+check(
+  desktopCargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1] === expectedVersion,
+  `sorrel-hub-desktop/src-tauri Cargo version must be ${expectedVersion}`,
+);
+check(
+  JSON.parse(read('sorrel-hub-desktop/src-tauri/tauri.conf.json')).version === expectedVersion,
+  `sorrel-hub-desktop Tauri version must be ${expectedVersion}`,
+);
+
 const manifestModules = new Set(Object.keys(manifest.modules));
 const workspaceModules = readdirSync(ROOT, { withFileTypes: true })
   .filter((entry) => entry.isDirectory() && entry.name.startsWith('sorrel-'))

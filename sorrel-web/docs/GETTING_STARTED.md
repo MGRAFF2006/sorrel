@@ -10,7 +10,7 @@ from source, and start the development Hub stack.
 ## Install the CLI
 
 Sorrel releases that include installer assets provide prebuilt binaries for
-Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows x64. Older alpha
+Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows x64/ARM64. Older alpha
 releases remain source-only. Choose an installer-bearing tag on the
 [Releases page](https://github.com/MGRAFF2006/sorrel/releases), then replace
 `<TAG>` below with it.
@@ -39,6 +39,26 @@ Confirm the installation:
 sorrel --version
 sorrel --help
 ```
+
+## Install the desktop companion
+
+The same installer-bearing releases include Sorrel Hub desktop bundles for
+Windows x64/ARM64, macOS Intel/Apple Silicon, and Linux x64/ARM64. Download the
+`.msi`/setup executable, `.dmg`, `.AppImage`, or distribution package matching
+your machine from the release assets.
+
+The current desktop app is a native companion for a Hub running on
+`http://127.0.0.1:3000`; it does not replace the local `sorrel` CLI. Start the
+Hub before launching the app:
+
+```sh
+cd /path/to/sorrel/sorrel-hub
+SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start
+```
+
+Installer signing/notarization is not yet configured for this developer
+preview, so operating systems may show their standard unverified-publisher
+warning. Verify release checksums before installation.
 
 ## Host a release server
 

@@ -45,8 +45,17 @@ Validate the binary distribution plan with the `dist` version pinned in
 dist plan
 ```
 
-The plan must include Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows
-x64 archives, their SHA-256 files, and the shell and PowerShell installers.
+The dist plan must include CLI archives for Linux x64/ARM64, macOS
+Intel/Apple Silicon, and Windows x64/ARM64, plus their SHA-256 files and the
+shell and PowerShell installers.
+
+The release workflow also builds Sorrel Hub desktop installers on native
+runners for the same six OS/architecture pairs. The Windows ARM64 job runs on
+`windows-11-arm`; a release is not published if any required desktop
+bundle job fails. `dist-workspace.toml` registers the reusable
+`.github/workflows/build-desktop.yml` job, so `dist generate` preserves the
+dependency automatically; review both generated and reusable workflows when
+the release matrix changes.
 
 Build and exercise the exact server containers that the server release workflow
 will publish:
@@ -88,8 +97,8 @@ After checks pass on `main`:
 
 7. The tag starts `.github/workflows/release.yml` and
    `.github/workflows/server-images.yml` in parallel. The first builds each
-   supported CLI binary, produces checksums and installers, and creates the
-   GitHub Release. The second validates the same tag against
+   supported CLI binary and desktop app, produces checksums and installers,
+   and creates the GitHub Release. The second validates the same tag against
    `release/manifest.json` and publishes attested Linux amd64/arm64
    `sorrel-hub` and `sorrel-hub-web` images. Prerelease-style versions are
    marked as prereleases automatically. Do not create a competing release
@@ -97,11 +106,13 @@ After checks pass on `main`:
 8. After the CLI workflow creates the GitHub Release, the server workflow
    attaches the release Compose file, immutable image digests, and their
    checksum file.
-9. Verify both workflows, the published tag, CLI installer assets, server
-   assets, public GHCR pulls, release URL, and changelog links. In clean
+9. Verify both workflows, the published tag, CLI and desktop installer assets,
+   server assets, public GHCR pulls, release URL, and changelog links. In clean
    temporary environments, run `sorrel --version`, `sorrel init`, and
-   `sorrel status`, then start the release Compose stack and probe `/healthz`
-   through both the API and `/api` proxy before announcing the release.
+   `sorrel status`; smoke-test the desktop app against a loopback Hub on every
+   OS/architecture family; then start the release Compose stack and probe
+   `/healthz` through both the API and `/api` proxy before announcing the
+   release.
 
 Tags are release anchors; do not move or recreate them. A correction gets a new
 prerelease version.

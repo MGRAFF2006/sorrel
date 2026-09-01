@@ -36,6 +36,7 @@ required.
 | User-visible VCS commands/JSON | `sorrel-cli` | E2E, docs, SDK assumptions |
 | Hub routes/auth/capabilities/sync | `sorrel-hub` | Hub UI, web proxy, JS SDK, agents, E2E |
 | Product UI/interaction | `sorrel-hub-ui` | Browser host, E2E |
+| Desktop host/bundles | `sorrel-hub-desktop` | Shared Hub UI, release workflow |
 | Browser build/proxy/container | `sorrel-hub-web` | Compose, E2E |
 | Native phone/tablet companion | `sorrel-hub-mobile` | JS SDK, Hub API |
 | Workflow model/execution | `sorrel-runners` | CLI workflow/devenv adapter, protocol |
@@ -100,7 +101,8 @@ Never hand-edit vendored `test(s)/conformance/` copies.
 1. Keep authoritative policy and VCS semantics in Protocol/Core.
 2. Add the Hub route/store/auth change and tests.
 3. Update `sorrel-hub-ui` product behavior.
-4. Touch `sorrel-hub-web` only for host/build/proxy concerns.
+4. Touch `sorrel-hub-web` or `sorrel-hub-desktop` only for their host,
+   transport, native-integration, or build concerns.
 5. Check the JS SDK if a public route changed.
 6. Run the Hub/UI/web module gates and a real browser smoke test.
 

@@ -36,12 +36,12 @@ const WEB_CAPABILITIES: PlatformCapabilities = {
   keychain: false,
 };
 
-const DESKTOP_STUB_CAPABILITIES: PlatformCapabilities = {
-  localCore: true,
+const DESKTOP_CAPABILITIES: PlatformCapabilities = {
+  localCore: false,
   notifications: true,
-  deepLinks: true,
+  deepLinks: false,
   biometrics: false,
-  keychain: true,
+  keychain: false,
 };
 
 const MOBILE_STUB_CAPABILITIES: PlatformCapabilities = {
@@ -74,12 +74,28 @@ export function createWebPlatform(): Platform {
   };
 }
 
-/** Tauri desktop host will replace stubs with real IPC. */
+export type DesktopPlatformOptions = {
+  openExternal(url: string): Promise<void>;
+  notify(title: string, body: string): Promise<void>;
+};
+
+/** Native adapters are supplied by the Tauri host without forking product UI. */
+export function createDesktopPlatform(options: DesktopPlatformOptions): Platform {
+  return {
+    kind: 'desktop',
+    label: 'Desktop',
+    capabilities: DESKTOP_CAPABILITIES,
+    openExternal: options.openExternal,
+    notify: options.notify,
+  };
+}
+
+/** Browser-safe fallback used by shared UI previews and tests. */
 export function createDesktopPlatformStub(): Platform {
   return {
     kind: 'desktop',
     label: 'Desktop (stub)',
-    capabilities: DESKTOP_STUB_CAPABILITIES,
+    capabilities: DESKTOP_CAPABILITIES,
     async openExternal(url) {
       window.open(url, '_blank', 'noopener,noreferrer');
     },

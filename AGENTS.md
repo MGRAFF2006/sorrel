@@ -12,6 +12,7 @@ Implementation packages live as normal directories:
 - sorrel-slices: TypeScript/JavaScript slice manifest generator
 - sorrel-hub: collaboration **API server** (JSON over HTTP; AuthAdapter + capabilities)
 - sorrel-hub-ui: shared SolidJS Hub product UI (web + desktop shells)
+- sorrel-hub-desktop: Tauri desktop host for Windows, macOS, and Linux
 - sorrel-hub-web: thin browser host for `sorrel-hub-ui`
 - sorrel-hub-mobile: native iOS/iPadOS/Android Hub companion (React Native + Expo)
 - sorrel-web: public marketing/landing site (static)
@@ -20,9 +21,9 @@ Implementation packages live as normal directories:
 - sorrel-sdk-rust: thin Rust SDK over `sorrel-core`
 
 Hub is split: `sorrel-hub` is the API server, `sorrel-hub-ui` is the shared
-web/desktop product UI, `sorrel-hub-web` is the thin browser host,
-`sorrel-hub-mobile` is the native phone/tablet companion, and `sorrel-web` is
-the unrelated public landing page.
+web/desktop product UI, `sorrel-hub-desktop` and `sorrel-hub-web` are its thin
+native/browser hosts, `sorrel-hub-mobile` is the native phone/tablet companion,
+and `sorrel-web` is the unrelated public landing page.
 
 Start with [`docs/AGENT_WORKSPACE.md`](docs/AGENT_WORKSPACE.md) for change
 routing and [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for setup, validation,

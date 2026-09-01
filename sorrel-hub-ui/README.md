@@ -11,7 +11,9 @@ npm run build  # library build
 npm run check  # typecheck + tests + production build
 ```
 
-Hosts call `mountHubApp(element, { platformKind: 'web' })`.
+Browser hosts call `mountHubApp(element, { platformKind: 'web' })`. Desktop
+hosts also inject an `apiBase`, scoped `fetch` implementation, and platform
+adapters; see `sorrel-hub-desktop`.
 
 ## Product routes
 
