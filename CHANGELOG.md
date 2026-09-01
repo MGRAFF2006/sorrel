@@ -18,6 +18,8 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Added the public Sorrel favicon to Hub, labeled the current deployment as
   local development, and refined Reviews and Repositories toward product
   language instead of transport and administration terminology.
+- Made the redesigned Hub shell, navigation, status controls, master-detail
+  views, tables, forms, and dialogs responsive across tablet and phone widths.
 - Overhauled the public landing page with a new editorial layout, interactive
   lane-graph visual, clearer architecture and workflow storytelling, and a
   more candid developer-preview status presentation.
