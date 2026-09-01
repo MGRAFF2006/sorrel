@@ -1,6 +1,6 @@
 {
   "name": "sorrel",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "private": true,
   "description": "Sorrel monorepo — agent-native VCS and full-stack E2E happy path.",
   "type": "module",

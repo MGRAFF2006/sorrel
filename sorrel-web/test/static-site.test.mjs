@@ -92,7 +92,7 @@ test('every authored documentation page loads shared code and sidebar enhancemen
 
   for (const htmlFile of htmlFiles) {
     const html = await readFile(htmlFile, 'utf8');
-    assert.match(html, /src="\.\/docs\.js\?v=0\.1\.0-alpha\.1"/);
+    assert.match(html, /src="\.\/docs\.js\?v=0\.1\.0-alpha\.2"/);
   }
 });
 

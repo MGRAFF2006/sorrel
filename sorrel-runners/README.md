@@ -2,7 +2,7 @@
 
 Sorrel module: `sorrel-runners`.
 
-> **Alpha status (`0.1.0-alpha.1`):** local process and local Docker/Podman
+> **Alpha status (`0.1.0-alpha.2`):** local process and local Docker/Podman
 > execution are experimental and intended only for development and testing.
 > Do not use either runner for production workloads or untrusted jobs. Secret
 > injection is unsupported: secret references are modeled for policy and

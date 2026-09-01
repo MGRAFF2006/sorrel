@@ -20,7 +20,7 @@ the protocol `Principal` shape, policies reference protocol `Policy` and
 `AgentPolicy` objects, and Core grants, policy decisions, and audit events are
 kept as external references.
 
-The `v0.1.0-alpha.1` server has development, WorkOS, and OIDC AuthAdapter seams,
+The `v0.1.0-alpha.2` server has development, WorkOS, and OIDC AuthAdapter seams,
 but production session/login integration is incomplete. Treat it as a localhost
 development server, not an internet-facing service. It also
 omits merge queue behavior, hosted compute, and secret values. Two further

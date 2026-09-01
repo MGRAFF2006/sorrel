@@ -2157,7 +2157,7 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
 name = "sorrel-cli"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2172,7 +2172,7 @@ dependencies = [
 
 [[package]]
 name = "sorrel-core"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "blake3",
  "git2",
@@ -2184,7 +2184,7 @@ dependencies = [
 
 [[package]]
 name = "sorrel-runners"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2194,7 +2194,7 @@ dependencies = [
 
 [[package]]
 name = "sorrel-sdk"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "sorrel-core",
  "tempfile",

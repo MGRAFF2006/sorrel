@@ -35,10 +35,10 @@ content-addressed object store, changes/lanes/slices, a Core-native
 identity/permission/policy spine, a bidirectional Git bridge, and a collaboration
 product on top.
 
-> **Latest release:** [`v0.1.0-alpha.1`](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1)
-> is a local-first developer preview.
-> The Hub is for localhost development only; it does not provide production
-> authentication.
+> **Latest release:** [`v0.1.0-alpha.2`](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2)
+> is an installable developer preview with downloadable CLI artifacts and
+> hostable server images. The Hub still requires production authentication and
+> network controls before untrusted network exposure.
 
 | Doc | Purpose |
 | --- | --- |

@@ -5,7 +5,7 @@ system. This crate owns the content-addressed object model and the headless
 policy/permission/authority semantics; the CLI, Hub, runners, and vault all
 consume its contracts. The CLI and Rust SDK use workspace path dependencies.
 
-`0.1.0-alpha.1` is a pre-stable release. Read the
+`0.1.0-alpha.2` is a pre-stable release. Read the
 [v0 compatibility policy](docs/COMPATIBILITY.md) before embedding the crate or
 upgrading an object store, and see the [changelog](CHANGELOG.md) for current
 capabilities and limitations.
