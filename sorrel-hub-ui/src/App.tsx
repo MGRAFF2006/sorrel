@@ -145,7 +145,7 @@ function HomeLayout(
     <>
       <aside class="app-sidebar">
         <A href="/" class="brand brand-link">
-          <span class="brand-symbol" aria-hidden="true">S</span>
+          <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true" />
           <span><span class="brand-mark">Sorrel</span><span class="brand-sub">Hub</span></span>
         </A>
         <p class="nav-eyebrow">Workspace</p>
@@ -191,7 +191,7 @@ function ProjectLayout(
     <>
       <aside class="app-sidebar">
         <A href="/" class="brand brand-link">
-          <span class="brand-symbol" aria-hidden="true">S</span>
+          <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true" />
           <span><span class="brand-mark">Sorrel</span><span class="brand-sub">Hub</span></span>
         </A>
 
