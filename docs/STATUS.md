@@ -12,8 +12,9 @@ Sorrel already has a **working local VCS loop** (init → change → lanes → m
 push/pull) on a real content-addressed engine, plus **Git import/export and
 colocated bidirectional sync**, a deployable Hub API, and a writable Hub UI
 companion. The public landing site is live. A root **no-mock E2E** (`npm test`)
-wires every active module together. Still ahead: production auth, richer
-agents/SDKs, and apps.
+wires every active module together. A native mobile Hub companion now covers
+projects, reviews, and repository refs. Still ahead: production auth, richer
+agents/SDKs, desktop distribution, and on-device Core embedding.
 
 The latest coordinated release is
 **[`v0.1.0-alpha.2`](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2)**,
@@ -36,6 +37,7 @@ production AuthAdapter and network controls. See the root
 | **Slices** | TS/JS slice manifest generator (prototype). |
 | **Hub API** | JSON HTTP server: health, projects, admin collections with GET/PATCH, proposals/reviews lifecycle, lane-submit collaboration endpoint, sync endpoints, FS persistence. |
 | **Hub UI** | Shared Solid `sorrel-hub-ui` — project-first (GitHub-like): home lists projects; implemented Reviews/Sync surfaces nest under `/projects/:id`; hosted by thin `sorrel-hub-web`. |
+| **Mobile app** | Native Expo/React Native Hub companion for iPhone, iPad, Android phones, and Android tablets; native stacks/tabs, secure bearer storage, project/review/comment lifecycle, and repository refs. |
 | **Hub install seams** | `GET /capabilities` + `GET /session`; AuthAdapter (`dev` / `workos` / OIDC JWKS); shared `sorrel-hub/convex/` schema for SaaS + self-host. |
 | **Server distribution** | Release automation for unprivileged, health-checked Linux amd64/arm64 Hub API and browser-host images, with GHCR publication, SBOM/provenance, immutable digests, checksums, and a release Compose file. |
 | **Landing (`sorrel-web`)** | Static marketing site (Nord theme). Production deploy is Cloudflare Pages; local Docker is optional preview only. |
@@ -49,7 +51,7 @@ production AuthAdapter and network controls. See the root
 | **Format migrations** | Protocol and object stores are `v0`; unknown versions fail closed, but no general workspace/Hub migration framework is shipped. |
 | **Agents control plane** | Minimal register/claim/active-work surface shipped; no instruction overlays yet. |
 | **SDKs** | Minimal Hub JS client + Rust `Workspace` wrapper shipped; embedding surface (C ABI / N-API / WASM / daemon) not shipped. |
-| **Apps** | No desktop/mobile clients (intentionally after embedding surface). |
+| **App embedding** | Mobile ships as a thin Hub companion only; no app embeds Core or operates a local workspace until the stable embedding surface exists. Desktop distribution is not yet shipped. |
 | **Hub secret backend** | Optional hosted / BYO provider binding (Phase 4) not shipped; local keyring/dotenv remain default. |
 | **devenv task mapping** | Prefer devenv when present; full `sorrel.workflow.yml` → devenv tasks shim and remote runners are still thin. |
 | **Run log follow / Hub stream** | Local `.sorrel/runs/` + `run show|logs` shipped; unsupported `--follow` requests now fail explicitly, and Hub streaming is not implemented. |
@@ -66,6 +68,7 @@ production AuthAdapter and network controls. See the root
 | `sorrel-slices` | Slice manifests | Active (prototype) |
 | `sorrel-hub` | Hub API | Active (collaboration + sync + capabilities/AuthAdapter; release container) |
 | `sorrel-hub-ui` | Shared Solid Hub UI | Active (Phase-1 foundation) |
+| `sorrel-hub-mobile` | Native phone/tablet Hub companion | Active (HTTP companion) |
 | `sorrel-hub-web` | Thin browser host | Active (Vite host over hub-ui; release container) |
 | `sorrel-web` | Public landing | Live (Cloudflare) |
 | `sorrel-agents` | Agent control plane (register/claim/active work) | Active (minimal) |
@@ -82,7 +85,7 @@ dependencies and workspace Cargo commands from the repo root.
 1. Finish production auth (WorkOS sealed sessions + IdP login UI) and richer review UX.
 2. Deepen devenv workflow mapping, run-log follow/Hub streaming, and optional
    hosted or bring-your-own secret backends.
-3. Define the stable embedding surface, then mature agents and SDKs around it.
+3. Define the stable embedding surface, then mature agents, SDKs, and local app workflows around it.
 4. Add format migrations before persisted `v0` formats begin evolving rapidly.
 5. Collapse intentional duplicates (`cli_policy` / `cli_runner`) now that
    SecretSpec injection has landed.

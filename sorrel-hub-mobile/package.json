@@ -1,0 +1,62 @@
+{
+  "name": "sorrel-hub-mobile",
+  "version": "0.1.0-alpha.2",
+  "private": true,
+  "description": "Native iOS, iPadOS, and Android companion for Sorrel Hub.",
+  "license": "MIT OR Apache-2.0",
+  "main": "expo-router/entry",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MGRAFF2006/sorrel.git",
+    "directory": "sorrel-hub-mobile"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "tsx --test test/*.test.ts",
+    "doctor": "expo-doctor",
+    "export": "expo export --platform ios --output-dir dist/ios && expo export --platform android --output-dir dist/android",
+    "check": "npm run typecheck && npm run lint && npm test && npm run doctor && npm run export"
+  },
+  "dependencies": {
+    "@sorrel/sdk-js": "file:../sorrel-sdk-js",
+    "expo": "~57.0.18",
+    "expo-build-properties": "~57.0.15",
+    "expo-constants": "~57.0.16",
+    "expo-haptics": "~57.0.2",
+    "expo-linking": "~57.0.8",
+    "expo-router": "~57.0.17",
+    "expo-secure-store": "~57.0.2",
+    "expo-splash-screen": "~57.0.8",
+    "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-web": "~0.21.0",
+    "react-native-worklets": "0.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/react": "~19.2.2",
+    "eslint": "^9.39.1",
+    "eslint-config-expo": "~57.0.2",
+    "expo-doctor": "^1.20.4",
+    "tsx": "^4.23.13",
+    "typescript": "~6.0.3"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "unrs-resolver": true
+  }
+}
