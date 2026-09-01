@@ -201,7 +201,7 @@ fn default_required() -> bool {
 }
 
 fn handles_from_secrets_yaml(text: &str) -> Result<Vec<SecretHandle>, BridgeError> {
-    let parsed: SecretsYaml = serde_yaml::from_str(text).map_err(|error| {
+    let parsed: SecretsYaml = serde_yaml_ng::from_str(text).map_err(|error| {
         BridgeError::Spec(format!("failed to parse sorrel.secrets.yml: {error}"))
     })?;
     Ok(parsed
