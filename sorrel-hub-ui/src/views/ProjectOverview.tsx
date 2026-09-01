@@ -64,41 +64,36 @@ export function ProjectOverview() {
                 title={p().name ?? p().id ?? 'Project'}
                 lede={
                   p().description ??
-                  'Project home — jump into reviews or sync for this workspace.'
+                  'Review changes and keep local workspaces moving together.'
                 }
+                actions={<StatusPill value={p().status} />}
               />
 
-              <dl class="detail-meta surface" style={{ padding: '1rem' }}>
-                <dt>Id</dt>
-                <dd class="mono">{p().id ?? '—'}</dd>
-                <dt>Organization</dt>
-                <dd class="mono">{p().organizationId ?? '—'}</dd>
-                <dt>Status</dt>
-                <dd>
-                  <StatusPill value={p().status} />
-                </dd>
-              </dl>
-
-              <div class="feature-grid">
-                <A href={`${base()}/reviews`} class="feature-tile">
-                  <h2>Reviews</h2>
-                  <p class="muted">
-                    Proposals and comment threads for this project
-                    <Show when={!proposals.loading}>
-                      {' '}
-                      · {openProposals().length} open
-                    </Show>
-                  </p>
+              <div class="overview-grid">
+                <A href={`${base()}/reviews`} class="metric-card metric-card-primary">
+                  <span class="metric-label">Open reviews</span>
+                  <strong>{proposals.loading ? '—' : openProposals().length}</strong>
+                  <span class="metric-link">Review changes <span aria-hidden="true">→</span></span>
                 </A>
-                <A href={`${base()}/sync`} class="feature-tile">
-                  <h2>Sync</h2>
-                  <p class="muted">Object-store repos and refs linked from this project</p>
+                <A href={`${base()}/sync`} class="metric-card">
+                  <span class="metric-label">Repositories</span>
+                  <strong>{p().repositoryIds?.length ?? 0}</strong>
+                  <span class="metric-link">View sync state <span aria-hidden="true">→</span></span>
                 </A>
+                <div class="metric-card">
+                  <span class="metric-label">Organization</span>
+                  <strong class="metric-name">{p().organizationId ?? 'Personal'}</strong>
+                  <span class="metric-link muted">Project ownership</span>
+                </div>
               </div>
 
-              <section class="surface" style={{ 'margin-top': '0.25rem' }}>
+              <div class="overview-columns">
+              <section class="surface activity-surface">
                 <div class="detail-head">
-                  <h2 style={{ margin: 0, 'font-size': '1rem' }}>Recent proposals</h2>
+                  <div>
+                    <span class="eyebrow">Project activity</span>
+                    <h2>Recent reviews</h2>
+                  </div>
                   <A href={`${base()}/reviews`} class="ghost-link">
                     View all
                   </A>
@@ -108,11 +103,11 @@ export function ProjectOverview() {
                     when={(proposals() ?? []).length > 0}
                     fallback={
                       <EmptyState
-                        title="No proposals yet"
-                        body="Open a proposal from Reviews or via lane submit."
+                        title="No reviews yet"
+                        body="Submit a lane from the CLI or open a review here."
                         action={
                           <A href={`${base()}/reviews`} class="button-link">
-                            Go to Reviews
+                            Open Reviews
                           </A>
                         }
                       />
@@ -137,6 +132,18 @@ export function ProjectOverview() {
                   </Show>
                 </Show>
               </section>
+
+              <aside class="surface connect-card">
+                <span class="eyebrow">Connect a workspace</span>
+                <h2>Work locally. Review here.</h2>
+                <p class="muted">Add this Hub as a remote, then push a lane when it is ready to share.</p>
+                <div class="command-snippet">
+                  <code>sorrel remote add origin &lt;hub-url&gt;</code>
+                  <code>sorrel push origin</code>
+                </div>
+                <A href={`${base()}/sync`} class="ghost-link">Repository details →</A>
+              </aside>
+              </div>
 
               <Show when={(p().policyRefs?.length ?? 0) > 0 || (p().grantRefs?.length ?? 0) > 0}>
                 <section class="surface" style={{ 'margin-top': '1rem', padding: '1rem' }}>

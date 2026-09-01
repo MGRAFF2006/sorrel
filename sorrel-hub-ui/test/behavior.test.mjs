@@ -25,7 +25,7 @@ test('App is project-first and exposes only implemented feature routes', async (
     fs.readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   );
   assert.doesNotMatch(app, /ActionsPlaceholder|\/actions/);
-  assert.match(app, /live-badge/);
+  assert.match(app, /review-badge/);
   assert.match(app, /useOpenProposalsCount/);
   assert.match(app, /useOpenProposalsCountFromHub/);
   assert.match(app, /IdentityChip/);
@@ -80,7 +80,7 @@ test('Projects and Sync views handle empty and error states', async () => {
   );
   assert.match(projects, /No projects yet/);
   assert.match(projects, /Could not load projects/);
-  assert.match(projects, /New project/);
+  assert.match(projects, /Create project/);
   assert.match(projects, /ProjectsHome/);
   assert.match(projects, /\/projects\//);
   assert.match(overview, /ProjectOverview/);
@@ -98,7 +98,7 @@ test('responsive CSS covers mobile header/nav breakpoints', async () => {
   );
   assert.match(css, /@media \(max-width: 860px\)/);
   assert.match(css, /prefers-reduced-motion/);
-  assert.match(css, /\.live-badge/);
+  assert.match(css, /\.review-badge/);
   assert.match(css, /\.app-shell/);
   assert.match(css, /\.app-sidebar/);
   assert.match(css, /\.split/);

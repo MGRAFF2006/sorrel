@@ -105,15 +105,16 @@ function GlobalShell(
     <div class="app-shell">
       {props.children}
       <header class="app-topbar">
+        <div class="topbar-context">
+          <span class="topbar-product">Workspace</span>
+          <span class="topbar-separator" aria-hidden="true">/</span>
+          <span class="topbar-view">Collaboration hub</span>
+        </div>
         <div class="header-status">
           <IdentityChip capabilities={props.capabilities} hubSession={props.hubSession} />
-          <span class="platform-chip" title={`Platform: ${props.platform.label}`}>
-            {props.platform.kind}
-          </span>
           <Show when={props.openCount !== undefined}>
-            <span class="live-badge" title="Open proposals (live)">
-              <span class="dot" aria-hidden="true" />
-              {props.openCount} open
+            <span class="review-badge" title="Open reviews">
+              {props.openCount} review{props.openCount === 1 ? '' : 's'}
             </span>
           </Show>
           <span
@@ -125,7 +126,8 @@ function GlobalShell(
                   : 'status-unknown'
             }`}
           >
-            {props.apiStatus}
+            <span class="status-dot" aria-hidden="true" />
+            <span class="status-label">{props.apiStatus.replace('API: ', '')}</span>
           </span>
         </div>
       </header>
@@ -143,14 +145,20 @@ function HomeLayout(
     <>
       <aside class="app-sidebar">
         <A href="/" class="brand brand-link">
-          <span class="brand-mark">Sorrel</span>
-          <span class="brand-sub">Hub</span>
+          <span class="brand-symbol" aria-hidden="true">S</span>
+          <span><span class="brand-mark">Sorrel</span><span class="brand-sub">Hub</span></span>
         </A>
+        <p class="nav-eyebrow">Workspace</p>
         <nav class="side-nav" aria-label="Primary">
           <A href="/" class="nav-item" end activeClass="active">
-            Projects
+            <span class="nav-icon" aria-hidden="true">⌂</span>Projects
           </A>
         </nav>
+        <div class="sidebar-callout">
+          <span class="callout-kicker">Local-first</span>
+          <strong>Your code stays yours.</strong>
+          <p>Hub coordinates reviews and sync. It does not host your development environment.</p>
+        </div>
         <div class="side-meta">
           <CapabilitiesHint capabilities={props.capabilities} />
           <p>{props.platform.label}</p>
@@ -183,8 +191,8 @@ function ProjectLayout(
     <>
       <aside class="app-sidebar">
         <A href="/" class="brand brand-link">
-          <span class="brand-mark">Sorrel</span>
-          <span class="brand-sub">Hub</span>
+          <span class="brand-symbol" aria-hidden="true">S</span>
+          <span><span class="brand-mark">Sorrel</span><span class="brand-sub">Hub</span></span>
         </A>
 
         <div class="project-switcher">
@@ -206,13 +214,13 @@ function ProjectLayout(
 
         <nav class="side-nav" aria-label="Project">
           <A href={base()} class="nav-item" end activeClass="active">
-            Overview
+            <span class="nav-icon" aria-hidden="true">⌂</span>Overview
           </A>
           <A href={`${base()}/reviews`} class="nav-item" activeClass="active">
-            Reviews
+            <span class="nav-icon" aria-hidden="true">✓</span>Reviews
           </A>
           <A href={`${base()}/sync`} class="nav-item" activeClass="active">
-            Sync
+            <span class="nav-icon" aria-hidden="true">↕</span>Repositories
           </A>
         </nav>
 
@@ -242,9 +250,9 @@ export function CapabilitiesHint(props: { capabilities: HubCapabilities | null |
   return (
     <Show when={caps()}>
       {(c) => (
-        <p>
-          deploy={c().deploy} · auth={c().auth.mode} · storage=
-          {c().modules.objectStorage} · convex={c().convex.enabled ? 'on' : 'off'}
+        <p class="deployment-label">
+          <span class="deployment-dot" aria-hidden="true" />
+          {c().deploy === 'saas' ? 'Sorrel Cloud' : 'Self-hosted Hub'}
         </p>
       )}
     </Show>

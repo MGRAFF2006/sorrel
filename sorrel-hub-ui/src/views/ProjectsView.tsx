@@ -67,8 +67,8 @@ export function ProjectsHome() {
   return (
     <div class="page view-enter">
       <PageHeader
-        title="Projects"
-        lede="Pick a project to work in. Reviews, sync, and actions live inside the project."
+        title="Your projects"
+        lede="Review changes, coordinate lanes, and keep every workspace in sync."
         actions={
           <>
             <button type="button" class="ghost" onClick={() => setReloadToken((n) => n + 1)}>
@@ -79,7 +79,7 @@ export function ProjectsHome() {
               onClick={() => setCreating((v) => !v)}
               aria-expanded={creating()}
             >
-              {creating() ? 'Cancel' : 'New project'}
+              {creating() ? 'Cancel' : 'Create project'}
             </button>
           </>
         }
@@ -88,7 +88,7 @@ export function ProjectsHome() {
       <div class="toolbar">
         <input
           type="search"
-          placeholder="Filter by organizationId…"
+          placeholder="Filter by organization…"
           autocomplete="off"
           value={orgFilter()}
           onInput={(e) => setOrgFilter(e.currentTarget.value)}
@@ -100,22 +100,28 @@ export function ProjectsHome() {
 
       <Show when={creating()}>
         <form class="form-card" onSubmit={onCreate}>
-          <h2>Create project</h2>
+          <div class="form-heading">
+            <div>
+              <span class="eyebrow">New workspace</span>
+              <h2>Create a project</h2>
+              <p class="muted">Projects connect local Sorrel workspaces with reviews and sync.</p>
+            </div>
+          </div>
           <div class="form-grid two">
             <label>
-              Organization id
-              <input name="organizationId" required placeholder="org_local" autocomplete="off" />
+              Organization
+              <input name="organizationId" required placeholder="Your team" autocomplete="off" />
             </label>
             <label>
-              Name
-              <input name="name" required placeholder="Platform" autocomplete="off" />
+              Project name
+              <input name="name" required placeholder="acme-platform" autocomplete="off" />
             </label>
           </div>
           <label>
             Description
             <input name="description" placeholder="optional" autocomplete="off" />
           </label>
-          <button type="submit">Create project</button>
+          <button type="submit">Create and continue</button>
           <FormStatus message={status()} error={statusError()} />
         </form>
       </Show>
@@ -135,10 +141,10 @@ export function ProjectsHome() {
               fallback={
                 <EmptyState
                   title="No projects yet"
-                  body="Create a project to start collaborating through Hub."
+                  body="Projects connect local workspaces without moving development into the cloud."
                   action={
                     <button type="button" onClick={() => setCreating(true)}>
-                      New project
+                      Create your first project
                     </button>
                   }
                 />

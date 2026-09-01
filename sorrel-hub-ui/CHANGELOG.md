@@ -6,6 +6,9 @@ Notable changes to the shared Sorrel Hub UI (`sorrel-hub-ui`) are documented her
 
 ### Changed
 
+- Reworked the product shell, project creation flow, and project overview so
+  reviews, repositories, ownership, and local-workspace connection are visible
+  without exposing deployment internals as primary navigation.
 - Removed the Actions placeholder route and navigation until the Hub exposes a
   real Actions module.
 

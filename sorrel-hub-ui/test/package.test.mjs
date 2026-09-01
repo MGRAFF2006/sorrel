@@ -34,7 +34,7 @@ test('UI talks to Hub under /api and includes live badge wiring', async () => {
   assert.match(api, /\/capabilities/);
 
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
-  assert.match(app, /live-badge/);
+  assert.match(app, /review-badge/);
   assert.match(app, /Reviews/);
   assert.match(app, /Sync/);
   assert.match(app, /\/projects\/:projectId/);
