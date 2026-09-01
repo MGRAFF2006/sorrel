@@ -1,0 +1,151 @@
+name: Server images
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/server-images.yml
+      - deploy/sorrel-server.compose.yml
+      - scripts/check-release.mjs
+      - scripts/smoke-server-images.sh
+      - sorrel-hub/**
+      - sorrel-hub-ui/**
+      - sorrel-hub-web/**
+  push:
+    tags:
+      - '**[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+
+concurrency:
+  group: server-images-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+jobs:
+  smoke:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build release images
+        run: |
+          docker build --tag sorrel-hub:smoke ./sorrel-hub
+          docker build --tag sorrel-hub-web:smoke --file sorrel-hub-web/Dockerfile .
+      - name: Exercise the packaged stack
+        run: ./scripts/smoke-server-images.sh
+      - name: Validate release Compose file
+        env:
+          SORREL_VERSION: 0.1.0-alpha.1
+        run: docker compose --file deploy/sorrel-server.compose.yml config --quiet
+
+  validate-release:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Match the release event to coordinated metadata
+        run: npm run validate:release -- "${{ github.ref_name }}"
+
+  publish:
+    if: github.event_name == 'push'
+    needs: validate-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: sorrel-hub
+            context: ./sorrel-hub
+            file: ./sorrel-hub/Dockerfile
+          - image: sorrel-hub-web
+            context: .
+            file: ./sorrel-hub-web/Dockerfile
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: metadata
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/mgraff2006/${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }},enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+          labels: |
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+
+  attach-release-metadata:
+    if: github.event_name == 'push'
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Record immutable image references
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          : > sorrel-server-images.txt
+          for image in sorrel-hub sorrel-hub-web; do
+            reference="ghcr.io/mgraff2006/${image}:${version}"
+            digest="$(docker buildx imagetools inspect "${reference}" | awk '$1 == "Digest:" { print $2; exit }')"
+            test -n "${digest}"
+            printf '%s@%s\n' "${reference%:*}" "${digest}" >> sorrel-server-images.txt
+          done
+          cp deploy/sorrel-server.compose.yml sorrel-server.compose.yml
+          sha256sum sorrel-server.compose.yml sorrel-server-images.txt > sorrel-server-assets.sha256
+      - name: Wait for the CLI workflow to create the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          for _ in {1..180}; do
+            if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "GitHub Release ${RELEASE_TAG} was not created within 30 minutes." >&2
+          exit 1
+      - name: Attach deployment metadata to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" --clobber \
+            sorrel-server.compose.yml \
+            sorrel-server-images.txt \
+            sorrel-server-assets.sha256
