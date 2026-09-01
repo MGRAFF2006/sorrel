@@ -109,7 +109,24 @@ manual, auditable installation. Older alpha releases remain source-only. See
 [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) for platform details and
 source builds.
 
-To run the development Hub stack from a source checkout:
+Release tags produced by the current pipeline also publish versioned Linux
+amd64/arm64 images for the Hub API and browser host. Download the attached
+`sorrel-server.compose.yml`, set `SORREL_VERSION` to the tag without its `v`,
+and start the stack without a source checkout or Node.js installation:
+
+```sh
+SORREL_VERSION=<VERSION> \
+SORREL_HUB_AUTH=dev \
+SORREL_HUB_ALLOW_INSECURE_DEV_AUTH=1 \
+docker compose -f sorrel-server.compose.yml up -d
+```
+
+The release Compose file binds to `127.0.0.1` by default and does not enable
+broad bootstrap grants. Development auth remains suitable only for a trusted,
+isolated environment; see the [deployment guide](docs/GETTING_STARTED.md#host-a-release-server)
+before changing the bind address or auth mode.
+
+To run the development Hub stack from a source checkout instead:
 
 ```sh
 git clone https://github.com/MGRAFF2006/sorrel.git

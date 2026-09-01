@@ -40,6 +40,12 @@ npm run dev          # Vite on :5180, proxies /api → HUB_API_URL
 npm run build && npm start   # serve dist/ + proxy
 ```
 
+Coordinated releases also publish the unprivileged Linux amd64/arm64 image as
+`ghcr.io/mgraff2006/sorrel-hub-web:<VERSION>`. Use the release-attached
+`sorrel-server.compose.yml` to run it with the matching Hub API image; the
+complete flow and alpha security boundary are documented in
+[`docs/GETTING_STARTED.md`](../docs/GETTING_STARTED.md#host-a-release-server).
+
 Optional live Convex URL: `VITE_CONVEX_URL=http://127.0.0.1:3210`.
 
 ## Tests

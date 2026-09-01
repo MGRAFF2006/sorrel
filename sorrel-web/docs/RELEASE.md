@@ -48,6 +48,17 @@ dist plan
 The plan must include Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows
 x64 archives, their SHA-256 files, and the shell and PowerShell installers.
 
+Build and exercise the exact server containers that the server release workflow
+will publish:
+
+```sh
+docker build --tag sorrel-hub:smoke ./sorrel-hub
+docker build --tag sorrel-hub-web:smoke --file sorrel-hub-web/Dockerfile .
+./scripts/smoke-server-images.sh
+SORREL_VERSION=0.1.0-alpha.1 \
+  docker compose --file deploy/sorrel-server.compose.yml config --quiet
+```
+
 ## Tagging
 
 After checks pass on `main`:
@@ -75,14 +86,22 @@ After checks pass on `main`:
    git push origin v0.1.0-alpha.1
    ```
 
-7. The tag starts `.github/workflows/release.yml`. It builds each supported
-   binary, produces checksums and installers, and creates the GitHub Release.
-   Prerelease-style versions are marked as prereleases automatically. Do not
-   create a competing release manually while the workflow is running.
-8. Verify the workflow, published tag, installer assets, checksum files,
-   release URL, and changelog links. Install into a clean temporary environment
-   and run `sorrel --version`, `sorrel init`, and `sorrel status` before
-   announcing the release.
+7. The tag starts `.github/workflows/release.yml` and
+   `.github/workflows/server-images.yml` in parallel. The first builds each
+   supported CLI binary, produces checksums and installers, and creates the
+   GitHub Release. The second validates the same tag against
+   `release/manifest.json` and publishes attested Linux amd64/arm64
+   `sorrel-hub` and `sorrel-hub-web` images. Prerelease-style versions are
+   marked as prereleases automatically. Do not create a competing release
+   manually while the workflows are running.
+8. After the CLI workflow creates the GitHub Release, the server workflow
+   attaches the release Compose file, immutable image digests, and their
+   checksum file.
+9. Verify both workflows, the published tag, CLI installer assets, server
+   assets, public GHCR pulls, release URL, and changelog links. In clean
+   temporary environments, run `sorrel --version`, `sorrel init`, and
+   `sorrel status`, then start the release Compose stack and probe `/healthz`
+   through both the API and `/api` proxy before announcing the release.
 
 Tags are release anchors; do not move or recreate them. A correction gets a new
 prerelease version.
