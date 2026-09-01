@@ -11,6 +11,15 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Reworked the Hub interface around a familiar developer-platform shell with
+  review-first project overviews, clearer onboarding, human-readable
+  deployment status, an explicit local-compute product boundary, public-site
+  visual language, and focused modal project creation.
+- Added the public Sorrel favicon to Hub, labeled the current deployment as
+  local development, and refined Reviews and Repositories toward product
+  language instead of transport and administration terminology.
+- Made the redesigned Hub shell, navigation, status controls, master-detail
+  views, tables, forms, and dialogs responsive across tablet and phone widths.
 - Overhauled the public documentation with a consistent editorial reading
   system, clearer navigation, improved code and table treatments, responsive
   guide layouts, browser-history-aware guide switching, syntax-highlighted

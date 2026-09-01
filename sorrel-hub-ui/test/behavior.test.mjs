@@ -25,7 +25,7 @@ test('App is project-first and exposes only implemented feature routes', async (
     fs.readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   );
   assert.doesNotMatch(app, /ActionsPlaceholder|\/actions/);
-  assert.match(app, /live-badge/);
+  assert.match(app, /review-badge/);
   assert.match(app, /useOpenProposalsCount/);
   assert.match(app, /useOpenProposalsCountFromHub/);
   assert.match(app, /IdentityChip/);
@@ -62,8 +62,8 @@ test('Reviews view covers proposal transitions and comment resolve', async () =>
   assert.match(reviews, /state: 'resolved'/);
   assert.match(reviews, /DetailCommentForm/);
   assert.match(reviews, /admin\/proposals/);
-  assert.match(reviews, /Select a proposal/);
-  assert.match(reviews, /New proposal/);
+  assert.match(reviews, /Select a review/);
+  assert.match(reviews, /Open review/);
   assert.match(reviews, /useParams/);
   assert.match(reviews, /projectId/);
 });
@@ -80,12 +80,12 @@ test('Projects and Sync views handle empty and error states', async () => {
   );
   assert.match(projects, /No projects yet/);
   assert.match(projects, /Could not load projects/);
-  assert.match(projects, /New project/);
+  assert.match(projects, /Create project/);
   assert.match(projects, /ProjectsHome/);
   assert.match(projects, /\/projects\//);
   assert.match(overview, /ProjectOverview/);
   assert.match(overview, /Go to Reviews|View all/);
-  assert.match(sync, /No sync repos linked to this project/);
+  assert.match(sync, /No repositories connected yet/);
   assert.match(sync, /No refs/);
   assert.match(sync, /Could not load/);
   assert.match(sync, /sync-split/);
@@ -98,7 +98,7 @@ test('responsive CSS covers mobile header/nav breakpoints', async () => {
   );
   assert.match(css, /@media \(max-width: 860px\)/);
   assert.match(css, /prefers-reduced-motion/);
-  assert.match(css, /\.live-badge/);
+  assert.match(css, /\.review-badge/);
   assert.match(css, /\.app-shell/);
   assert.match(css, /\.app-sidebar/);
   assert.match(css, /\.split/);
