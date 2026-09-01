@@ -266,17 +266,6 @@ a {
   border-color: rgba(136, 192, 208, 0.28);
 }
 
-.nav-item .badge-count {
-  font-size: 0.7rem;
-  font-weight: 700;
-  background: var(--bg-deep);
-  color: var(--accent);
-  border-radius: 999px;
-  padding: 0.05rem 0.45rem;
-  min-width: 1.15rem;
-  text-align: center;
-}
-
 .side-meta {
   margin-top: auto;
   padding: 0.65rem 0.7rem;
@@ -321,10 +310,6 @@ a {
   max-width: 1280px;
   width: 100%;
   margin: 0 auto;
-}
-
-.app-footer {
-  display: none;
 }
 
 /* —— Status chips —— */
@@ -644,12 +629,6 @@ select:focus {
   font-weight: 600;
 }
 
-.tabs {
-  display: flex;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-}
-
 /* —— Tables & lists —— */
 
 .data-table {
@@ -940,18 +919,6 @@ select:focus {
 .refs ul {
   margin: 0.15rem 0 0;
   padding-left: 1rem;
-}
-
-.panel {
-  /* compat alias */
-}
-
-.panel-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 0.75rem;
 }
 
 @keyframes rise {

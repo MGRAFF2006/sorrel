@@ -1,5 +1,5 @@
 import path from "node:path";
-import { loadDotEnvFile, parseDotEnv } from "./dotenv.mjs";
+import { loadDotEnvFile } from "./dotenv.mjs";
 import {
   AccessDeniedError,
   POLICY_DECISION_STATUS,
@@ -427,5 +427,3 @@ export function parseArgs(argv, { booleanFlags = new Set(["help"]) } = {}) {
 
   return { command: positionals[0], positionals: positionals.slice(1), flags };
 }
-
-export { parseDotEnv };
