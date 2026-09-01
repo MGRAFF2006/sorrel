@@ -460,7 +460,7 @@ jobs:
   log('sorrel-sdk-rust', 'Workspace against sorrel-core');
 
   const { AgentControlPlane } = await import(join(AGENTS_DIR, 'src/index.js'));
-  const plane = new AgentControlPlane({ hubUrl, workspace: workA });
+  const plane = new AgentControlPlane({ workspace: workA });
   const agent = await plane.registerAgent({ id: 'agent_e2e', lane: 'lane_main' });
   assert.equal(agent.id, 'agent_e2e');
   const claim = await plane.claimPath({ agentId: 'agent_e2e', path: 'a.txt' });

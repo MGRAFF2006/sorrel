@@ -9,8 +9,6 @@ rust-version.workspace = true
 
 [dependencies]
 sorrel-core = { path = "../sorrel-core" }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
 thiserror = "2.0.18"
 
 [dev-dependencies]

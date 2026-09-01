@@ -349,7 +349,7 @@ pub fn pull(
         downloaded += 1;
     }
 
-    let lane = head.lane.clone();
+    let lane = head.lane;
     repo::write_head(&Head {
         lane,
         snapshot: remote_snapshot.to_hex(),

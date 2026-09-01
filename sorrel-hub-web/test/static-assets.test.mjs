@@ -4,7 +4,13 @@ import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 test('thin host entrypoints exist', async () => {
-  for (const name of ['index.html', 'src/main.tsx', 'vite.config.ts', 'server/static-server.mjs']) {
+  for (const name of [
+    'index.html',
+    'src/main.tsx',
+    'vite.config.ts',
+    'server/hub-web-server.mjs',
+    'server/static-server.mjs',
+  ]) {
     const info = await stat(new URL(`../${name}`, import.meta.url));
     assert.ok(info.isFile(), `${name} should be a file`);
   }
@@ -33,7 +39,18 @@ test('package depends on shared hub-ui', async () => {
   assert.match(pkg.scripts.build, /vite build/);
 });
 
-test('static server module path resolves', async () => {
-  const url = fileURLToPath(new URL('../server/static-server.mjs', import.meta.url));
-  assert.ok(url.endsWith('static-server.mjs'));
+test('Vite resolves the declared package instead of a sibling source alias', async () => {
+  const config = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
+  assert.match(config, /preserveSymlinks:\s*true/);
+  assert.doesNotMatch(config, /sorrel-hub-ui\/src/);
+});
+
+test('test and production listeners share one server implementation', async () => {
+  const production = await readFile(new URL('../server/static-server.mjs', import.meta.url), 'utf8');
+  const testListener = await readFile(new URL('../scripts/listen.mjs', import.meta.url), 'utf8');
+  assert.match(production, /createHubWebServer/);
+  assert.match(testListener, /createHubWebServer/);
+
+  const url = fileURLToPath(new URL('../server/hub-web-server.mjs', import.meta.url));
+  assert.ok(url.endsWith('hub-web-server.mjs'));
 });

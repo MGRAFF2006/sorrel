@@ -14,11 +14,6 @@ import { readFileSync } from 'node:fs';
 export const BOOTSTRAP_OBJECT_WRITE_GRANT_ID = 'grant_local_object_write';
 export const BOOTSTRAP_REF_WRITE_GRANT_ID = 'grant_local_ref_write';
 
-export const LOCAL_BOOTSTRAP_PRINCIPAL = Object.freeze({
-  type: 'user',
-  id: 'local',
-});
-
 /**
  * @returns {Record<string, object>}
  */

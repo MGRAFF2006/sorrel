@@ -101,16 +101,3 @@ export function EmptyState(props: {
     </div>
   );
 }
-
-export function MetaGrid(props: { entries: Array<{ label: string; value: string; mono?: boolean }> }) {
-  return (
-    <dl class="detail-meta">
-      {props.entries.map((entry) => (
-        <>
-          <dt>{entry.label}</dt>
-          <dd class={entry.mono ? 'mono' : undefined}>{entry.value}</dd>
-        </>
-      ))}
-    </dl>
-  );
-}

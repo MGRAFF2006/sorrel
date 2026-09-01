@@ -791,7 +791,7 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
 
     // Advance HEAD to the new snapshot on the current lane.
     repo::write_head(&repo::Head {
-        lane: head.lane.clone(),
+        lane: head.lane,
         snapshot: new_snapshot.to_hex(),
     })?;
 
@@ -1326,7 +1326,7 @@ fn lane_list_output() -> io::Result<CommandOutput> {
     repo::ensure_heads_migrated()?;
 
     let entries = repo::list_registry_entries(repo::LANES_DIR)?;
-    let active_lane = head.lane.clone();
+    let active_lane = head.lane;
     let mut objects = Vec::with_capacity(entries.len());
     let mut human = String::new();
 
@@ -1450,7 +1450,7 @@ fn lane_submit_output(args: LaneSubmitArgs) -> io::Result<CommandOutput> {
     } = open_repo()?;
     let snapshot_id = head_snapshot_id(&head)?
         .ok_or_else(|| io::Error::other("HEAD has no snapshot to submit"))?;
-    let source_lane = head.lane.clone();
+    let source_lane = head.lane;
     let snapshot_hex = snapshot_id.to_hex();
 
     let remotes = repo::load_remotes()?;
@@ -1596,9 +1596,9 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
     let previous = head_snapshot_id(&head)?.unwrap_or(imported.empty_base_snapshot);
     restore_worktree_to_snapshot(&store, &previous, &imported.head_snapshot)?;
 
-    let lane = head.lane.clone();
+    let lane = head.lane;
     repo::write_head(&repo::Head {
-        lane: lane.clone(),
+        lane,
         snapshot: head_hex.clone(),
     })?;
 
@@ -1691,7 +1691,7 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
     }
 
     let mut options = GitExportOptions::new(&git_path, tip);
-    options.branch = args.branch.clone();
+    options.branch = args.branch;
     options.snapshot_to_git = snapshot_to_git;
 
     let exported = to_io(git_export(&store, options))?;
@@ -2131,7 +2131,7 @@ fn park_git_lane(
     for entry in repo::list_registry_entries(repo::LANES_DIR)? {
         if entry.get("name").and_then(Value::as_str) == Some(name.as_str()) {
             if let Some(id) = entry.get("id").and_then(Value::as_str).map(str::to_owned) {
-                let mut updated = entry.clone();
+                let mut updated = entry;
                 updated["headSnapshot"] = json!({ "kind": "Snapshot", "id": theirs_hex });
                 repo::write_registry_entry(repo::LANES_DIR, &id, &updated)?;
                 repo::write_lane_head(&id, &theirs_hex)?;
@@ -2389,7 +2389,7 @@ fn merge_continue_output() -> io::Result<CommandOutput> {
 
     let result_hex = result_snapshot.to_hex();
     repo::write_head(&repo::Head {
-        lane: head.lane.clone(),
+        lane: head.lane,
         snapshot: result_hex.clone(),
     })?;
 
@@ -2531,7 +2531,7 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
     if base_id == ours_id {
         restore_worktree_to_snapshot(&store, &ours_id, &theirs_id)?;
         repo::write_head(&repo::Head {
-            lane: head.lane.clone(),
+            lane: head.lane,
             snapshot: theirs_hex.clone(),
         })?;
 
@@ -2599,7 +2599,7 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
 
     let result_hex = result_snapshot.to_hex();
     repo::write_head(&repo::Head {
-        lane: head.lane.clone(),
+        lane: head.lane,
         snapshot: result_hex.clone(),
     })?;
 
@@ -2805,7 +2805,7 @@ fn policy_evaluate_output(args: PolicyEvaluateArgs) -> io::Result<CommandOutput>
     let context = PolicyContext::headless_default();
     let core_decision = evaluate(
         &EvaluateInput {
-            principal: principal.clone(),
+            principal,
             action: args.action.clone(),
             resource: resource.clone(),
             environment: Some(args.environment.clone()),

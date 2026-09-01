@@ -7,10 +7,9 @@ import { join } from 'node:path';
 
 export class AgentControlPlane {
   /**
-   * @param {{ hubUrl?: string, workspace?: string, stateDir?: string }} options
+   * @param {{ workspace?: string, stateDir?: string }} options
    */
   constructor(options = {}) {
-    this.hubUrl = options.hubUrl ? options.hubUrl.replace(/\/$/, '') : null;
     this.workspace = options.workspace ?? null;
     this.stateDir =
       options.stateDir ??
@@ -76,23 +75,6 @@ export class AgentControlPlane {
     };
     this.agents.set(agent.id, agent);
     this.#persist();
-
-    if (this.hubUrl) {
-      // Mirror registration as a Hub project note via POST /projects when possible.
-      try {
-        await fetch(`${this.hubUrl}/projects`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            organizationId: 'org_agents',
-            name: `Agent ${agent.id}`,
-            description: `lane=${agent.lane}`,
-          }),
-        });
-      } catch {
-        // Hub may be unreachable in unit tests without network; local state still holds.
-      }
-    }
     return agent;
   }
 
