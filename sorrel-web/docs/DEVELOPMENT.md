@@ -83,7 +83,8 @@ mocks.
 3. Refresh consumers with `./scripts/sync-conformance.sh`.
 4. Update Rust/JavaScript implementations together.
 5. Run `npm run validate:conformance` and all affected module checks.
-6. Add a changelog entry if the contract or behavior is user-visible.
+6. Give the PR a clear user-facing title so release automation can categorize
+   it and map the changed paths to affected package changelogs.
 
 Never hand-edit vendored `test(s)/conformance/` copies.
 
@@ -194,8 +195,15 @@ task packs, progress dashboards, or duplicated feature-audit documents.
 
 ## Changelog and release hygiene
 
-- Add user-visible work under `Unreleased` in the root changelog and every
-  affected package changelog.
+- Contributors do not manually maintain routine `Unreleased` entries. The
+  **Prepare changelogs** workflow derives them from merged PR metadata and maps
+  changed paths to affected package changelogs.
+- Use a concise PR title that describes user or operator impact. Conventional
+  prefixes such as `feat:` and `fix:` improve categorization but are optional;
+  unknown formats safely land under `Changed`.
+- Maintainers may apply `skip-changelog` to omit internal-only work. Direct
+  commits remain root changes but cannot be mapped to a package, so normal work
+  should still go through pull requests.
 - The root changelog is the coordinated release summary; package changelogs are
   the detailed component history.
 - `STATUS.md` is a current snapshot and `ROADMAP.md` is future-only. Neither is
