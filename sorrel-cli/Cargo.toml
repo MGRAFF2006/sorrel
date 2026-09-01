@@ -15,7 +15,7 @@ clap = { version = "=4.5.4", features = ["derive"] }
 secretspec = { version = "0.18.0", default-features = false, features = ["keyring", "cli"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-serde_yaml = "0.9.34"
+serde_yaml_ng = "0.10.0"
 sorrel-core = { path = "../sorrel-core" }
 ureq = { version = "2.12.1", default-features = false, features = ["json"] }
 
