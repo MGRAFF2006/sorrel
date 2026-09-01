@@ -45,8 +45,17 @@ Validate the binary distribution plan with the `dist` version pinned in
 dist plan
 ```
 
-The plan must include Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows
-x64 archives, their SHA-256 files, and the shell and PowerShell installers.
+The dist plan must include CLI archives for Linux x64/ARM64, macOS
+Intel/Apple Silicon, and Windows x64/ARM64, plus their SHA-256 files and the
+shell and PowerShell installers.
+
+The release workflow also builds Sorrel Hub desktop installers on native
+runners for the same six OS/architecture pairs. The Windows ARM64 job runs on
+`windows-11-arm`; a release is not published if any required desktop
+bundle job fails. `dist-workspace.toml` registers the reusable
+`.github/workflows/build-desktop.yml` job, so `dist generate` preserves the
+dependency automatically; review both generated and reusable workflows when
+the release matrix changes.
 
 ## Tagging
 
@@ -75,14 +84,16 @@ After checks pass on `main`:
    git push origin v0.1.0-alpha.1
    ```
 
-7. The tag starts `.github/workflows/release.yml`. It builds each supported
-   binary, produces checksums and installers, and creates the GitHub Release.
+7. The tag starts `.github/workflows/release.yml`. It builds each supported CLI
+   binary and desktop app, produces checksums and installers, and creates the
+   GitHub Release.
    Prerelease-style versions are marked as prereleases automatically. Do not
    create a competing release manually while the workflow is running.
 8. Verify the workflow, published tag, installer assets, checksum files,
    release URL, and changelog links. Install into a clean temporary environment
-   and run `sorrel --version`, `sorrel init`, and `sorrel status` before
-   announcing the release.
+   and run `sorrel --version`, `sorrel init`, and `sorrel status`. Smoke-test
+   the desktop app against a loopback Hub on every OS/architecture family
+   before announcing the release.
 
 Tags are release anchors; do not move or recreate them. A correction gets a new
 prerelease version.

@@ -13,9 +13,10 @@ test('platform stubs expose expected capability matrix', async () => {
   assert.match(source, /kind: 'web'/);
   assert.match(source, /kind: 'desktop'/);
   assert.match(source, /kind: 'mobile'/);
-  assert.match(source, /localCore: true/);
+  assert.match(source, /localCore: false/);
   assert.match(source, /biometrics: true/);
   assert.match(source, /createDesktopPlatformStub/);
+  assert.match(source, /createDesktopPlatform/);
   assert.match(source, /createMobilePlatformStub/);
   assert.match(source, /createWebPlatform/);
 });
@@ -51,6 +52,20 @@ test('session store and /session client wiring exist', async () => {
   assert.match(api, /fetchSession/);
   assert.match(api, /setPrincipalProvider/);
   assert.match(api, /\/session/);
+});
+
+test('API transport can be configured by native hosts', async () => {
+  const api = await import('node:fs/promises').then((fs) =>
+    fs.readFile(new URL('../src/api.ts', import.meta.url), 'utf8'),
+  );
+  const entry = await import('node:fs/promises').then((fs) =>
+    fs.readFile(new URL('../src/index.tsx', import.meta.url), 'utf8'),
+  );
+
+  assert.match(api, /configureApiClient/);
+  assert.match(api, /apiFetch\(`\$\{apiBase\}\$\{path\}`/);
+  assert.match(entry, /apiBase\?: string/);
+  assert.match(entry, /fetch\?: ApiFetch/);
 });
 
 test('Reviews view covers proposal transitions and comment resolve', async () => {

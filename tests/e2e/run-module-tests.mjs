@@ -22,6 +22,7 @@ const JOB_DEFINITIONS = {
   'sorrel-runners': { cwd: '.', cmd: ['cargo', 'test', '-p', 'sorrel-runners'] },
   'sorrel-slices': { cwd: 'sorrel-slices', cmd: ['npm', 'run', 'check'] },
   'sorrel-hub': { cwd: 'sorrel-hub', cmd: ['npm', 'run', 'check'] },
+  'sorrel-hub-desktop': { cwd: 'sorrel-hub-desktop', cmd: ['npm', 'run', 'check'] },
   'sorrel-hub-ui': { cwd: 'sorrel-hub-ui', cmd: ['npm', 'run', 'check'] },
   'sorrel-hub-web': { cwd: 'sorrel-hub-web', cmd: ['npm', 'run', 'check'] },
   'sorrel-sdk-js': { cwd: 'sorrel-sdk-js', cmd: ['npm', 'run', 'check'] },

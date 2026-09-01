@@ -2,10 +2,11 @@
 
 ## What this module is
 
-Shared **SolidJS product UI** for Sorrel Hub. Browser, Tauri desktop, and Tauri
-mobile hosts mount the same package; they do not fork the product UI.
+Shared **SolidJS product UI** for Sorrel Hub. Browser, Tauri desktop, and future
+Tauri mobile hosts mount the same package; they do not fork the product UI.
 
 - `sorrel-hub-ui` (this package): shared UI + platform stubs
+- `sorrel-hub-desktop`: native Tauri host
 - `sorrel-hub-web`: thin browser host
 - `sorrel-hub`: Hub API server
 - `sorrel-web`: unrelated public marketing site
@@ -17,7 +18,7 @@ mobile hosts mount the same package; they do not fork the product UI.
 - **Project-first IA** (GitHub-like): `/` lists projects; Reviews and Sync nest
   under `/projects/:id`; unimplemented modules stay out of navigation.
 - Motion for route/panel enter only — **never** on diff scroll (diff island later)
-- Platform seams via `platform.ts` (`web` | `desktop` | `mobile` stubs)
+- Platform seams via `platform.ts` (`web` | `desktop` | `mobile`)
 - Live metadata via Convex when configured; Hub API fallback otherwise
 - Dev identity via acting-principal presets (`session.ts`); `GET /session` for Hub auth mode
 

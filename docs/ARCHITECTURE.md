@@ -17,7 +17,7 @@ secret prototypes, and small SDK/control-plane packages.
 human / agent / SDK
         |
         v
-  sorrel CLI or Hub UI
+  sorrel CLI or Hub UI (web/desktop)
         |
         +----------------------+
         |                      |
@@ -46,6 +46,7 @@ no authoritative policy or VCS data.
 | `sorrel-cli` | Persistent `.sorrel/` workspace and user/agent command surface | Rust binary/library |
 | `sorrel-hub` | JSON API, product metadata, sync store, auth adapters, capabilities | Node HTTP server |
 | `sorrel-hub-ui` | Shared SolidJS product UI and platform seams | Browser/Tauri-ready library |
+| `sorrel-hub-desktop` | Native host, scoped Hub transport, notifications, external links | Tauri on Windows/macOS/Linux |
 | `sorrel-hub-web` | Browser mount, Vite build, static server, `/api` proxy | Browser + Node host |
 | `sorrel-runners` | Workflow parsing and local/container execution | Rust library |
 | `sorrel-vault` | Secret declaration schema and local reference/redaction tooling | Node tooling |
@@ -119,12 +120,16 @@ Hub separates product metadata from VCS transport:
   enforcement.
 - `/capabilities` describes installed modules, auth mode, deployment shape, and
   optional Convex availability. `/session` exposes the resolved Hub session.
-- The shared SolidJS UI calls Hub through the browser host's `/api` proxy.
+- The shared SolidJS UI calls Hub through a host-injected transport: the
+  browser host's `/api` proxy or the desktop shell's scoped Tauri HTTP client.
+- The desktop shell currently permits only loopback Hub URLs and does not claim
+  local Core, keychain, or deep-link capabilities. Those require stable
+  embedding and production-auth contracts.
 - Optional Convex state mirrors proposal metadata only. VCS objects and refs do
   not move into Convex.
 
-The development stack is intentionally modular: Hub API, shared UI, browser
-host, and public website are four distinct packages.
+The development stack is intentionally modular: Hub API, shared UI, desktop
+host, browser host, and public website are distinct packages.
 
 ## Identity, policy, and secrets
 
