@@ -1186,7 +1186,36 @@ body::before {
   backdrop-filter: blur(18px);
 }
 .topbar-context, .review-badge, .status-label { font-family: var(--mono); }
-.review-badge { border-radius: 0; }
+.header-status { gap: 0; }
+.identity-chip, .review-badge, .status {
+  min-height: 2rem;
+  padding: .35rem .65rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-right-width: 0;
+  border-radius: 0;
+}
+.status { border-right-width: 1px; }
+.status-ok, .status-down, .status-unknown {
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--border);
+}
+.status-ok .status-dot { color: var(--accent-2); }
+.status-down .status-dot { color: var(--error); }
+.identity-mode {
+  padding-right: .5rem;
+  border-right: 1px solid var(--border);
+  font-family: var(--mono);
+}
+.identity-select {
+  min-height: auto;
+  padding: 0 .9rem 0 .2rem;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.identity-select:focus-visible { border-radius: 0; }
 
 .app-main { padding: 0; }
 .page { width: min(100%, 76rem); margin: 0 auto; padding: 4.5rem 2.25rem 6rem; }
