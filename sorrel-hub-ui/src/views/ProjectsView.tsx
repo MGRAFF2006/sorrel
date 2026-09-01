@@ -76,10 +76,10 @@ export function ProjectsHome() {
             </button>
             <button
               type="button"
-              onClick={() => setCreating((v) => !v)}
+              onClick={() => setCreating(true)}
               aria-expanded={creating()}
             >
-              {creating() ? 'Cancel' : 'Create project'}
+              Create project <span aria-hidden="true">＋</span>
             </button>
           </>
         }
@@ -99,31 +99,39 @@ export function ProjectsHome() {
       </div>
 
       <Show when={creating()}>
-        <form class="form-card" onSubmit={onCreate}>
-          <div class="form-heading">
-            <div>
-              <span class="eyebrow">New workspace</span>
-              <h2>Create a project</h2>
-              <p class="muted">Projects connect local Sorrel workspaces with reviews and sync.</p>
+        <div class="dialog-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setCreating(false);
+        }}>
+          <form class="form-card project-dialog" role="dialog" aria-modal="true" aria-labelledby="create-project-title" onSubmit={onCreate}>
+            <div class="dialog-heading">
+              <div>
+                <span class="eyebrow">01 / New workspace</span>
+                <h2 id="create-project-title">Create a project</h2>
+                <p class="muted">A shared home for reviews, repositories, and local workspaces.</p>
+              </div>
+              <button class="dialog-close" type="button" aria-label="Close dialog" onClick={() => setCreating(false)}>×</button>
             </div>
-          </div>
-          <div class="form-grid two">
+            <div class="form-grid two">
             <label>
-              Organization
+              <span>Organization</span>
               <input name="organizationId" required placeholder="Your team" autocomplete="off" />
             </label>
             <label>
-              Project name
+              <span>Project name</span>
               <input name="name" required placeholder="acme-platform" autocomplete="off" />
             </label>
-          </div>
-          <label>
-            Description
-            <input name="description" placeholder="optional" autocomplete="off" />
-          </label>
-          <button type="submit">Create and continue</button>
-          <FormStatus message={status()} error={statusError()} />
-        </form>
+            </div>
+            <label>
+              <span>Description <i>optional</i></span>
+              <textarea name="description" rows={3} placeholder="What is this project for?" />
+            </label>
+            <div class="dialog-actions">
+              <button type="button" class="ghost" onClick={() => setCreating(false)}>Cancel</button>
+              <button type="submit">Create and continue <span aria-hidden="true">→</span></button>
+            </div>
+            <FormStatus message={status()} error={statusError()} />
+          </form>
+        </div>
       </Show>
 
       <div class="surface surface-flush" aria-live="polite">

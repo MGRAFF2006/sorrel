@@ -151,7 +151,7 @@ function HomeLayout(
         <p class="nav-eyebrow">Workspace</p>
         <nav class="side-nav" aria-label="Primary">
           <A href="/" class="nav-item" end activeClass="active">
-            <span class="nav-icon" aria-hidden="true">⌂</span>Projects
+            <span class="nav-index" aria-hidden="true">01</span>Projects
           </A>
         </nav>
         <div class="sidebar-callout">
@@ -214,13 +214,13 @@ function ProjectLayout(
 
         <nav class="side-nav" aria-label="Project">
           <A href={base()} class="nav-item" end activeClass="active">
-            <span class="nav-icon" aria-hidden="true">⌂</span>Overview
+            <span class="nav-index" aria-hidden="true">01</span>Overview
           </A>
           <A href={`${base()}/reviews`} class="nav-item" activeClass="active">
-            <span class="nav-icon" aria-hidden="true">✓</span>Reviews
+            <span class="nav-index" aria-hidden="true">02</span>Reviews
           </A>
           <A href={`${base()}/sync`} class="nav-item" activeClass="active">
-            <span class="nav-icon" aria-hidden="true">↕</span>Repositories
+            <span class="nav-index" aria-hidden="true">03</span>Repositories
           </A>
         </nav>
 

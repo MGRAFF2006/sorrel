@@ -15,7 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Reworked the Hub interface around a familiar developer-platform shell with
   review-first project overviews, clearer onboarding, human-readable
-  deployment status, and an explicit local-compute product boundary.
+  deployment status, an explicit local-compute product boundary, public-site
+  visual language, and focused modal project creation.
 - Overhauled the public landing page with a new editorial layout, interactive
   lane-graph visual, clearer architecture and workflow storytelling, and a
   more candid developer-preview status presentation.
