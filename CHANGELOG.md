@@ -13,6 +13,10 @@ No changes yet.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 
+Second developer preview focused on installability, a more complete Hub
+interface, and repeatable releases. It adds downloadable CLI artifacts and
+hostable server images while preserving Sorrel's prerelease boundaries.
+
 ### Added
 
 - Add automatic coordinated changelog preparation ([#73](https://github.com/MGRAFF2006/sorrel/pull/73)).
@@ -45,6 +49,23 @@ No changes yet.
 - Guard module test inventory against release manifest ([#57](https://github.com/MGRAFF2006/sorrel/pull/57)).
 - Reject unsupported run log following ([#59](https://github.com/MGRAFF2006/sorrel/pull/59)).
 - Correct policy conformance architecture notes ([#66](https://github.com/MGRAFF2006/sorrel/pull/66)).
+
+### Security
+
+- Published server images run as non-root users, include provenance and SBOM
+  attestations, and ship with a localhost-only, read-only Compose example.
+- Hosting the images on an untrusted network still requires a production
+  AuthAdapter and carefully scoped bootstrap grants; development auth and the
+  insecure-demo override are not production-safe.
+
+### Known limitations
+
+- This remains a prerelease. Protocol, CLI JSON, Rust APIs, and persisted
+  formats may change before 1.0, and general workspace/Hub migrations are not
+  available yet.
+- Hub production sessions and login UI remain incomplete. WorkOS sealed
+  sessions, IdP login, and a production authorization-provisioning path are not
+  shipped in this release.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
