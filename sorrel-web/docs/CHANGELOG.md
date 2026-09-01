@@ -19,6 +19,8 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Added cross-platform CLI release binaries, SHA-256 checksums, and shell and
   PowerShell installers for Linux, macOS, and Windows; `sorrel init` now ends
   with a short guided first-change workflow.
+- Added structured pull-request, bug-report, and feature-request templates with
+  explicit testing, compatibility, documentation, and changelog prompts.
 - Removed the agent-control-plane workaround that represented agent
   registrations as unrelated Hub projects; agent coordination remains local
   until Hub exposes a real agent contract.
