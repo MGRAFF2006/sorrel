@@ -73,7 +73,7 @@ pub fn workflow_run_output(args: WorkflowRunJobArgs) -> CommandOutput {
     let context = workflow_execution_context();
     let evaluator = CorePermissionEvaluator {
         context: &context,
-        principal: principal.clone(),
+        principal,
     };
 
     if let Err(denial) = evaluator.authorize(&bundle) {
@@ -232,7 +232,7 @@ fn persist_run(
     let id = run_log::new_run_id();
     let mut manifest = RunManifest {
         schema_version: 1,
-        id: id.clone(),
+        id,
         started_at: run_log::now_rfc3339(),
         finished_at: None,
         backend: outcome.backend.clone(),
