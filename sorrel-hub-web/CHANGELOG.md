@@ -4,7 +4,11 @@ Notable changes to the Sorrel Hub web companion are documented here.
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+
+- The Vite host now resolves the declared `sorrel-hub-ui` package dependency
+  without reaching into the sibling package's private source path, so a clean
+  `sorrel-hub-web` install can build independently.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 

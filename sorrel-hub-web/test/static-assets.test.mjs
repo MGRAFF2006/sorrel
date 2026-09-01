@@ -39,6 +39,12 @@ test('package depends on shared hub-ui', async () => {
   assert.match(pkg.scripts.build, /vite build/);
 });
 
+test('Vite resolves the declared package instead of a sibling source alias', async () => {
+  const config = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
+  assert.match(config, /preserveSymlinks:\s*true/);
+  assert.doesNotMatch(config, /sorrel-hub-ui\/src/);
+});
+
 test('test and production listeners share one server implementation', async () => {
   const production = await readFile(new URL('../server/static-server.mjs', import.meta.url), 'utf8');
   const testListener = await readFile(new URL('../scripts/listen.mjs', import.meta.url), 'utf8');
