@@ -55,7 +55,7 @@ product on top.
 The public guides and changelog are mirrored onto the landing site
 (`sorrel-web` → Cloudflare) under `/docs/`.
 
-## Status at a glance (2026-08-31)
+## Status at a glance (2026-09-01)
 
 **Working today**
 
@@ -65,6 +65,7 @@ The public guides and changelog are mirrored onto the landing site
 - SecretSpec-backed secret resolution/injection under Core grants, devenv-aware
   local workflows, and structured redacted run logs
 - Development Hub with FS-backed sync + metadata; writable Hub UI companion
+- Native Hub companion for iPhone, iPad, Android phones, and Android tablets
 - Vault, runners, slices prototypes; public landing site live on Cloudflare
 - **Single monorepo** — clone once, no submodule tokens
 
@@ -73,7 +74,7 @@ The public guides and changelog are mirrored onto the landing site
 - Production Hub authentication and signed client identity
 - Stable embedding surface (C ABI / N-API / WASM / daemon)
 - Complete devenv task mapping, run-log streaming, and a hosted/BYO secret backend
-- Desktop/mobile applications
+- Desktop distribution and on-device Core embedding
 
 Details: [`docs/STATUS.md`](docs/STATUS.md).
 
@@ -152,6 +153,7 @@ Everything lives in this repository as normal packages:
 | `sorrel-hub` | Collaboration **API server** | Active (dev-only) |
 | `sorrel-hub-ui` | Shared SolidJS Hub product UI | Active (dev-only) |
 | `sorrel-hub-web` | Thin browser host for Hub UI | Active (dev-only) |
+| `sorrel-hub-mobile` | Native phone/tablet Hub companion | Active (dev-only) |
 | `sorrel-web` | Public landing (Cloudflare) | Live |
 | `sorrel-agents` | Agent control plane (minimal) | Active |
 | `sorrel-sdk-js` | Hub HTTP client SDK | Active |

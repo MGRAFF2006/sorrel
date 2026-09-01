@@ -269,6 +269,25 @@ sorrel pull origin   # downloads objects and restores the working tree
 The alpha Hub has no production authentication. Do not expose it to an
 untrusted network. See [`SECURITY.md`](../SECURITY.md).
 
+## Run the mobile Hub companion
+
+The source app targets iPhone, iPad, Android phones, and Android tablets:
+
+```sh
+cd sorrel-hub-mobile
+npm ci
+npm start         # scan with Expo Go on a physical device
+npm run ios       # macOS + Xcode simulator/device
+npm run android   # Android emulator/device
+```
+
+Enter a Hub origin the device can reach, without `/api`. Remote deployments
+should use HTTPS. Plain HTTP is reserved for a trusted development network and
+requires the Hub's explicit non-loopback development-auth opt-in. Optional OIDC
+bearer credentials are stored in iOS Keychain or Android Keystore and are never
+prefilled. See [`sorrel-hub-mobile/README.md`](../sorrel-hub-mobile/README.md)
+for navigation, tablet, and EAS build details.
+
 ## Validate modules
 
 From the repo root, run the full-stack E2E (real Hub + CLI + vault + slices +
@@ -291,7 +310,7 @@ cargo fmt --all -- --check
 ```
 
 Node (`sorrel-protocol`, `sorrel-hub`, `sorrel-hub-ui`, `sorrel-hub-web`,
-`sorrel-vault`, `sorrel-slices`, `sorrel-sdk-js`, `sorrel-agents`). Run each
+`sorrel-hub-mobile`, `sorrel-vault`, `sorrel-slices`, `sorrel-sdk-js`, `sorrel-agents`). Run each
 package's complete local gate:
 
 ```sh

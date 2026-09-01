@@ -9,6 +9,7 @@
     "sorrel-cli": true,
     "sorrel-core": true,
     "sorrel-hub": true,
+    "sorrel-hub-mobile": false,
     "sorrel-hub-ui": true,
     "sorrel-hub-web": true,
     "sorrel-protocol": true,

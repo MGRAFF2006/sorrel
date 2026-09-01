@@ -21,6 +21,16 @@ await hub.listProjects();
 await hub.listSyncRepos();
 ```
 
+Remote OIDC deployments can pass an access token. The client sends it as a
+Bearer credential and never includes it in request errors:
+
+```js
+const hub = new HubClient({ baseUrl, accessToken });
+await hub.session();
+```
+
+TypeScript declarations are included with the package.
+
 ## Checks
 
 ```sh

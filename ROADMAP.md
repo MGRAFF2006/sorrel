@@ -1,6 +1,6 @@
 # Sorrel Roadmap
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 Forward-only plan for the Sorrel monorepo. Shipped progress belongs in
 [GitHub Releases](https://github.com/MGRAFF2006/sorrel/releases) and
@@ -67,9 +67,12 @@ SDKs and apps.
 Minimal `sorrel-agents`, `sorrel-sdk-js`, and `sorrel-sdk-rust` surfaces shipped
 in the alpha. Stabilize and extend them after lanes and embedding settle.
 
-### 9. Apps — desktop then mobile (last)
+### 9. Apps — desktop then mobile — IN PROGRESS
 
-Tauri desktop, then thinner mobile clients. Do not start before item 7.
+A thin native mobile Hub companion now covers projects, reviews/comments, and
+repository refs on iOS/iPadOS/Android without pretending to embed Core. Tauri
+desktop distribution and on-device workspace/VCS workflows remain ahead. Local
+workspace features still wait for item 7's stable embedding surface.
 
 ## Not yet
 
