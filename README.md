@@ -79,20 +79,41 @@ Details: [`docs/STATUS.md`](docs/STATUS.md).
 
 ## Quick start
 
+Install the prebuilt CLI from a release that includes installer assets (replace
+`<TAG>` with its tag from the
+[Releases page](https://github.com/MGRAFF2006/sorrel/releases)):
+
+```sh
+# Linux and macOS
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-cli-installer.sh | sh
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-cli-installer.ps1 | iex"
+```
+
+Then start a repository—no source checkout, Rust, or Node.js installation is
+required:
+
+```sh
+mkdir /tmp/sorrel-demo && cd /tmp/sorrel-demo
+sorrel init
+echo hello > a.txt
+sorrel status
+sorrel change create -m "add a.txt"
+sorrel log
+```
+
+Those releases also provide platform archives and SHA-256 checksum files for a
+manual, auditable installation. Older alpha releases remain source-only. See
+[`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) for platform details and
+source builds.
+
+To run the development Hub stack from a source checkout:
+
 ```sh
 git clone https://github.com/MGRAFF2006/sorrel.git
 cd sorrel
-
-# Local VCS demo
-cargo build -p sorrel-cli
-SORREL="$(pwd)/target/debug/sorrel"
-mkdir /tmp/sorrel-demo && cd /tmp/sorrel-demo
-$SORREL init
-echo hello > a.txt
-$SORREL change create -m "add a.txt"
-$SORREL log
-
-# Hub API + UI (from repo root)
 docker compose up --build
 # API http://localhost:3000  ·  UI http://localhost:5180
 ```

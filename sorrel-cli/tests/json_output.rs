@@ -36,6 +36,24 @@ fn init_writes_real_persistent_workspace() {
 }
 
 #[test]
+fn init_human_output_guides_the_first_change() {
+    let temp_dir = TempDir::new().expect("temp dir is available");
+    let output = Command::cargo_bin("sorrel")
+        .expect("sorrel binary")
+        .current_dir(temp_dir.path())
+        .arg("init")
+        .output()
+        .expect("init runs");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("init output is utf-8");
+    assert!(stdout.contains("Next steps:"));
+    assert!(stdout.contains("sorrel status"));
+    assert!(stdout.contains("sorrel diff"));
+    assert!(stdout.contains("sorrel change create -m"));
+}
+
+#[test]
 fn init_is_idempotent_and_does_not_clobber() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     let first = command_json(temp_dir.path(), &["init", "--json"]);
