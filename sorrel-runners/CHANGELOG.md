@@ -7,7 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+
+- Replaced the deprecated, unmaintained `serde_yaml` parser with
+  `serde_yaml_ng` for workflow files.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 

@@ -97,7 +97,7 @@ pub fn parse_workflow_yaml(
     workflow_id: Option<&str>,
 ) -> Result<ParsedWorkflow, WorkflowError> {
     let document: WorkflowDocument =
-        serde_yaml::from_str(yaml).map_err(|error| WorkflowError::ParseFailed {
+        serde_yaml_ng::from_str(yaml).map_err(|error| WorkflowError::ParseFailed {
             message: error.to_string(),
         })?;
 

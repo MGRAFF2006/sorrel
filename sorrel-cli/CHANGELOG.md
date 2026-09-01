@@ -4,6 +4,11 @@ All notable changes to `sorrel-cli` are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Replaced the deprecated, unmaintained `serde_yaml` parser with
+  `serde_yaml_ng` for workflow and secret-spec inputs.
+
 ### Added
 
 - `SORREL_HUB_TOKEN` forwards an OIDC/WorkOS bearer access token for sync,
