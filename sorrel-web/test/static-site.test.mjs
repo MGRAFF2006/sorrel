@@ -66,6 +66,22 @@ test('every page exposes keyboard and compact-navigation controls', async () => 
   }
 });
 
+test('documentation pages expose the redesigned reading system', async () => {
+  const docsHome = await readFile(resolve(ROOT, 'docs/index.html'), 'utf8');
+  const guides = await readFile(resolve(ROOT, 'docs/guides.html'), 'utf8');
+  const docsCss = await readFile(resolve(ROOT, 'docs/docs.css'), 'utf8');
+  const docsJs = await readFile(resolve(ROOT, 'docs/docs.js'), 'utf8');
+
+  assert.match(docsHome, /class="doc-grid"/);
+  assert.match(guides, /class="guides-intro"/);
+  assert.match(guides, /class="docs-nav"/);
+  assert.match(guides, /aria-live="polite"/);
+  assert.match(docsCss, /\.docs-layout\s*{/);
+  assert.match(docsCss, /\.docs-nav\s*{/);
+  assert.match(docsJs, /window\.addEventListener\("popstate"/);
+  assert.match(docsJs, /addHeadingAnchors\(\)/);
+});
+
 test('relative HTML assets and page links resolve to files', async () => {
   const htmlFiles = (await filesUnder(ROOT)).filter((path) => path.endsWith('.html'));
   assert.ok(htmlFiles.length > 1, 'expected landing and documentation HTML');

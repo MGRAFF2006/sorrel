@@ -163,23 +163,49 @@ function setActive(doc) {
   });
 }
 
-async function loadDoc(name) {
+function addHeadingAnchors() {
+  if (!contentEl) return;
+  const used = new Set();
+  contentEl.querySelectorAll("h1, h2, h3").forEach((heading) => {
+    const base = heading.textContent
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "section";
+    let id = base;
+    let suffix = 2;
+    while (used.has(id)) {
+      id = `${base}-${suffix}`;
+      suffix += 1;
+    }
+    used.add(id);
+    heading.id = id;
+  });
+}
+
+async function loadDoc(name, historyMode = "replace") {
   const doc = ALLOWED.has(name) ? name : "STATUS.md";
   setActive(doc);
   if (contentEl) {
+    contentEl.setAttribute("aria-busy", "true");
     contentEl.innerHTML = '<p class="muted">Loading…</p>';
   }
   try {
     const response = await fetch(`./${doc}`, { headers: { accept: "text/plain,text/markdown,*/*" } });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const text = await response.text();
-    if (contentEl) contentEl.innerHTML = renderMarkdown(text);
+    if (contentEl) {
+      contentEl.innerHTML = renderMarkdown(text);
+      contentEl.removeAttribute("aria-busy");
+      addHeadingAnchors();
+    }
     document.title = `${doc.replace(/\.md$/, "").replace(/_/g, " ")} — Sorrel docs`;
     const url = new URL(window.location.href);
     url.searchParams.set("doc", doc);
-    history.replaceState(null, "", url);
+    if (historyMode === "push") history.pushState({ doc }, "", url);
+    else if (historyMode === "replace") history.replaceState({ doc }, "", url);
   } catch (error) {
     if (contentEl) {
+      contentEl.removeAttribute("aria-busy");
       contentEl.innerHTML = `<p class="muted">Could not load <code>${escapeHtml(doc)}</code>: ${escapeHtml(error.message)}. Open the <a href="./${escapeHtml(doc)}">raw markdown</a> instead.</p>`;
     }
   }
@@ -191,6 +217,11 @@ loadDoc(params.get("doc") || "STATUS.md");
 navLinks.forEach((link) => {
   link.addEventListener("click", (event) => {
     event.preventDefault();
-    loadDoc(link.getAttribute("data-doc"));
+    loadDoc(link.getAttribute("data-doc"), "push");
   });
+});
+
+window.addEventListener("popstate", () => {
+  const next = new URLSearchParams(window.location.search).get("doc");
+  loadDoc(next || "STATUS.md", "none");
 });
