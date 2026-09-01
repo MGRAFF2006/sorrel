@@ -1,0 +1,845 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sorrel Hub — cohesive product direction</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-synthesis: none;
+        --bg: #171b22;
+        --bg-deep: #12161c;
+        --bg-elev: #1d222b;
+        --bg-card: #222832;
+        --bg-hover: #262d38;
+        --fg: #f2f4f7;
+        --fg-muted: #c8d0dc;
+        --muted: #98a4b6;
+        --dim: #687487;
+        --accent: #8fced8;
+        --accent-bright: #a5d8e0;
+        --accent-soft: rgba(143, 206, 216, 0.09);
+        --green: #a3be8c;
+        --green-soft: rgba(163, 190, 140, 0.11);
+        --warn: #ebcb8b;
+        --warn-soft: rgba(235, 203, 139, 0.1);
+        --red: #bf616a;
+        --red-soft: rgba(191, 97, 106, 0.1);
+        --frost: #81a1c1;
+        --border: #343c49;
+        --border-strong: #4c566a;
+        --mono: "SFMono-Regular", "JetBrains Mono", Consolas, monospace;
+        --global-h: 58px;
+        --project-h: 126px;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        min-width: 320px;
+        overflow: hidden;
+        color: var(--fg);
+        background: var(--bg);
+        -webkit-font-smoothing: antialiased;
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at 80% 0%, rgba(143, 206, 216, 0.075), transparent 30rem),
+          linear-gradient(rgba(52, 60, 73, 0.18) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(52, 60, 73, 0.18) 1px, transparent 1px);
+        background-size: auto, 72px 72px, 72px 72px;
+        mask-image: linear-gradient(#000, transparent 48rem);
+      }
+      button, input { font: inherit; }
+      button { color: inherit; }
+      a { color: inherit; text-decoration: none; }
+      svg { display: block; }
+      .icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+      .icon.sm { width: 15px; height: 15px; }
+      .icon.lg { width: 22px; height: 22px; }
+      .mono { font-family: var(--mono); }
+      .muted { color: var(--muted); }
+      .push { margin-left: auto; }
+      .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+
+      .global-bar {
+        height: var(--global-h);
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 0 20px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(18, 22, 28, 0.96);
+        backdrop-filter: blur(18px);
+        position: relative;
+        z-index: 30;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        border: 0;
+        padding: 0;
+        color: var(--fg);
+        background: transparent;
+        cursor: pointer;
+      }
+      .brand img { width: 32px; height: 32px; }
+      .brand strong { font-size: 15px; letter-spacing: -0.02em; }
+      .brand-tag {
+        min-height: 19px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 6px;
+        border: 1px solid rgba(143, 206, 216, 0.35);
+        color: var(--accent);
+        font: 600 8px/1 var(--mono);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .global-nav { height: 100%; display: flex; align-items: stretch; }
+      .global-link {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 12px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .global-link:hover { color: var(--fg); background: var(--accent-soft); }
+      .global-link.active { color: var(--fg); border-bottom-color: var(--accent); }
+      .global-count {
+        min-width: 19px;
+        padding: 2px 5px;
+        border: 1px solid var(--border-strong);
+        color: var(--accent);
+        font: 650 9px/1.2 var(--mono);
+        text-align: center;
+      }
+      .global-search {
+        width: min(370px, 28vw);
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        padding: 0 10px;
+        border: 1px solid var(--border);
+        color: var(--dim);
+        background: #151920;
+        font-size: 10px;
+      }
+      .global-search kbd { margin-left: auto; color: var(--muted); font: 9px var(--mono); }
+      .square-button {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+      }
+      .square-button:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+      .avatar {
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        border: 1px solid #5e81ac;
+        color: #eaf5f7;
+        background: linear-gradient(135deg, #4c566a, #2e3440);
+        font: 700 10px var(--mono);
+      }
+      .avatar.agent { color: #18221a; border-color: var(--green); background: var(--green); }
+      .avatar-button { border: 0; padding: 0; background: transparent; cursor: pointer; }
+      .prototype-chip { padding: 5px 7px; border: 1px solid var(--border); color: var(--dim); font: 600 8px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+
+      .project-chrome {
+        height: var(--project-h);
+        border-bottom: 1px solid var(--border);
+        background: rgba(23, 27, 34, 0.93);
+      }
+      .project-heading {
+        height: 82px;
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 0 28px;
+      }
+      .project-owner-mark {
+        width: 38px;
+        height: 38px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--border-strong);
+        color: var(--accent);
+        background: var(--bg-elev);
+      }
+      .project-title { min-width: 0; }
+      .project-title h1 { margin: 0; font-size: 18px; line-height: 1.2; letter-spacing: -0.025em; }
+      .project-title h1 button { border: 0; padding: 0; color: var(--muted); background: transparent; cursor: pointer; font: inherit; }
+      .project-title h1 button:hover { color: var(--accent); }
+      .project-title p { margin: 5px 0 0; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+      .visibility { padding: 3px 6px; border: 1px solid var(--border); color: var(--muted); font: 600 8px var(--mono); text-transform: uppercase; }
+      .project-actions { margin-left: auto; display: flex; align-items: center; gap: 0; }
+      .button {
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 0 11px;
+        border: 1px solid var(--border);
+        color: var(--fg-muted);
+        background: transparent;
+        cursor: pointer;
+        font-size: 10px;
+        font-weight: 700;
+      }
+      .button + .button { border-left: 0; }
+      .button:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+      .button.primary { color: #122026; border-color: var(--accent); background: var(--accent); }
+      .button.primary:hover { color: #122026; background: var(--accent-bright); }
+      .project-tabs { height: 44px; max-width: 1480px; display: flex; align-items: stretch; gap: 0; margin: 0 auto; padding: 0 28px; overflow-x: auto; }
+      .project-tab {
+        min-width: max-content;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 15px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 650;
+      }
+      .project-tab:hover { color: var(--fg); background: var(--accent-soft); }
+      .project-tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+      .tab-count { padding: 2px 5px; border: 1px solid var(--border); color: var(--muted); font: 8px var(--mono); }
+
+      .workspace-stage { height: calc(100vh - var(--global-h) - var(--project-h)); position: relative; overflow: hidden; }
+      .workspace-stage.global { height: calc(100vh - var(--global-h)); }
+      .view { display: none; width: 100%; height: 100%; }
+      .view.active { display: block; animation: view-in 150ms ease-out; }
+      @keyframes view-in { from { opacity: .55; } to { opacity: 1; } }
+
+      .page-scroll { width: 100%; height: 100%; overflow: auto; }
+      .content-width { width: min(1240px, calc(100% - 48px)); margin: 0 auto; padding: 26px 0 70px; }
+      .section-label { margin: 0 0 8px; color: var(--muted); font: 600 9px/1.2 var(--mono); letter-spacing: .11em; text-transform: uppercase; }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        min-height: 21px;
+        padding: 2px 6px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        background: transparent;
+        font: 600 8px/1 var(--mono);
+        letter-spacing: .04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .pill.green { color: var(--green); border-color: rgba(163, 190, 140, .4); background: var(--green-soft); }
+      .pill.warn { color: var(--warn); border-color: rgba(235, 203, 139, .4); background: var(--warn-soft); }
+      .pill.red { color: #d8878e; border-color: rgba(191, 97, 106, .45); background: var(--red-soft); }
+      .pill.accent { color: var(--accent); border-color: rgba(143, 206, 216, .4); background: var(--accent-soft); }
+      .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+      /* Code / project overview */
+      .repo-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 13px; }
+      .branch-button { min-width: 166px; justify-content: flex-start; }
+      .branch-button .chev { margin-left: auto; }
+      .path-line { min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--muted); font: 10px var(--mono); }
+      .path-line strong { color: var(--fg-muted); }
+      .repo-layout { display: grid; grid-template-columns: minmax(0, 1fr) 292px; gap: 18px; align-items: start; }
+      .repo-primary { min-width: 0; display: grid; gap: 16px; }
+      .surface { border: 1px solid var(--border); background: rgba(29, 34, 43, .86); }
+      .commit-banner { min-height: 54px; display: grid; grid-template-columns: 30px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 0 14px; border-bottom: 1px solid var(--border); background: rgba(34,40,50,.72); }
+      .commit-banner .avatar { width: 27px; height: 27px; }
+      .commit-copy { min-width: 0; }
+      .commit-copy strong { display: block; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+      .commit-copy small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }
+      .commit-meta { display: flex; align-items: center; gap: 10px; color: var(--muted); font: 8px var(--mono); }
+      .tree-row {
+        width: 100%;
+        min-height: 40px;
+        display: grid;
+        grid-template-columns: 22px minmax(145px, 1.1fr) minmax(190px, 1.8fr) 84px;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        border: 0;
+        border-bottom: 1px solid rgba(52,60,73,.76);
+        color: var(--fg-muted);
+        background: transparent;
+        cursor: pointer;
+        text-align: left;
+      }
+      .tree-row:last-child { border-bottom: 0; }
+      .tree-row:hover { background: var(--accent-soft); }
+      .tree-row .file-icon { color: var(--frost); }
+      .tree-row .folder-icon { color: var(--accent); }
+      .tree-name { overflow: hidden; font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+      .tree-message { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+      .tree-time { color: var(--dim); font-size: 8px; text-align: right; }
+      .readme-head { height: 45px; display: flex; align-items: center; gap: 8px; padding: 0 15px; border-bottom: 1px solid var(--border); color: var(--fg-muted); background: rgba(34,40,50,.7); font-size: 10px; font-weight: 700; }
+      .readme-body { padding: 29px 32px 42px; }
+      .readme-body h1 { margin: 0; font-size: clamp(30px, 4vw, 48px); line-height: 1; letter-spacing: -.055em; }
+      .readme-body .readme-lede { max-width: 690px; margin: 14px 0 22px; color: var(--fg-muted); font-size: 13px; line-height: 1.65; }
+      .badge-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 25px; }
+      .readme-body h2 { margin: 29px 0 11px; padding-bottom: 9px; border-bottom: 1px solid var(--border); font-size: 17px; letter-spacing: -.025em; }
+      .readme-body p, .readme-body li { color: var(--fg-muted); font-size: 11px; line-height: 1.7; }
+      .readme-body ul { padding-left: 19px; }
+      .code-block { margin-top: 12px; padding: 14px 16px; border-left: 2px solid var(--accent); color: #d7e4e6; background: #12161c; font: 10px/1.65 var(--mono); }
+      .architecture-strip { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--border); }
+      .architecture-cell { min-height: 92px; padding: 13px; border-right: 1px solid var(--border); }
+      .architecture-cell:last-child { border-right: 0; }
+      .architecture-cell span { color: var(--accent); font: 600 8px var(--mono); }
+      .architecture-cell strong { display: block; margin: 7px 0 4px; font-size: 10px; }
+      .architecture-cell small { color: var(--muted); font-size: 8px; line-height: 1.45; }
+      .about-panel { position: sticky; top: 0; }
+      .about-section { padding: 17px 0; border-bottom: 1px solid var(--border); }
+      .about-section:first-child { padding-top: 0; }
+      .about-section h2 { margin: 0 0 9px; color: var(--fg); font-size: 11px; }
+      .about-section p { margin: 0; color: var(--fg-muted); font-size: 10px; line-height: 1.55; }
+      .topic-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+      .topic { padding: 4px 6px; color: var(--accent); background: var(--accent-soft); font: 8px var(--mono); }
+      .about-stat { display: flex; align-items: center; gap: 8px; margin-top: 9px; color: var(--muted); font-size: 9px; }
+      .about-stat strong { color: var(--fg-muted); }
+      .member-stack { display: flex; margin-top: 10px; }
+      .member-stack .avatar { width: 27px; height: 27px; margin-right: -5px; border-color: var(--bg); }
+      .release-row { display: grid; grid-template-columns: 9px 1fr; gap: 9px; padding: 8px 0; }
+      .release-row i { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+      .release-row strong { display: block; font: 9px var(--mono); }
+      .release-row small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }
+
+      /* Work board */
+      .board-view { display: none; height: 100%; min-height: 0; grid-template-rows: 64px minmax(0,1fr); }
+      .board-view.active { display: grid; }
+      .board-toolbar { display: flex; align-items: center; gap: 10px; padding: 0 22px; border-bottom: 1px solid var(--border); background: rgba(23,27,34,.8); }
+      .board-toolbar h2 { margin: 0; font-size: 14px; }
+      .board-toolbar p { margin: 3px 0 0; color: var(--muted); font-size: 8px; }
+      .view-switch { display: flex; margin-left: auto; }
+      .view-switch button { height: 31px; padding: 0 9px; border: 1px solid var(--border); color: var(--muted); background: transparent; cursor: pointer; font-size: 9px; }
+      .view-switch button + button { border-left: 0; }
+      .view-switch button.active { color: var(--accent); background: var(--accent-soft); }
+      .board-scroll { min-width: 0; overflow: auto; padding: 18px 20px 50px; }
+      .board-help { display: flex; align-items: center; gap: 8px; min-width: max-content; margin-bottom: 14px; color: var(--muted); font: 9px var(--mono); }
+      .board-help strong { color: var(--fg-muted); }
+      .kanban { min-width: 1000px; display: grid; grid-template-columns: repeat(4, minmax(225px,1fr)); gap: 11px; align-items: start; }
+      .kanban-column { min-height: 420px; border: 1px solid var(--border); background: rgba(18,22,28,.45); }
+      .kanban-head { height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 11px; border-bottom: 1px solid var(--border); background: rgba(29,34,43,.85); }
+      .kanban-head strong { font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+      .kanban-head .count { margin-left: auto; color: var(--muted); font: 9px var(--mono); }
+      .kanban-stack { display: grid; gap: 8px; padding: 8px; }
+      .lane-card { width: 100%; padding: 12px; border: 1px solid var(--border); color: inherit; background: var(--bg-elev); cursor: pointer; text-align: left; }
+      .lane-card:hover { border-color: var(--accent); background: var(--bg-hover); transform: translateY(-1px); }
+      .lane-top { display: flex; align-items: center; gap: 7px; }
+      .lane-top .avatar { width: 24px; height: 24px; font-size: 8px; }
+      .lane-top code { min-width: 0; overflow: hidden; color: var(--accent); font: 8px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+      .lane-card h3 { margin: 11px 0 5px; font-size: 11px; line-height: 1.4; }
+      .lane-card p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.5; }
+      .lane-meta { display: flex; align-items: center; gap: 5px; margin-top: 11px; padding-top: 9px; border-top: 1px solid var(--border); }
+      .lane-meta time { margin-left: auto; color: var(--dim); font-size: 7px; }
+      .lane-blocked { border-left: 2px solid var(--red); }
+      .lane-ready { border-left: 2px solid var(--green); }
+      .lane-inspector {
+        width: min(360px, 90vw);
+        position: absolute;
+        z-index: 20;
+        top: 64px;
+        right: 0;
+        bottom: 0;
+        overflow: auto;
+        border-left: 1px solid var(--border-strong);
+        background: #181d24;
+        box-shadow: -22px 0 48px rgba(7,10,13,.38);
+        transform: translateX(101%);
+        transition: transform 160ms ease-out;
+      }
+      .lane-inspector.open { transform: none; }
+      .inspector-head { display: flex; align-items: flex-start; gap: 10px; padding: 18px; border-bottom: 1px solid var(--border); }
+      .inspector-head h2 { margin: 4px 0 0; font-size: 15px; line-height: 1.35; }
+      .inspector-section { padding: 16px 18px; border-bottom: 1px solid var(--border); }
+      .inspector-section h3 { margin: 0 0 11px; color: var(--muted); font: 600 8px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+      .progress { height: 4px; background: var(--border); }
+      .progress i { display: block; width: 72%; height: 100%; background: var(--accent); }
+      .progress-copy { display: flex; justify-content: space-between; margin-top: 7px; color: var(--muted); font-size: 8px; }
+      .meta-grid { display: grid; grid-template-columns: auto 1fr; gap: 9px 12px; margin: 0; }
+      .meta-grid dt { color: var(--muted); font-size: 8px; }
+      .meta-grid dd { margin: 0; color: var(--fg-muted); font-size: 8px; text-align: right; }
+
+      /* Review workbench */
+      .workbench-view { display: none; height: 100%; grid-template-columns: 300px minmax(420px,1fr) 284px; overflow: hidden; }
+      .workbench-view.active { display: grid; }
+      .wb-pane { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--border); background: rgba(18,22,28,.72); }
+      .wb-pane:last-child { border-right: 0; }
+      .wb-head { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--bg-elev); position: sticky; top: 0; z-index: 2; }
+      .wb-head strong { font-size: 10px; }
+      .wb-search { height: 30px; display: flex; align-items: center; gap: 7px; margin: 9px 10px; padding: 0 9px; border: 1px solid var(--border); color: var(--dim); background: #151920; font-size: 8px; }
+      .review-row { width: 100%; display: grid; grid-template-columns: 4px minmax(0,1fr); gap: 10px; padding: 12px 11px 12px 8px; border: 0; border-bottom: 1px solid var(--border); color: var(--fg-muted); background: transparent; cursor: pointer; text-align: left; }
+      .review-row:hover, .review-row.active { background: var(--accent-soft); }
+      .review-row .marker { width: 3px; height: 100%; min-height: 44px; background: var(--border-strong); }
+      .review-row.active .marker { background: var(--accent); }
+      .review-row h3 { margin: 0; font-size: 10px; line-height: 1.35; }
+      .review-row p { margin: 5px 0 0; color: var(--muted); font: 8px var(--mono); }
+      .row-tags { display: flex; gap: 5px; margin-top: 8px; }
+      .review-canvas { background: #13171d; }
+      .review-title { padding: 18px 20px 15px; border-bottom: 1px solid var(--border); }
+      .review-title-line { display: flex; align-items: flex-start; gap: 14px; }
+      .review-title h2 { margin: 9px 0 0; font-size: 17px; letter-spacing: -.025em; }
+      .review-title p { margin: 6px 0 0; max-width: 670px; color: var(--muted); font-size: 9px; line-height: 1.55; }
+      .review-actions { margin-left: auto; display: flex; }
+      .change-line { display: flex; align-items: center; gap: 9px; margin-top: 14px; color: var(--muted); font: 8px var(--mono); }
+      .change-line .line { height: 1px; flex: 1; background: var(--border); }
+      .filebar { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--bg-elev); color: var(--fg-muted); font: 8px var(--mono); position: sticky; top: 0; z-index: 1; }
+      .diff { font: 8px/1.75 var(--mono); }
+      .diff-line { min-height: 21px; display: grid; grid-template-columns: 36px 36px 15px minmax(0,1fr); color: #b8c0cb; white-space: pre; }
+      .diff-line .ln { padding-right: 7px; color: #586376; background: #11151a; text-align: right; user-select: none; }
+      .diff-line .sign { text-align: center; }
+      .diff-line.add { color: #cadbc4; background: rgba(81,112,72,.22); }
+      .diff-line.add .ln { color: #73876c; background: rgba(55,78,49,.3); }
+      .diff-line.del { color: #d3a9ad; background: rgba(126,54,64,.2); }
+      .diff-line.del .ln { color: #95636b; background: rgba(83,39,47,.3); }
+      .diff-line.hunk { color: #94bdc6; background: rgba(50,76,82,.4); }
+      .diff-line code { overflow: hidden; text-overflow: ellipsis; }
+      .review-inspector { background: #181d24; }
+      .check-row { display: grid; grid-template-columns: 18px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 7px 0; }
+      .check-icon { width: 17px; height: 17px; display: grid; place-items: center; border: 1px solid rgba(163,190,140,.45); color: var(--green); font-size: 9px; }
+      .check-icon.wait { border-color: rgba(235,203,139,.45); color: var(--warn); }
+      .check-row strong { display: block; font-size: 8px; }
+      .check-row small { display: block; margin-top: 2px; color: var(--muted); font-size: 7px; }
+      .comment { padding: 10px; border: 1px solid var(--border); color: var(--fg-muted); background: var(--bg-elev); font-size: 8px; line-height: 1.55; }
+      .comment-head { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; color: var(--fg); font-weight: 700; }
+      .comment-head .avatar { width: 22px; height: 22px; font-size: 7px; }
+
+      /* Global inbox */
+      .inbox-view { display: none; height: 100%; grid-template-columns: 220px 365px minmax(0,1fr); overflow: hidden; }
+      .inbox-view.active { display: grid; }
+      .inbox-nav { min-height: 0; padding: 22px 14px; border-right: 1px solid var(--border); background: rgba(23,27,34,.93); }
+      .inbox-nav h1 { margin: 0 8px 20px; font-size: 25px; letter-spacing: -.04em; }
+      .compose { width: 100%; min-height: 38px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 17px; border: 1px solid var(--accent); color: #122026; background: var(--accent); cursor: pointer; font-size: 10px; font-weight: 750; }
+      .inbox-filter { width: 100%; height: 36px; display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 7px; padding: 0 8px; border: 0; border-bottom: 1px solid var(--border); color: var(--muted); background: transparent; cursor: pointer; font-size: 9px; text-align: left; }
+      .inbox-filter:first-of-type { border-top: 1px solid var(--border); }
+      .inbox-filter:hover { color: var(--accent); }
+      .inbox-filter.active { color: var(--fg); background: var(--accent-soft); }
+      .inbox-filter .count { font: 8px var(--mono); }
+      .inbox-context { margin-top: 25px; padding: 14px 8px 0; border-top: 1px solid var(--border); }
+      .inbox-context p { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.55; }
+      .queue { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid var(--border); background: rgba(18,22,28,.68); }
+      .queue-head { padding: 18px 15px 13px; border-bottom: 1px solid var(--border); background: rgba(29,34,43,.94); position: sticky; top: 0; z-index: 2; }
+      .queue-head-line { display: flex; align-items: center; gap: 8px; }
+      .queue-head h2 { margin: 0; font-size: 14px; }
+      .queue-head span { color: var(--muted); font: 8px var(--mono); }
+      .queue-search { height: 31px; display: flex; align-items: center; gap: 7px; margin-top: 12px; padding: 0 9px; border: 1px solid var(--border); color: var(--dim); background: #151920; font-size: 8px; }
+      .inbox-item { width: 100%; display: grid; grid-template-columns: 9px minmax(0,1fr); gap: 10px; padding: 13px 14px 13px 11px; border: 0; border-bottom: 1px solid var(--border); color: var(--fg-muted); background: transparent; cursor: pointer; text-align: left; }
+      .inbox-item:hover, .inbox-item.active { background: var(--accent-soft); }
+      .inbox-item.active { box-shadow: inset 2px 0 var(--accent); }
+      .unread { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: var(--accent); }
+      .unread.read { background: transparent; border: 1px solid var(--border-strong); }
+      .item-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .item-top strong { overflow: hidden; color: var(--fg); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+      .item-top time { margin-left: auto; color: var(--dim); font-size: 7px; }
+      .inbox-item h3 { margin: 5px 0 0; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+      .inbox-item p { margin: 4px 0 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
+      .inbox-tags { display: flex; gap: 5px; margin-top: 8px; }
+      .inbox-detail { min-width: 0; min-height: 0; overflow: auto; background: rgba(23,27,34,.58); }
+      .detail-bar { height: 48px; display: flex; align-items: center; gap: 7px; padding: 0 18px; border-bottom: 1px solid var(--border); background: rgba(23,27,34,.95); position: sticky; top: 0; z-index: 2; }
+      .detail-crumb { color: var(--muted); font: 8px var(--mono); }
+      .inbox-article { max-width: 790px; margin: 0 auto; padding: 34px 34px 70px; }
+      .inbox-article h2 { margin: 13px 0 9px; font-size: clamp(25px,3vw,39px); line-height: 1.08; letter-spacing: -.045em; }
+      .inbox-article .lede { margin: 0 0 22px; color: var(--fg-muted); font-size: 11px; line-height: 1.65; }
+      .decision-strip { display: grid; grid-template-columns: 32px minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border); background: var(--bg-elev); }
+      .decision-strip strong { display: block; font-size: 9px; }
+      .decision-strip small { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; }
+      .article-section { margin-top: 25px; }
+      .article-section h3 { margin: 0 0 11px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: 11px; }
+      .summary-grid { display: grid; grid-template-columns: repeat(3,1fr); border: 1px solid var(--border); }
+      .summary-cell { padding: 12px; border-right: 1px solid var(--border); }
+      .summary-cell:last-child { border-right: 0; }
+      .summary-cell strong { display: block; font-size: 19px; }
+      .summary-cell small { color: var(--muted); font-size: 8px; }
+      .thread { margin-left: 14px; padding-left: 20px; border-left: 1px solid var(--border); }
+      .thread-entry { position: relative; margin-bottom: 18px; }
+      .thread-entry::before { content: ""; width: 7px; height: 7px; position: absolute; left: -24px; top: 7px; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 1px var(--border-strong); }
+      .thread-head { display: flex; align-items: center; gap: 7px; }
+      .thread-head .avatar { width: 23px; height: 23px; font-size: 7px; }
+      .thread-head strong { font-size: 9px; }
+      .thread-head time { color: var(--dim); font-size: 7px; }
+      .thread-entry p { margin: 7px 0 0 30px; color: var(--fg-muted); font-size: 9px; line-height: 1.6; }
+
+      /* Organization and profile */
+      .identity-page { width: 100%; height: 100%; overflow: auto; }
+      .identity-width { width: min(1120px, calc(100% - 48px)); margin: 0 auto; padding: 38px 0 70px; }
+      .identity-header { display: grid; grid-template-columns: 92px minmax(0,1fr) auto; align-items: center; gap: 20px; padding-bottom: 26px; border-bottom: 1px solid var(--border); }
+      .identity-mark { width: 92px; height: 92px; display: grid; place-items: center; border: 1px solid var(--border-strong); color: var(--accent); background: var(--bg-elev); font-size: 34px; font-weight: 750; letter-spacing: -.05em; }
+      .identity-mark.profile { color: #edf5f7; background: linear-gradient(135deg,#4c566a,#242933); }
+      .identity-heading h1 { margin: 0; font-size: 32px; line-height: 1; letter-spacing: -.045em; }
+      .identity-heading p { max-width: 620px; margin: 11px 0 0; color: var(--fg-muted); font-size: 11px; line-height: 1.6; }
+      .identity-meta { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 12px; color: var(--muted); font-size: 9px; }
+      .identity-meta span { display: inline-flex; align-items: center; gap: 5px; }
+      .identity-tabs { height: 48px; display: flex; align-items: stretch; margin-bottom: 22px; border-bottom: 1px solid var(--border); }
+      .identity-tab { padding: 0 14px; border: 0; border-bottom: 2px solid transparent; color: var(--muted); background: transparent; cursor: pointer; font-size: 10px; font-weight: 650; }
+      .identity-tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+      .identity-layout { display: grid; grid-template-columns: minmax(0,1.6fr) minmax(270px,.7fr); gap: 18px; align-items: start; }
+      .profile-layout { grid-template-columns: 280px minmax(0,1fr); }
+      .identity-readme .readme-body { padding: 27px 30px 38px; }
+      .identity-readme h1 { font-size: 31px; }
+      .identity-readme blockquote { margin: 20px 0; padding: 11px 14px; border-left: 2px solid var(--accent); color: var(--fg-muted); background: var(--accent-soft); font-size: 10px; line-height: 1.6; }
+      .project-list { border: 1px solid var(--border); }
+      .project-list-head { min-height: 42px; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--bg-elev); font-size: 9px; font-weight: 700; }
+      .project-list-row { display: block; padding: 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+      .project-list-row:last-child { border-bottom: 0; }
+      .project-list-row:hover { background: var(--accent-soft); }
+      .project-list-row strong { color: var(--accent); font: 10px var(--mono); }
+      .project-list-row p { margin: 5px 0 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
+      .profile-card { border: 1px solid var(--border); background: rgba(29,34,43,.85); }
+      .profile-card-cover { height: 54px; background: linear-gradient(120deg, rgba(143,206,216,.24), rgba(94,129,172,.08)); }
+      .profile-card-body { padding: 0 17px 18px; }
+      .profile-large-avatar { width: 72px; height: 72px; display: grid; place-items: center; margin-top: -36px; border: 4px solid var(--bg-elev); color: #edf5f7; background: linear-gradient(135deg,#5e81ac,#2e3440); font: 750 18px var(--mono); }
+      .profile-card h2 { margin: 13px 0 2px; font-size: 17px; }
+      .profile-handle { color: var(--muted); font: 9px var(--mono); }
+      .profile-bio { margin: 14px 0; color: var(--fg-muted); font-size: 9px; line-height: 1.55; }
+      .profile-detail { display: flex; align-items: center; gap: 7px; margin-top: 8px; color: var(--muted); font-size: 8px; }
+      .pinned-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 18px; }
+      .pinned { min-height: 106px; padding: 13px; border: 1px solid var(--border); background: rgba(29,34,43,.72); }
+      .pinned strong { color: var(--accent); font: 10px var(--mono); }
+      .pinned p { margin: 8px 0 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
+
+      /* Design notes */
+      .notes-backdrop { display: none; position: fixed; inset: var(--global-h) 0 0; z-index: 50; background: rgba(7,10,13,.68); backdrop-filter: blur(6px); }
+      .notes-backdrop.open { display: block; }
+      .notes-panel { width: min(520px, 94vw); height: 100%; margin-left: auto; overflow: auto; border-left: 1px solid var(--border-strong); background: #171c23; box-shadow: -30px 0 70px rgba(0,0,0,.36); }
+      .notes-head { display: flex; align-items: flex-start; gap: 12px; padding: 23px; border-bottom: 1px solid var(--border); }
+      .notes-head h2 { margin: 5px 0 0; font-size: 23px; letter-spacing: -.035em; }
+      .notes-head p { margin: 7px 0 0; color: var(--muted); font-size: 9px; line-height: 1.55; }
+      .notes-section { padding: 18px 23px; border-bottom: 1px solid var(--border); }
+      .notes-section h3 { margin: 0 0 11px; color: var(--accent); font: 600 9px var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+      .notes-section ul, .notes-section ol { margin: 0; padding-left: 18px; color: var(--fg-muted); font-size: 10px; line-height: 1.6; }
+      .notes-section li + li { margin-top: 7px; }
+      .route-map { display: grid; grid-template-columns: 92px 1fr; gap: 8px 11px; font-size: 9px; }
+      .route-map code { color: var(--accent); font: 8px var(--mono); }
+      .route-map span { color: var(--fg-muted); }
+      .api-warning { padding: 12px; border-left: 2px solid var(--warn); color: #d9c498; background: var(--warn-soft); font-size: 9px; line-height: 1.55; }
+      .toast { position: fixed; right: 18px; bottom: 18px; z-index: 90; padding: 10px 13px; border: 1px solid var(--accent); color: var(--fg); background: #151920; font: 9px var(--mono); opacity: 0; transform: translateY(7px); pointer-events: none; transition: 150ms ease; }
+      .toast.show { opacity: 1; transform: none; }
+
+      @media (max-width: 1100px) {
+        .global-search { width: 230px; }
+        .global-link span.label { display: none; }
+        .repo-layout { grid-template-columns: minmax(0,1fr) 235px; }
+        .workbench-view { grid-template-columns: 275px minmax(400px,1fr); }
+        .review-inspector { display: none; }
+        .inbox-view { grid-template-columns: 185px 330px minmax(0,1fr); }
+      }
+      @media (max-width: 820px) {
+        .global-bar { gap: 10px; padding-inline: 12px; }
+        .brand strong, .brand-tag, .prototype-chip { display: none; }
+        .global-search { flex: 1; width: auto; }
+        .project-heading { padding-inline: 16px; }
+        .project-title p { max-width: 46vw; }
+        .project-actions .button:first-child { display: none; }
+        .project-tabs { padding-inline: 9px; }
+        .content-width, .identity-width { width: min(100% - 28px,1240px); }
+        .repo-layout { grid-template-columns: 1fr; }
+        .about-panel { position: static; display: grid; grid-template-columns: repeat(2,1fr); gap: 0 16px; }
+        .about-section:first-child { padding-top: 17px; }
+        .architecture-strip { grid-template-columns: repeat(2,1fr); }
+        .architecture-cell:nth-child(2) { border-right: 0; }
+        .architecture-cell:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
+        .workbench-view { grid-template-columns: 1fr; }
+        .workbench-view .wb-pane:first-child { display: none; }
+        .inbox-view { grid-template-columns: 62px 310px minmax(0,1fr); }
+        .inbox-nav { padding-inline: 11px; }
+        .inbox-nav h1, .compose span, .inbox-filter span:not(.count), .inbox-context { display: none; }
+        .compose { width: 38px; margin-inline: auto; }
+        .inbox-filter { grid-template-columns: 1fr; justify-items: center; padding: 0; }
+        .inbox-filter .count { display: none; }
+        .identity-layout, .profile-layout { grid-template-columns: 1fr; }
+        .identity-header { grid-template-columns: 72px 1fr; }
+        .identity-mark { width: 72px; height: 72px; font-size: 25px; }
+        .identity-header > .button { grid-column: 1 / -1; }
+      }
+      @media (max-width: 620px) {
+        :root { --project-h: 116px; }
+        .global-nav .global-link[data-global-view="org"] { display: none; }
+        .global-search { min-width: 0; }
+        .global-search span { display: none; }
+        .square-button#notesButton { display: none; }
+        .project-heading { height: 72px; gap: 9px; }
+        .project-owner-mark { width: 32px; height: 32px; }
+        .project-title h1 { font-size: 14px; }
+        .project-title p, .visibility { display: none; }
+        .project-actions .button { min-width: 36px; padding: 0 8px; }
+        .project-actions .button span { display: none; }
+        .project-tabs { height: 44px; }
+        .project-tab { padding-inline: 11px; }
+        .repo-toolbar { flex-wrap: wrap; }
+        .path-line { order: 3; width: 100%; }
+        .tree-row { grid-template-columns: 20px minmax(130px,1fr) 55px; }
+        .tree-message { display: none; }
+        .readme-body { padding: 23px 18px 35px; }
+        .about-panel { grid-template-columns: 1fr; }
+        .architecture-strip { grid-template-columns: 1fr; }
+        .architecture-cell { border-right: 0; border-bottom: 1px solid var(--border); }
+        .architecture-cell:last-child { border-bottom: 0; }
+        .inbox-view { grid-template-columns: 52px minmax(0,1fr); }
+        .inbox-detail { display: none; }
+        .summary-grid { grid-template-columns: 1fr; }
+        .summary-cell { border-right: 0; border-bottom: 1px solid var(--border); }
+        .summary-cell:last-child { border-bottom: 0; }
+        .identity-header { grid-template-columns: 58px 1fr; gap: 13px; }
+        .identity-mark { width: 58px; height: 58px; font-size: 20px; }
+        .identity-heading h1 { font-size: 24px; }
+        .identity-heading p { font-size: 9px; }
+        .pinned-grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <svg aria-hidden="true" width="0" height="0" style="position:absolute">
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></symbol>
+      <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 5h16l1.5 10.5A3 3 0 0 1 18.5 19h-13a3 3 0 0 1-3-3.5L4 5Z"/><path d="M3 14h5l2 2h4l2-2h5"/></symbol>
+      <symbol id="i-org" viewBox="0 0 24 24"><path d="M4 21V4h10v17M14 9h6v12M2 21h20M8 8h2M8 12h2M8 16h2M17 13h1M17 17h1"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4h6a3 3 0 0 1 3 3v13a3 3 0 0 0-3-3H4V4Z"/><path d="M20 4h-6a3 3 0 0 0-3 3"/></symbol>
+      <symbol id="i-board" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16"/><path d="M9 4v16M15 4v16"/></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M4 4h16v13H8l-4 4V4Z"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4V8Z"/></symbol>
+      <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 7h-7a6 6 0 0 0-5.7 4.1M4 17h7a6 6 0 0 0 5.7-4.1"/><path d="m17 4 3 3-3 3M7 14l-3 3 3 3"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
+      <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="6" cy="19" r="2.5"/><path d="M6 7.5v9M8.5 19h2.8A6.7 6.7 0 0 0 18 12.3V8.5"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+      <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M14 5l-4 14"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3V6Z"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z"/><path d="M14 3v5h4"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12"/><path d="M16 8V4H4v12h4"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M17 14a5 5 0 0 1 4 5v1"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+      <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8L4 5Z"/></symbol>
+      <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 7v13h16V7M3 4h18v3H3zM9 11h6"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M7 3h10l-2 7 3 3H6l3-3-2-7Z"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1.1M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1.1"/></symbol>
+      <symbol id="i-location" viewBox="0 0 24 24"><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+    </svg>
+
+    <header class="global-bar">
+      <button class="brand" data-global-view="code"><img src="../public/favicon.svg" alt="" /><strong>Sorrel</strong><span class="brand-tag">Hub</span></button>
+      <nav class="global-nav" aria-label="Global">
+        <button class="global-link active" data-global-view="code"><svg class="icon sm"><use href="#i-grid" /></svg><span class="label">Projects</span></button>
+        <button class="global-link" data-global-view="inbox"><svg class="icon sm"><use href="#i-inbox" /></svg><span class="label">Inbox</span><span class="global-count">4</span></button>
+        <button class="global-link" data-global-view="org"><svg class="icon sm"><use href="#i-org" /></svg><span class="label">Organizations</span></button>
+      </nav>
+      <div class="global-search"><svg class="icon sm"><use href="#i-search" /></svg><span>Search projects, lanes, reviews…</span><kbd>⌘K</kbd></div>
+      <span class="prototype-chip">HTML direction</span>
+      <button class="square-button" id="notesButton" aria-label="Design notes" title="Design notes"><svg class="icon sm"><use href="#i-eye" /></svg></button>
+      <button class="square-button" aria-label="Notifications"><svg class="icon sm"><use href="#i-bell" /></svg></button>
+      <button class="avatar-button" data-global-view="profile" aria-label="Open profile"><span class="avatar">MG</span></button>
+    </header>
+
+    <section class="project-chrome" id="projectChrome">
+      <div class="project-heading">
+        <div class="project-owner-mark"><svg class="icon lg"><use href="#i-org" /></svg></div>
+        <div class="project-title"><h1><button data-global-view="org">MGRAFF2006</button> / sorrel <span class="visibility">Public</span></h1><p>Agent-native version control · local-first collaboration and review</p></div>
+        <div class="project-actions"><button class="button" data-toast="Project notifications configured"><svg class="icon sm"><use href="#i-bell" /></svg><span>Watch</span></button><button class="button" data-toast="Clone details opened"><svg class="icon sm"><use href="#i-copy" /></svg><span>Clone</span></button><button class="button primary" data-toast="New lane flow opened"><svg class="icon sm"><use href="#i-branch" /></svg><span>New lane</span></button></div>
+      </div>
+      <nav class="project-tabs" aria-label="Project">
+        <button class="project-tab active" data-project-view="code"><svg class="icon sm"><use href="#i-code" /></svg>Code</button>
+        <button class="project-tab" data-project-view="work"><svg class="icon sm"><use href="#i-board" /></svg>Work <span class="tab-count">7</span></button>
+        <button class="project-tab" data-project-view="review"><svg class="icon sm"><use href="#i-message" /></svg>Reviews <span class="tab-count">4</span></button>
+        <button class="project-tab" data-toast="Runs view remains a focused implementation surface"><svg class="icon sm"><use href="#i-play" /></svg>Runs <span class="tab-count">2</span></button>
+        <button class="project-tab" data-toast="Sync and refs view remains project-scoped"><svg class="icon sm"><use href="#i-sync" /></svg>Sync</button>
+        <button class="project-tab" data-toast="Project settings selected"><svg class="icon sm"><use href="#i-settings" /></svg>Settings</button>
+      </nav>
+    </section>
+
+    <main class="workspace-stage" id="stage">
+      <section class="view active" data-view="code" aria-label="Project code overview">
+        <div class="page-scroll"><div class="content-width">
+          <div class="repo-toolbar">
+            <button class="button branch-button"><svg class="icon sm"><use href="#i-branch" /></svg><strong>main</strong><svg class="icon sm chev"><use href="#i-chevron" /></svg></button>
+            <div class="path-line"><strong>sorrel</strong><span>/</span><span id="repoPath">root</span></div>
+            <button class="button push" data-toast="Go to file search opened"><svg class="icon sm"><use href="#i-search" /></svg>Go to file</button>
+            <button class="button primary" data-toast="Code and clone menu opened"><svg class="icon sm"><use href="#i-code" /></svg>Code</button>
+          </div>
+          <div class="repo-layout">
+            <div class="repo-primary">
+              <section class="surface" aria-label="Repository tree">
+                <div class="commit-banner"><span class="avatar">MG</span><div class="commit-copy"><strong>chore: prepare v0.1.0-alpha.2 release</strong><small>Mathis committed 6 hours ago</small></div><div class="commit-meta"><span class="mono">214e6ae</span><span><svg class="icon sm" style="display:inline-block;vertical-align:middle"><use href="#i-clock" /></svg> 1,248 changes</span></div></div>
+                <button class="tree-row" data-file=".github/workflows"><svg class="icon sm folder-icon"><use href="#i-folder" /></svg><span class="tree-name">.github</span><span class="tree-message">ci: publish coordinated release artifacts</span><span class="tree-time">2 days ago</span></button>
+                <button class="tree-row" data-file="docs"><svg class="icon sm folder-icon"><use href="#i-folder" /></svg><span class="tree-name">docs</span><span class="tree-message">docs: clarify alpha release boundaries</span><span class="tree-time">6 hours ago</span></button>
+                <button class="tree-row" data-file="sorrel-core"><svg class="icon sm folder-icon"><use href="#i-folder" /></svg><span class="tree-name">sorrel-core</span><span class="tree-message">refactor: reduce ownership churn</span><span class="tree-time">yesterday</span></button>
+                <button class="tree-row" data-file="sorrel-cli"><svg class="icon sm folder-icon"><use href="#i-folder" /></svg><span class="tree-name">sorrel-cli</span><span class="tree-message">feat: add Hub bearer authentication</span><span class="tree-time">yesterday</span></button>
+                <button class="tree-row" data-file="sorrel-hub"><svg class="icon sm folder-icon"><use href="#i-folder" /></svg><span class="tree-name">sorrel-hub</span><span class="tree-message">fix: report capabilities truthfully</span><span class="tree-time">2 days ago</span></button>
+                <button class="tree-row" data-file="sorrel-hub-ui"><svg class="icon sm folder-icon"><use href="#i-folder" /></svg><span class="tree-name">sorrel-hub-ui</span><span class="tree-message">style: establish product visual language</span><span class="tree-time">2 days ago</span></button>
+                <button class="tree-row" data-file="sorrel-runners"><svg class="icon sm folder-icon"><use href="#i-folder" /></svg><span class="tree-name">sorrel-runners</span><span class="tree-message">fix: reject unsupported log follow</span><span class="tree-time">yesterday</span></button>
+                <button class="tree-row" data-file="AGENTS.md"><svg class="icon sm file-icon"><use href="#i-file" /></svg><span class="tree-name">AGENTS.md</span><span class="tree-message">docs: route agent workspace changes</span><span class="tree-time">6 hours ago</span></button>
+                <button class="tree-row" data-file="CHANGELOG.md"><svg class="icon sm file-icon"><use href="#i-file" /></svg><span class="tree-name">CHANGELOG.md</span><span class="tree-message">chore: prepare v0.1.0-alpha.2 release</span><span class="tree-time">6 hours ago</span></button>
+                <button class="tree-row" data-file="README.md"><svg class="icon sm file-icon"><use href="#i-file" /></svg><span class="tree-name">README.md</span><span class="tree-message">docs: keep shipped capability snapshot honest</span><span class="tree-time">2 days ago</span></button>
+              </section>
+
+              <article class="surface">
+                <header class="readme-head"><svg class="icon sm"><use href="#i-book" /></svg>README.md<button class="square-button push" style="width:29px;height:29px"><svg class="icon sm"><use href="#i-more" /></svg></button></header>
+                <div class="readme-body">
+                  <p class="section-label">Agent-native version control</p><h1>Sorrel</h1>
+                  <p class="readme-lede">A local-first version-control system designed around snapshots, changes, lanes, review proposals, policy, and parallel work by humans and agents.</p>
+                  <div class="badge-row"><span class="pill accent">v0.1.0-alpha.2</span><span class="pill green">CI passing</span><span class="pill">Rust 1.85+</span><span class="pill">Apache-2.0 / MIT</span></div>
+                  <div class="architecture-strip"><div class="architecture-cell"><span>01</span><strong>Core</strong><small>Objects, snapshots, changes, lanes, merge, policy.</small></div><div class="architecture-cell"><span>02</span><strong>CLI</strong><small>Persistent local VCS and Git bridge.</small></div><div class="architecture-cell"><span>03</span><strong>Hub</strong><small>Collaboration, review, sync, and auth seams.</small></div><div class="architecture-cell"><span>04</span><strong>Runners</strong><small>Portable workflows with secret references.</small></div></div>
+                  <h2>Quick start</h2><p>The alpha already supports a complete local loop. Initialize a workspace, create a change, and submit a lane for review.</p><div class="code-block">sorrel init<br />sorrel change create -m "Describe the change"<br />sorrel lane create feat/example<br />sorrel lane submit</div>
+                  <h2>Why Sorrel?</h2><ul><li>Snapshots and changes are first-class objects, not incidental commit metadata.</li><li>Lanes isolate concurrent work and preserve resumable context.</li><li>Policy, grants, and secret references remain authoritative in Core.</li><li>Git import, export, and colocated sync provide an adoption bridge.</li></ul>
+                </div>
+              </article>
+            </div>
+
+            <aside class="about-panel">
+              <section class="about-section"><h2>About</h2><p>Agent-native version control with a working local VCS loop, Git bridge, Hub collaboration, and portable workflow runners.</p><div class="topic-row"><span class="topic">version-control</span><span class="topic">agents</span><span class="topic">rust</span><span class="topic">local-first</span></div><div class="about-stat"><svg class="icon sm"><use href="#i-users" /></svg><strong>8</strong> contributors</div><div class="about-stat"><svg class="icon sm"><use href="#i-branch" /></svg><strong>7</strong> active lanes</div><div class="about-stat"><svg class="icon sm"><use href="#i-message" /></svg><strong>4</strong> open reviews</div></section>
+              <section class="about-section"><h2>Members</h2><p>Humans and agents currently working in this project.</p><div class="member-stack"><span class="avatar">MG</span><span class="avatar agent">A</span><span class="avatar agent">C</span><span class="avatar agent">M</span></div></section>
+              <section class="about-section"><h2>Latest release</h2><div class="release-row"><i></i><div><strong>v0.1.0-alpha.2</strong><small>Local-first developer preview · 6 hours ago</small></div></div><button class="button" style="width:100%;margin-top:8px" data-toast="Release history opened">View releases</button></section>
+              <section class="about-section"><h2>Default lane</h2><p class="mono">main · snapshot 9af7…2d18</p><span class="pill green" style="margin-top:10px"><span class="status-dot"></span>Hub synced</span></section>
+            </aside>
+          </div>
+        </div></div>
+      </section>
+
+      <section class="view board-view" data-view="work" aria-label="Project work board">
+        <header class="board-toolbar"><div><h2>Lane flow</h2><p>One card represents one isolated lane of work—not a generic task.</p></div><span class="pill green"><span class="status-dot"></span>7 active</span><div class="view-switch"><button class="active">Board</button><button data-toast="List mode would optimize filtering and bulk scanning">List</button></div><button class="button primary"><svg class="icon sm"><use href="#i-branch" /></svg>New lane</button></header>
+        <div class="board-scroll"><div class="board-help"><svg class="icon sm"><use href="#i-board" /></svg><strong>Use this view to answer:</strong> who owns each lane, what is blocked, and what can integrate next?</div>
+          <div class="kanban">
+            <section class="kanban-column"><header class="kanban-head"><span class="status-dot" style="color:var(--muted)"></span><strong>Planned</strong><span class="count">2</span></header><div class="kanban-stack"><button class="lane-card" data-lane="docs/design-system" data-title="Document the design system"><div class="lane-top"><span class="avatar">MG</span><code>docs/design-system</code></div><h3>Document the design system</h3><p>Tokens, interaction language, density, and accessibility.</p><div class="lane-meta"><span class="pill">0 changes</span><time>today</time></div></button><button class="lane-card" data-lane="feat/review-diff" data-title="Expose change diffs in Hub"><div class="lane-top"><span class="avatar agent">C</span><code>feat/review-diff</code></div><h3>Expose change diffs in Hub</h3><p>File and line-level diff data for the review workbench.</p><div class="lane-meta"><span class="pill">planned</span><time>today</time></div></button></div></section>
+            <section class="kanban-column"><header class="kanban-head"><span class="status-dot" style="color:var(--accent)"></span><strong>Active</strong><span class="count">3</span></header><div class="kanban-stack"><button class="lane-card" data-lane="feat/mobile-navigation" data-title="Accessible mobile navigation"><div class="lane-top"><span class="avatar agent">A</span><code>feat/mobile-navigation</code></div><h3>Accessible mobile navigation</h3><p>Compact drawer, focus return, and responsive project shell.</p><div class="lane-meta"><span class="pill accent">3 changes</span><span class="pill green">tests pass</span><time>8m</time></div></button><button class="lane-card lane-blocked" data-lane="feat/hosted-vault" data-title="Hosted secret provider"><div class="lane-top"><span class="avatar agent">M</span><code>feat/hosted-vault</code></div><h3>Hosted secret provider</h3><p>Waiting for a production deploy grant.</p><div class="lane-meta"><span class="pill red">blocked</span><span class="pill">5 changes</span><time>21m</time></div></button><button class="lane-card" data-lane="refactor/sdk-errors" data-title="Typed SDK failure surface"><div class="lane-top"><span class="avatar agent">C</span><code>refactor/sdk-errors</code></div><h3>Typed SDK failure surface</h3><p>Preserve Hub error identity across clients.</p><div class="lane-meta"><span class="pill accent">2 changes</span><time>34m</time></div></button></div></section>
+            <section class="kanban-column"><header class="kanban-head"><span class="status-dot" style="color:var(--warn)"></span><strong>Review</strong><span class="count">2</span></header><div class="kanban-stack"><button class="lane-card lane-ready" data-lane="feat/desktop-arm64" data-title="Windows ARM64 packaging"><div class="lane-top"><span class="avatar">MG</span><code>feat/desktop-arm64</code></div><h3>Windows ARM64 packaging</h3><p>Approved and all required checks passed.</p><div class="lane-meta"><span class="pill green">ready</span><span class="pill">9 files</span><time>1h</time></div></button><button class="lane-card" data-lane="fix/hub-capabilities" data-title="Truthful Hub capabilities"><div class="lane-top"><span class="avatar agent">A</span><code>fix/hub-capabilities</code></div><h3>Truthful Hub capabilities</h3><p>Two unresolved review comments.</p><div class="lane-meta"><span class="pill warn">review</span><span class="pill">5 files</span><time>2h</time></div></button></div></section>
+            <section class="kanban-column"><header class="kanban-head"><span class="status-dot" style="color:var(--green)"></span><strong>Integrated</strong><span class="count">2</span></header><div class="kanban-stack"><button class="lane-card" data-lane="feat/server-release" data-title="Hostable server releases"><div class="lane-top"><span class="avatar">MG</span><code>feat/server-release</code></div><h3>Hostable server releases</h3><p>Merged into main and synchronized to Hub.</p><div class="lane-meta"><span class="pill green">merged</span><span class="pill green">synced</span><time>34m</time></div></button><button class="lane-card" data-lane="refactor/dead-code" data-title="Remove confirmed dead code"><div class="lane-top"><span class="avatar agent">M</span><code>refactor/dead-code</code></div><h3>Remove confirmed dead code</h3><p>Integrated with validation complete.</p><div class="lane-meta"><span class="pill green">merged</span><time>2h</time></div></button></div></section>
+          </div>
+        </div>
+        <aside class="lane-inspector" id="laneInspector"><header class="inspector-head"><div><p class="section-label">Lane detail</p><h2 id="laneTitle">Accessible mobile navigation</h2><p class="mono muted" id="laneName" style="font-size:8px">feat/mobile-navigation</p></div><button class="square-button push" id="laneClose"><svg class="icon sm"><use href="#i-x" /></svg></button></header><section class="inspector-section"><h3>Progress</h3><div class="progress"><i></i></div><div class="progress-copy"><span>12 of 17 steps</span><span>72%</span></div></section><section class="inspector-section"><h3>Context</h3><dl class="meta-grid"><dt>Owner</dt><dd>Astra · agent</dd><dt>Base</dt><dd class="mono">main</dd><dt>Changes</dt><dd>3</dd><dt>Files</dt><dd>18</dd><dt>Policy</dt><dd><span class="pill green">allowed</span></dd></dl></section><section class="inspector-section"><h3>Why the board exists</h3><p class="muted" style="font-size:9px;line-height:1.6">The board tracks the lifecycle of real Sorrel lanes. Opening a card reveals VCS context, ownership, policy, checks, and review state. Planning details can link out; Hub should not become a generic issue tracker.</p></section><section class="inspector-section"><button class="button primary" style="width:100%">Open lane workspace</button></section></aside>
+      </section>
+
+      <section class="view workbench-view" data-view="review" aria-label="Review workbench">
+        <aside class="wb-pane"><header class="wb-head"><strong>Review queue</strong><span class="pill warn">4 open</span><button class="square-button push" style="width:29px;height:29px"><svg class="icon sm"><use href="#i-filter" /></svg></button></header><div class="wb-search"><svg class="icon sm"><use href="#i-search" /></svg>Filter title, lane, author…</div><button class="review-row active" data-review="Mobile navigation overhaul"><span class="marker"></span><span><h3>Mobile navigation overhaul</h3><p>feat/mobile-navigation · Astra</p><span class="row-tags"><span class="pill warn">needs review</span><span class="pill">18 files</span></span></span></button><button class="review-row" data-review="Windows ARM64 packaging"><span class="marker"></span><span><h3>Windows ARM64 packaging</h3><p>feat/desktop-arm64 · Mathis</p><span class="row-tags"><span class="pill green">checks pass</span><span class="pill">9 files</span></span></span></button><button class="review-row" data-review="Truthful Hub capabilities"><span class="marker"></span><span><h3>Truthful Hub capabilities</h3><p>fix/hub-capabilities · Clover</p><span class="row-tags"><span class="pill warn">2 comments</span><span class="pill">5 files</span></span></span></button><button class="review-row" data-review="Remove agent project mirroring"><span class="marker"></span><span><h3>Remove agent project mirroring</h3><p>refactor/agent-mirror · Moss</p><span class="row-tags"><span class="pill green">approved</span><span class="pill">12 files</span></span></span></button></aside>
+        <main class="wb-pane review-canvas"><header class="review-title"><div class="review-title-line"><div><span class="pill warn">Open proposal · #184</span><h2 id="reviewTitle">Mobile navigation overhaul</h2><p>Make project navigation accessible and usable across compact desktop and mobile shells.</p></div><div class="review-actions"><button class="button">Request changes</button><button class="button primary"><svg class="icon sm"><use href="#i-check" /></svg>Approve</button></div></div><div class="change-line"><span>feat/mobile-navigation</span><span class="line"></span><span>3 changes · 18 files · +624 −118</span></div></header><div class="filebar"><svg class="icon sm"><use href="#i-file" /></svg><strong>sorrel-hub-ui/src/styles/hub.css</strong><span class="pill green">+86</span><span class="pill red">−14</span><span class="push">Viewed</span><svg class="icon sm"><use href="#i-more" /></svg></div><div class="diff"><div class="diff-line"><span class="ln">418</span><span class="ln">418</span><span class="sign"> </span><code>.app-sidebar {</code></div><div class="diff-line del"><span class="ln">419</span><span class="ln"></span><span class="sign">−</span><code>  width: var(--side-w);</code></div><div class="diff-line add"><span class="ln"></span><span class="ln">419</span><span class="sign">+</span><code>  width: min(86vw, var(--side-w));</code></div><div class="diff-line"><span class="ln">420</span><span class="ln">420</span><span class="sign"> </span><code>  display: flex;</code></div><div class="diff-line add"><span class="ln"></span><span class="ln">421</span><span class="sign">+</span><code>  position: fixed;</code></div><div class="diff-line add"><span class="ln"></span><span class="ln">422</span><span class="sign">+</span><code>  inset: 0 auto 0 0;</code></div><div class="diff-line add"><span class="ln"></span><span class="ln">423</span><span class="sign">+</span><code>  transform: translateX(var(--drawer-offset));</code></div><div class="diff-line"><span class="ln">421</span><span class="ln">424</span><span class="sign"> </span><code>  flex-direction: column;</code></div><div class="diff-line hunk"><span class="ln"></span><span class="ln"></span><span class="sign"></span><code>@@ -468,6 +483,22 @@</code></div><div class="diff-line add"><span class="ln"></span><span class="ln">483</span><span class="sign">+</span><code>@media (max-width: 760px) {</code></div><div class="diff-line add"><span class="ln"></span><span class="ln">484</span><span class="sign">+</span><code>  .mobile-trigger {</code></div><div class="diff-line add"><span class="ln"></span><span class="ln">485</span><span class="sign">+</span><code>    display: inline-grid;</code></div><div class="diff-line add"><span class="ln"></span><span class="ln">486</span><span class="sign">+</span><code>    place-items: center;</code></div><div class="diff-line add"><span class="ln"></span><span class="ln">487</span><span class="sign">+</span><code>  }</code></div><div class="diff-line add"><span class="ln"></span><span class="ln">488</span><span class="sign">+</span><code>}</code></div></div></main>
+        <aside class="wb-pane review-inspector"><header class="wb-head"><strong>Review state</strong><span class="pill green push">mergeable</span></header><section class="inspector-section"><h3>Required checks</h3><div class="check-row"><span class="check-icon">✓</span><span><strong>UI package</strong><small>1m 42s</small></span><span class="pill green">pass</span></div><div class="check-row"><span class="check-icon">✓</span><span><strong>Quick checks</strong><small>28s</small></span><span class="pill green">pass</span></div><div class="check-row"><span class="check-icon wait">↻</span><span><strong>Root E2E</strong><small>running</small></span><span class="pill warn">2m</span></div></section><section class="inspector-section"><h3>Ownership</h3><div class="check-row"><span class="avatar agent" style="width:25px;height:25px;font-size:8px">A</span><span><strong>Astra</strong><small>author · agent</small></span><span class="status-dot" style="color:var(--green)"></span></div><div class="check-row"><span class="avatar" style="width:25px;height:25px;font-size:8px">MG</span><span><strong>Mathis</strong><small>reviewer</small></span><span></span></div></section><section class="inspector-section"><h3>Unresolved thread</h3><div class="comment"><div class="comment-head"><span class="avatar">MG</span>Mathis<span class="push muted" style="font-weight:400">line 483</span></div>Can the drawer preserve focus when it closes? Keyboard flow is the important edge case here.</div><button class="button" style="width:100%;margin-top:8px">Reply</button></section></aside>
+      </section>
+
+      <section class="view inbox-view" data-view="inbox" aria-label="Global inbox">
+        <aside class="inbox-nav"><h1>Inbox</h1><button class="compose"><svg class="icon sm"><use href="#i-branch" /></svg><span>Start work</span></button><button class="inbox-filter active"><svg class="icon sm"><use href="#i-inbox" /></svg><span>Needs you</span><span class="count">4</span></button><button class="inbox-filter"><svg class="icon sm"><use href="#i-clock" /></svg><span>Later</span><span class="count">2</span></button><button class="inbox-filter"><svg class="icon sm"><use href="#i-check" /></svg><span>Resolved</span><span class="count">18</span></button><button class="inbox-filter"><svg class="icon sm"><use href="#i-archive" /></svg><span>All activity</span><span class="count"></span></button><div class="inbox-context"><p class="section-label">Entry behavior</p><p>Inbox is a global destination, not the splash screen. Returning users resume their last project and open Inbox when they want the cross-project decision queue.</p></div></aside>
+        <section class="queue"><header class="queue-head"><div class="queue-head-line"><h2>Needs you</h2><span>4 unread</span></div><div class="queue-search"><svg class="icon sm"><use href="#i-search" /></svg>Search decisions and activity</div></header><button class="inbox-item active" data-inbox-title="Mobile navigation overhaul" data-inbox-kind="Review requested" data-inbox-copy="Astra proposes a responsive project drawer with explicit keyboard focus management. The change is scoped to the shared Hub UI and browser-host behavior."><span class="unread"></span><span><span class="item-top"><strong>Astra requested your review</strong><time>8m</time></span><h3>Mobile navigation overhaul</h3><p>All focused checks pass. Two accessibility decisions are called out.</p><span class="inbox-tags"><span class="pill warn">Review</span><span class="pill">Sorrel</span></span></span></button><button class="inbox-item" data-inbox-title="Production deploy needs a grant" data-inbox-kind="Policy decision" data-inbox-copy="Moss is waiting for authority to bind the hosted secret provider. Hub explains the requested permission, but Core remains the source of truth for the decision."><span class="unread"></span><span><span class="item-top"><strong>Policy decision</strong><time>21m</time></span><h3>Production deploy needs a grant</h3><p>Moss is waiting for permission to bind the hosted secret provider.</p><span class="inbox-tags"><span class="pill red">Blocked</span><span class="pill">Public source</span></span></span></button><button class="inbox-item" data-inbox-title="main diverged from origin/main" data-inbox-kind="Sync needs attention" data-inbox-copy="Sorrel detected local and remote divergence. The safe action parks remote work on a normal lane so both histories remain inspectable before integration."><span class="unread"></span><span><span class="item-top"><strong>Sync needs attention</strong><time>43m</time></span><h3>main diverged from origin/main</h3><p>Sorrel can park the remote work on a lane and preserve both histories.</p><span class="inbox-tags"><span class="pill accent">Sync</span><span class="pill">Sorrel</span></span></span></button><button class="inbox-item" data-inbox-title="Windows ARM64 packaging" data-inbox-kind="Ready to integrate" data-inbox-copy="The Windows ARM64 packaging lane is approved, all required checks pass, and no review threads remain unresolved."><span class="unread"></span><span><span class="item-top"><strong>Ready to integrate</strong><time>1h</time></span><h3>Windows ARM64 packaging</h3><p>All required checks pass and no review threads remain unresolved.</p><span class="inbox-tags"><span class="pill green">Ready</span><span class="pill">Sorrel</span></span></span></button><button class="inbox-item" data-inbox-title="Documentation mirror completed" data-inbox-kind="Workflow completed" data-inbox-copy="Canonical guides and their public mirrors are aligned. No action is required."><span class="unread read"></span><span><span class="item-top"><strong>Workflow completed</strong><time>2h</time></span><h3>Documentation mirror completed</h3><p>Canonical guides and public copies are aligned.</p><span class="inbox-tags"><span class="pill">Run</span><span class="pill">Sorrel</span></span></span></button></section>
+        <section class="inbox-detail"><header class="detail-bar"><span class="detail-crumb">Sorrel / Proposal #184</span><span class="push"></span><button class="square-button"><svg class="icon sm"><use href="#i-clock" /></svg></button><button class="square-button"><svg class="icon sm"><use href="#i-archive" /></svg></button><button class="square-button"><svg class="icon sm"><use href="#i-more" /></svg></button></header><article class="inbox-article"><span class="pill warn" id="inboxKind">Review requested</span><h2 id="inboxTitle">Mobile navigation overhaul</h2><p class="lede" id="inboxCopy">Astra proposes a responsive project drawer with explicit keyboard focus management. The change is scoped to the shared Hub UI and browser-host behavior.</p><div class="decision-strip"><span class="avatar agent">A</span><div><strong>Astra is waiting for your decision</strong><small>All focused checks pass · root E2E is running</small></div><div style="display:flex"><button class="button">Request changes</button><button class="button primary"><svg class="icon sm"><use href="#i-check" /></svg>Approve</button></div></div><section class="article-section"><h3>At a glance</h3><div class="summary-grid"><div class="summary-cell"><strong>18</strong><small>files changed</small></div><div class="summary-cell"><strong style="color:var(--green)">+624</strong><small>lines added</small></div><div class="summary-cell"><strong>2</strong><small>decisions called out</small></div></div></section><section class="article-section"><h3>Conversation</h3><div class="thread"><div class="thread-entry"><div class="thread-head"><span class="avatar agent">A</span><strong>Astra</strong><time>8 minutes ago</time></div><p>I kept the full project navigation above 760px. Below that it becomes a focus-trapped drawer, and Escape returns focus to the trigger.</p></div><div class="thread-entry"><div class="thread-head"><span class="avatar">MG</span><strong>Mathis</strong><time>just now</time></div><p>The focus-return behavior is the right direction. Keep the active project name visible in the compact header.</p></div></div></section></article></section>
+      </section>
+
+      <section class="view" data-view="org" aria-label="Organization profile"><div class="identity-page"><div class="identity-width"><header class="identity-header"><div class="identity-mark">MG</div><div class="identity-heading"><p class="section-label">Organization</p><h1>MGRAFF2006</h1><p>Open-source tools for local-first development, agent collaboration, and software that keeps ownership with its users.</p><div class="identity-meta"><span><svg class="icon sm"><use href="#i-users" /></svg>8 members</span><span><svg class="icon sm"><use href="#i-location" /></svg>Germany</span><span><svg class="icon sm"><use href="#i-link" /></svg>github.com/MGRAFF2006</span></div></div><button class="button">Follow organization</button></header><nav class="identity-tabs"><button class="identity-tab active">Overview</button><button class="identity-tab" data-toast="Organization projects selected">Projects <span class="tab-count">6</span></button><button class="identity-tab" data-toast="Members selected">Members <span class="tab-count">8</span></button><button class="identity-tab" data-toast="Organization activity selected">Activity</button></nav><div class="identity-layout"><article class="surface identity-readme"><header class="readme-head"><svg class="icon sm"><use href="#i-book" /></svg>MGRAFF2006 / README.md</header><div class="readme-body"><p class="section-label">What we build</p><h1>Software with a local center of gravity.</h1><p class="readme-lede">We build developer infrastructure that is inspectable, composable, and useful before a cloud account enters the picture.</p><blockquote>Local-first does not mean isolated. It means collaboration is a capability you add without surrendering the source of truth.</blockquote><h2>Current focus</h2><ul><li><strong>Sorrel</strong> — agent-native version control with lanes, policy, review, and sync.</li><li><strong>Public source</strong> — practical examples and reusable building blocks.</li><li><strong>Configuration</strong> — reproducible Arch Linux and developer environments.</li></ul><h2>Working principles</h2><p>Keep durable state portable. Make authority explicit. Prefer small interoperable tools over mandatory platforms.</p></div></article><aside class="project-list"><header class="project-list-head"><svg class="icon sm"><use href="#i-pin" /></svg><span style="margin-left:7px">Pinned projects</span></header><button class="project-list-row" data-global-view="code"><strong>sorrel</strong><p>Agent-native version control and collaboration.</p><span class="pill accent" style="margin-top:9px">Rust</span></button><button class="project-list-row" data-toast="Public source project opened"><strong>public-source</strong><p>Reusable open-source experiments and integrations.</p><span class="pill" style="margin-top:9px">C++</span></button><button class="project-list-row" data-toast="Config project opened"><strong>config</strong><p>Personal Arch Linux environments and automation.</p><span class="pill green" style="margin-top:9px">Shell</span></button></aside></div></div></div></section>
+
+      <section class="view" data-view="profile" aria-label="User profile"><div class="identity-page"><div class="identity-width"><header class="identity-header"><div class="identity-mark profile">MG</div><div class="identity-heading"><p class="section-label">Profile</p><h1>Mathis Graff</h1><p>Building local-first developer tools, agent-native workflows, and systems that stay understandable under pressure.</p><div class="identity-meta"><span class="mono">@humunkulud</span><span><svg class="icon sm"><use href="#i-location" /></svg>Europe/Berlin</span><span><svg class="icon sm"><use href="#i-org" /></svg>MGRAFF2006</span></div></div><button class="button">Edit profile</button></header><nav class="identity-tabs"><button class="identity-tab active">Overview</button><button class="identity-tab" data-toast="Profile projects selected">Projects <span class="tab-count">12</span></button><button class="identity-tab" data-toast="Profile activity selected">Activity</button></nav><div class="identity-layout profile-layout"><aside class="profile-card"><div class="profile-card-cover"></div><div class="profile-card-body"><div class="profile-large-avatar">MG</div><h2>Mathis Graff</h2><span class="profile-handle">humunkulud</span><p class="profile-bio">I care about developer autonomy, explicit systems, and software that can be understood from the repository outward.</p><button class="button" style="width:100%">Edit profile</button><div class="profile-detail"><svg class="icon sm"><use href="#i-users" /></svg><strong>14</strong> followers · <strong>8</strong> following</div><div class="profile-detail"><svg class="icon sm"><use href="#i-org" /></svg>MGRAFF2006</div><div class="profile-detail"><svg class="icon sm"><use href="#i-link" /></svg>github.com/humunkulud</div></div></aside><main><article class="surface identity-readme"><header class="readme-head"><svg class="icon sm"><use href="#i-book" /></svg>humunkulud / README.md</header><div class="readme-body"><p class="section-label">Hello</p><h1>I build tools that keep the operator in control.</h1><p class="readme-lede">Right now I am focused on Sorrel: a version-control system shaped around parallel human and agent work instead of treating agents as an afterthought.</p><h2>Current work</h2><ul><li>Making lanes, changes, and review proposals feel like one coherent workflow.</li><li>Keeping Git interoperability practical during adoption.</li><li>Designing Hub as a collaboration companion—not a replacement for the local workspace.</li></ul><div class="code-block">location: Europe/Berlin<br />systems: Arch Linux · Tailscale · local-first<br />current: MGRAFF2006/sorrel</div></div></article><div class="pinned-grid"><button class="pinned" data-global-view="code"><strong>MGRAFF2006/sorrel</strong><p>Agent-native version control with a working local loop and Hub collaboration.</p></button><button class="pinned" data-toast="Configuration project opened"><strong>MGRAFF2006/config</strong><p>Reproducible shell, editor, desktop, and machine configuration.</p></button></div></main></div></div></div></section>
+    </main>
+
+    <div class="notes-backdrop" id="notesBackdrop"><aside class="notes-panel" role="dialog" aria-modal="true" aria-labelledby="notesTitle"><header class="notes-head"><div><p class="section-label">Cohesive product direction</p><h2 id="notesTitle">Hub without the dashboard</h2><p>This plan combines the parts you liked into one information architecture and stays inside Sorrel’s product language.</p></div><button class="square-button push" id="notesClose" aria-label="Close design notes"><svg class="icon sm"><use href="#i-x" /></svg></button></header><section class="notes-section"><h3>Landing behavior</h3><ol><li>A returning user resumes the last project and route they used.</li><li>A project opens on <strong>Code</strong>: description, directory structure, recent change, README, members, and release context.</li><li>A new or signed-out user sees a simple project/organization picker—not health metrics or dashboard cards.</li><li>Inbox remains globally available with an unread badge, but it is not forced as the splash screen.</li></ol></section><section class="notes-section"><h3>Where each idea belongs</h3><ul><li><strong>Inbox</strong> is the cross-project queue for decisions: review, policy, sync, and completed work.</li><li><strong>Workbench</strong> is the deep review surface once a proposal is opened.</li><li><strong>Work board</strong> visualizes real Sorrel lanes through planned, active, review, and integrated states. It deliberately avoids becoming a generic issue tracker.</li><li><strong>README cards</strong> carry narrative identity on projects, organizations, and user profiles.</li></ul></section><section class="notes-section"><h3>Route model</h3><div class="route-map"><code>/projects/:id</code><span>Code overview and README</span><code>/projects/:id/work</code><span>Lane board/list</span><code>/projects/:id/reviews</code><span>Review queue and workbench</span><code>/inbox</code><span>Global decision queue</span><code>/orgs/:id</code><span>Organization README and projects</span><code>/profiles/:id</code><span>User README and activity</span></div></section><section class="notes-section"><h3>API honesty</h3><div class="api-warning">Project metadata, proposals, comments, workflow runs, session state, repositories, and sync refs exist today. Directory browsing, rendered README content, rich diffs, durable Inbox state, profiles/organizations, and lane lifecycle queries require explicit Hub APIs. The UI must not infer permissions or invent authoritative state.</div></section><section class="notes-section"><h3>Suggested implementation order</h3><ol><li>Project chrome + Code overview using repository metadata already available.</li><li>Review workbench backed by explicit change/diff endpoints.</li><li>Global Inbox aggregation and read/later/resolved state.</li><li>Lane board after Hub exposes lane ownership and lifecycle truthfully.</li><li>Organization/profile README rendering with safe Markdown rules.</li></ol></section></aside></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script>
+      const projectViews = new Set(['code', 'work', 'review']);
+      const globalLinks = [...document.querySelectorAll('[data-global-view]')];
+      const projectTabs = [...document.querySelectorAll('[data-project-view]')];
+      const views = [...document.querySelectorAll('[data-view]')];
+      const projectChrome = document.getElementById('projectChrome');
+      const stage = document.getElementById('stage');
+      const toast = document.getElementById('toast');
+      let currentView = 'code';
+      let toastTimer;
+
+      function showToast(message) {
+        clearTimeout(toastTimer);
+        toast.textContent = message;
+        toast.classList.add('show');
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 1700);
+      }
+
+      function showView(view) {
+        currentView = view;
+        const isProject = projectViews.has(view);
+        projectChrome.hidden = !isProject;
+        stage.classList.toggle('global', !isProject);
+        views.forEach(item => item.classList.toggle('active', item.dataset.view === view));
+        projectTabs.forEach(tab => tab.classList.toggle('active', tab.dataset.projectView === view));
+        document.querySelectorAll('.global-link').forEach(link => {
+          const target = link.dataset.globalView;
+          link.classList.toggle('active', target === view || (target === 'code' && isProject));
+        });
+        location.hash = view;
+      }
+
+      globalLinks.forEach(item => item.addEventListener('click', () => showView(item.dataset.globalView)));
+      projectTabs.forEach(item => item.addEventListener('click', () => showView(item.dataset.projectView)));
+      document.querySelectorAll('[data-toast]').forEach(item => item.addEventListener('click', () => showToast(item.dataset.toast)));
+      document.querySelectorAll('[data-file]').forEach(item => item.addEventListener('click', () => {
+        document.getElementById('repoPath').textContent = item.dataset.file;
+        showToast(`Opened ${item.dataset.file}`);
+      }));
+
+      document.querySelectorAll('[data-lane]').forEach(item => item.addEventListener('click', () => {
+        document.getElementById('laneTitle').textContent = item.dataset.title;
+        document.getElementById('laneName').textContent = item.dataset.lane;
+        document.getElementById('laneInspector').classList.add('open');
+      }));
+      document.getElementById('laneClose').addEventListener('click', () => document.getElementById('laneInspector').classList.remove('open'));
+
+      document.querySelectorAll('[data-review]').forEach(item => item.addEventListener('click', () => {
+        document.querySelectorAll('[data-review]').forEach(row => row.classList.remove('active'));
+        item.classList.add('active');
+        document.getElementById('reviewTitle').textContent = item.dataset.review;
+        showToast(`Loaded ${item.dataset.review}`);
+      }));
+
+      document.querySelectorAll('[data-inbox-title]').forEach(item => item.addEventListener('click', () => {
+        document.querySelectorAll('[data-inbox-title]').forEach(row => row.classList.remove('active'));
+        item.classList.add('active');
+        document.getElementById('inboxTitle').textContent = item.dataset.inboxTitle;
+        document.getElementById('inboxKind').textContent = item.dataset.inboxKind;
+        document.getElementById('inboxCopy').textContent = item.dataset.inboxCopy;
+      }));
+
+      document.querySelectorAll('.inbox-filter').forEach(item => item.addEventListener('click', () => {
+        document.querySelectorAll('.inbox-filter').forEach(filter => filter.classList.remove('active'));
+        item.classList.add('active');
+        showToast(`${item.textContent.trim()} filter selected`);
+      }));
+
+      const notesBackdrop = document.getElementById('notesBackdrop');
+      document.getElementById('notesButton').addEventListener('click', () => notesBackdrop.classList.add('open'));
+      document.getElementById('notesClose').addEventListener('click', () => notesBackdrop.classList.remove('open'));
+      notesBackdrop.addEventListener('click', event => { if (event.target === notesBackdrop) notesBackdrop.classList.remove('open'); });
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+          notesBackdrop.classList.remove('open');
+          document.getElementById('laneInspector').classList.remove('open');
+        }
+      });
+
+      const hashView = location.hash.slice(1);
+      if (views.some(item => item.dataset.view === hashView)) showView(hashView);
+    </script>
+  </body>
+</html>
