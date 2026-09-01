@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+
+- Removed unused direct `serde` and `serde_json` dependencies.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 

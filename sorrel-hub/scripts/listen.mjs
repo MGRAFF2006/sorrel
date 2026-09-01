@@ -16,16 +16,12 @@
 
 import http from 'node:http';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { createApp } from '../src/app.js';
 import { resolveTrustedGrants } from '../src/bootstrap-grants.js';
 import { createFsMetadataStore } from '../src/fs-metadata-store.js';
 import { createFsRepoSyncStore } from '../src/fs-sync-store.js';
 import { createInMemoryStore } from '../src/store.js';
-
-const root = path.dirname(fileURLToPath(import.meta.url));
-void root;
 
 const syncStoreKind = process.env.SORREL_HUB_SYNC_STORE ?? 'memory';
 const dataDir = process.env.SORREL_HUB_DATA_DIR ?? './data/sync';

@@ -717,15 +717,6 @@ const blake3Impl = {};
 
 /**
  * @param {Buffer|Uint8Array|string} data
- * @returns {Buffer}
- */
-export function hashBytes(data) {
-  const digest = blake3Impl.hash(data);
-  return Buffer.from(digest);
-}
-
-/**
- * @param {Buffer|Uint8Array|string} data
  * @returns {string} lowercase hex object id (32-byte BLAKE3 digest)
  */
 export function objectId(data) {

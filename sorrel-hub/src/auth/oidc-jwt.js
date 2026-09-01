@@ -4,7 +4,7 @@
  * verify once per request, then attach HubSession.
  */
 
-import { createPublicKey, createVerify, timingSafeEqual } from 'node:crypto';
+import { createPublicKey, createVerify } from 'node:crypto';
 
 /**
  * @typedef {{
@@ -197,16 +197,4 @@ function base64UrlToUtf8(value) {
 function base64UrlToBuffer(value) {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((value.length + 3) % 4);
   return Buffer.from(padded, 'base64');
-}
-
-/**
- * Constant-time string equality for small secrets (tests / future HMAC).
- * @param {string} a
- * @param {string} b
- */
-export function safeEqualString(a, b) {
-  const left = Buffer.from(a);
-  const right = Buffer.from(b);
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
 }

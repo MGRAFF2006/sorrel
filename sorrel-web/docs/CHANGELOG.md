@@ -13,6 +13,8 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Replaced the deprecated, unmaintained Rust `serde_yaml` parser with the
+  maintained `serde_yaml_ng` continuation for CLI and runner YAML inputs.
 - Updated the public website and documentation pages to use the current Sorrel
   leaf logo for their header branding and favicon.
 - Added `SORREL_HUB_TOKEN` bearer authentication for CLI Hub requests and made

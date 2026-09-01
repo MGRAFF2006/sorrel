@@ -648,7 +648,7 @@ mod tests {
         );
         change.proposed_grants.push(ProposedGrant::new(
             "proposed_self_repo_read",
-            actor.clone(),
+            actor,
             ["repo.read"],
             ResourceRef::new(ResourceKind::Repo, "repo_main"),
             GrantEffect::Allow,
@@ -821,7 +821,7 @@ mod tests {
         );
         change.proposed_grants.push(ProposedGrant::new(
             "proposed_bootstrap_admin",
-            actor.clone(),
+            actor,
             [CAP_AUTHORITY_ADMIN],
             org(),
             GrantEffect::Allow,

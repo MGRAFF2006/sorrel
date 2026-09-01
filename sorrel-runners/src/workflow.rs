@@ -145,7 +145,7 @@ impl WorkflowFile {
     /// Returns [`RunnerError::WorkflowParse`] on malformed YAML and
     /// [`WorkflowError::EmptyFile`] when no workflows are declared.
     pub fn from_yaml(source: &str) -> crate::Result<Self> {
-        let file: WorkflowFile = serde_yaml::from_str(source)
+        let file: WorkflowFile = serde_yaml_ng::from_str(source)
             .map_err(|error| RunnerError::WorkflowParse(error.to_string()))?;
         if file.workflows.is_empty() {
             return Err(WorkflowError::EmptyFile.into());
