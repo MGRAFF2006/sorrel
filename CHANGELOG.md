@@ -15,6 +15,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   review-first project overviews, clearer onboarding, human-readable
   deployment status, an explicit local-compute product boundary, public-site
   visual language, and focused modal project creation.
+- Added the public Sorrel favicon to Hub, labeled the current deployment as
+  local development, and refined Reviews and Repositories toward product
+  language instead of transport and administration terminology.
 - Overhauled the public landing page with a new editorial layout, interactive
   lane-graph visual, clearer architecture and workflow storytelling, and a
   more candid developer-preview status presentation.

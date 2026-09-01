@@ -1251,6 +1251,20 @@ input[type="text"], input[type="search"], textarea, select {
   border-radius: 0;
   box-shadow: none;
 }
+.segmented, .segmented button, .detail-panel, .card, .thread-item,
+.error-banner, .badge-count, .refs li { border-radius: 0; }
+.segmented { padding: 0; border: 1px solid var(--border); }
+.segmented button {
+  min-height: 2.75rem;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--border);
+}
+.segmented button:last-child { border-right: 0; }
+.segmented button.active { color: var(--accent); background: var(--accent-soft); }
+.detail-panel { background: rgba(29, 34, 43, .92); border-color: var(--border); }
+.data-table th { color: var(--muted); font: 600 .62rem var(--mono); letter-spacing: .09em; text-transform: uppercase; }
 .surface-flush { border: 1px solid var(--border); }
 .empty-state { min-height: 19rem; padding: 4rem 2rem; background-image: linear-gradient(rgba(52,60,73,.18) 1px, transparent 1px), linear-gradient(90deg,rgba(52,60,73,.18) 1px,transparent 1px); background-size: 32px 32px; }
 .empty-title { font-size: 1.5rem; letter-spacing: -.035em; }

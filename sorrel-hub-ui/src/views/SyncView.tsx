@@ -74,8 +74,8 @@ export function SyncView() {
   return (
     <div class="page view-enter">
       <PageHeader
-        title="Sync"
-        lede="Object-store repositories linked to this project via proposals."
+        title="Repositories"
+        lede="Local workspaces and content-addressed refs connected to this project."
         actions={
           <button
             type="button"
@@ -92,7 +92,8 @@ export function SyncView() {
 
       <Show when={(repositories() ?? []).length > 0}>
         <div class="surface" style={{ padding: '0.85rem 1rem', 'margin-bottom': '0.75rem' }}>
-          <h2 style={{ margin: '0 0 0.5rem', 'font-size': '0.9rem' }}>Linked repositories</h2>
+          <span class="eyebrow">Project sources</span>
+          <h2 style={{ margin: '0.45rem 0 0.5rem', 'font-size': '1rem' }}>Connected repositories</h2>
           <ul class="plain-list">
             <For each={repositories()}>
               {(repo) => (
@@ -112,7 +113,7 @@ export function SyncView() {
       <div class="toolbar">
         <input
           type="search"
-          placeholder="Filter sync repositories…"
+          placeholder="Find a repository…"
           autocomplete="off"
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
@@ -136,12 +137,12 @@ export function SyncView() {
                   <EmptyState
                     title={
                       projectSyncRepos().length === 0
-                        ? 'No sync repos linked to this project'
+                        ? 'No repositories connected yet'
                         : 'No matches'
                     }
                     body={
                       projectSyncRepos().length === 0
-                        ? 'Lane submit / proposals with a syncRepoId will appear here.'
+                        ? 'Push a local workspace or submit a lane to connect its repository.'
                         : 'Try a different filter.'
                     }
                   />

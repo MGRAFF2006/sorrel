@@ -20,6 +20,7 @@ test('index.html mounts shared hub-ui', async () => {
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, /Sorrel Hub/);
   assert.match(html, /id="root"/);
+  assert.match(html, /href="\/favicon\.svg"/);
   assert.match(html, /src\/main\.tsx/);
 });
 

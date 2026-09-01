@@ -11,6 +11,8 @@ Notable changes to the shared Sorrel Hub UI (`sorrel-hub-ui`) are documented her
   without exposing deployment internals as primary navigation.
 - Aligned Hub with the public Sorrel site's editorial visual language and
   replaced the expanding project form with a focused, accessible modal.
+- Refined Reviews and Repositories with product-facing language, a consistent
+  review modal, and explicit local-development deployment labeling.
 - Removed the Actions placeholder route and navigation until the Hub exposes a
   real Actions module.
 

@@ -252,7 +252,7 @@ export function CapabilitiesHint(props: { capabilities: HubCapabilities | null |
       {(c) => (
         <p class="deployment-label">
           <span class="deployment-dot" aria-hidden="true" />
-          {c().deploy === 'saas' ? 'Sorrel Cloud' : 'Self-hosted Hub'}
+          {c().deploy === 'saas' ? 'Hosted Hub' : 'Local development'}
         </p>
       )}
     </Show>
