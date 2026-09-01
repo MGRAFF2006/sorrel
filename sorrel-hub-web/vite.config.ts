@@ -22,9 +22,7 @@ const allowedHosts = resolveAllowedHosts();
 export default defineConfig({
   plugins: [solid()],
   resolve: {
-    alias: {
-      'sorrel-hub-ui': resolve(rootDir, '../sorrel-hub-ui/src/index.tsx'),
-    },
+    preserveSymlinks: true,
   },
   server: {
     host: process.env.HOST ?? '0.0.0.0',

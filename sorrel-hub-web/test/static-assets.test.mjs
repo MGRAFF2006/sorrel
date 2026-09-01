@@ -33,6 +33,12 @@ test('package depends on shared hub-ui', async () => {
   assert.match(pkg.scripts.build, /vite build/);
 });
 
+test('Vite resolves the declared package instead of a sibling source alias', async () => {
+  const config = await readFile(new URL('../vite.config.ts', import.meta.url), 'utf8');
+  assert.match(config, /preserveSymlinks:\s*true/);
+  assert.doesNotMatch(config, /sorrel-hub-ui\/src/);
+});
+
 test('static server module path resolves', async () => {
   const url = fileURLToPath(new URL('../server/static-server.mjs', import.meta.url));
   assert.ok(url.endsWith('static-server.mjs'));
