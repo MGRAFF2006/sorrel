@@ -1,0 +1,1027 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sorrel Hub — UX overhaul directions</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-synthesis: none;
+        --deck-h: 68px;
+        --ink: #17211b;
+        --muted: #68756d;
+        --line: #dce3de;
+        --paper: #f7f9f7;
+        --green: #176b47;
+        --green-2: #23865c;
+        --leaf: #b7e14f;
+        --amber: #dc8a22;
+        --red: #c75252;
+        --blue: #3977ca;
+        --radius: 14px;
+        --shadow: 0 18px 54px rgba(19, 35, 25, 0.12);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+      body { background: #e8ece9; color: var(--ink); overflow: hidden; }
+      button, input { font: inherit; }
+      button { color: inherit; }
+      svg { display: block; }
+      .icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .icon.sm { width: 15px; height: 15px; }
+      .icon.lg { width: 22px; height: 22px; }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* Prototype deck chrome */
+      .deckbar {
+        height: var(--deck-h);
+        display: grid;
+        grid-template-columns: minmax(215px, auto) minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 20px;
+        padding: 0 22px;
+        color: #eff6f0;
+        background: #101914;
+        border-bottom: 1px solid #2c3931;
+        position: relative;
+        z-index: 50;
+      }
+      .deck-brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+      .leaf-mark {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        color: #0e2116;
+        background: var(--leaf);
+        border-radius: 11px 11px 11px 4px;
+        transform: rotate(-4deg);
+      }
+      .leaf-mark svg { transform: rotate(4deg); }
+      .deck-brand strong { display: block; font-size: 14px; letter-spacing: -0.01em; }
+      .deck-brand span { display: block; margin-top: 2px; color: #91a198; font-size: 11px; }
+      .plan-tabs {
+        display: flex;
+        gap: 3px;
+        min-width: 0;
+        justify-content: center;
+      }
+      .plan-tab {
+        min-width: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 0;
+        border-radius: 9px;
+        padding: 9px 12px;
+        color: #9eada4;
+        background: transparent;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+      .plan-tab:hover { color: #edf5ef; background: #1a261f; }
+      .plan-tab.active { color: #111c15; background: #c6eb67; }
+      .plan-tab .num {
+        width: 19px;
+        height: 19px;
+        display: grid;
+        place-items: center;
+        border: 1px solid currentColor;
+        border-radius: 6px;
+        font: 700 10px/1 ui-monospace, monospace;
+        opacity: 0.78;
+      }
+      .deck-actions { display: flex; align-items: center; gap: 8px; }
+      .deck-button {
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 11px;
+        border: 1px solid #35423a;
+        border-radius: 9px;
+        color: #dbe5de;
+        background: #18231c;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .deck-button:hover { border-color: #718179; background: #202d25; }
+      .concept-stage { height: calc(100vh - var(--deck-h)); overflow: hidden; }
+      .concept { display: none; width: 100%; height: 100%; }
+      .concept.active { display: block; animation: concept-in 220ms ease-out; }
+      @keyframes concept-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+      .eyebrow { margin: 0 0 7px; color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+      .muted { color: var(--muted); }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+      .avatar {
+        width: 31px;
+        height: 31px;
+        display: grid;
+        place-items: center;
+        border-radius: 10px;
+        color: #f8fff9;
+        background: linear-gradient(135deg, #357d5c, #183e2c);
+        font-size: 11px;
+        font-weight: 800;
+      }
+      .avatar.agent { color: #16351f; background: #c5e77c; }
+      .status-dot { width: 7px; height: 7px; border-radius: 99px; background: #3ba672; box-shadow: 0 0 0 3px rgba(59,166,114,.14); }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 23px;
+        padding: 3px 8px;
+        border: 1px solid #d8e2db;
+        border-radius: 999px;
+        color: #516159;
+        background: #f7faf8;
+        font-size: 10px;
+        font-weight: 750;
+        white-space: nowrap;
+      }
+      .pill.green { color: #176b47; border-color: #b9ddc8; background: #e9f6ee; }
+      .pill.amber { color: #905612; border-color: #efcf9f; background: #fff6e6; }
+      .pill.red { color: #a83d3d; border-color: #efc1c1; background: #fff0ef; }
+      .pill.blue { color: #285e9e; border-color: #bed3ea; background: #edf5ff; }
+      .btn {
+        min-height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 0 12px;
+        border: 1px solid #cdd7d0;
+        border-radius: 9px;
+        color: #26352c;
+        background: #fff;
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 750;
+      }
+      .btn:hover { border-color: #93a399; background: #f7faf8; }
+      .btn.primary { color: white; border-color: #176b47; background: #176b47; }
+      .btn.primary:hover { background: #105a3a; }
+      .btn.dark { color: #edf6ef; border-color: #34443a; background: #17251d; }
+      .kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: #748078;
+        font-size: 10px;
+        font-weight: 750;
+        text-transform: uppercase;
+        letter-spacing: .08em;
+      }
+
+      /* Direction 1 — Command center */
+      .c1 {
+        --c1-side: #12231a;
+        --c1-side-2: #183126;
+        height: 100%;
+        display: grid;
+        grid-template-columns: 68px 238px minmax(0, 1fr);
+        background: #f2f5f1;
+      }
+      .c1-rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 9px;
+        padding: 16px 10px;
+        color: #a8baaf;
+        background: #0d1812;
+        border-right: 1px solid #26342b;
+      }
+      .mini-brand {
+        width: 37px;
+        height: 37px;
+        display: grid;
+        place-items: center;
+        margin-bottom: 15px;
+        color: #17301f;
+        background: var(--leaf);
+        border-radius: 12px 12px 12px 4px;
+      }
+      .rail-button {
+        width: 38px;
+        height: 38px;
+        display: grid;
+        place-items: center;
+        border: 0;
+        border-radius: 10px;
+        color: #87988d;
+        background: transparent;
+        cursor: pointer;
+        position: relative;
+      }
+      .rail-button:hover, .rail-button.active { color: #e8f2eb; background: #203027; }
+      .rail-button.active::before { content: ""; position: absolute; left: -10px; width: 3px; height: 20px; border-radius: 0 3px 3px 0; background: var(--leaf); }
+      .rail-button .rail-count { position: absolute; top: -2px; right: -2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 99px; color: #18211b; background: var(--leaf); font-size: 9px; font-weight: 900; line-height: 16px; }
+      .rail-spacer { flex: 1; }
+      .c1-context {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        padding: 23px 15px 16px;
+        color: #dce9df;
+        background: linear-gradient(180deg, var(--c1-side-2), var(--c1-side));
+        border-right: 1px solid #2a3d31;
+      }
+      .context-label { padding: 0 10px; color: #84998b; font-size: 9px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+      .project-picker {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 10px 0 19px;
+        padding: 10px;
+        border: 1px solid #334d3d;
+        border-radius: 11px;
+        color: #eef6f0;
+        background: #1c3629;
+        cursor: pointer;
+        text-align: left;
+      }
+      .project-glyph { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 9px; color: #d4f0a0; background: #284a38; }
+      .project-picker strong { display: block; font-size: 12px; }
+      .project-picker small { display: block; margin-top: 2px; color: #8fa696; font-size: 9px; }
+      .project-picker .chev { margin-left: auto; }
+      .c1-nav { display: grid; gap: 3px; }
+      .c1-nav button {
+        width: 100%;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 9px;
+        color: #9bb0a2;
+        background: transparent;
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 650;
+        text-align: left;
+      }
+      .c1-nav button:hover { color: #f2f8f3; background: #21392c; }
+      .c1-nav button.active { color: #f7fbf8; background: #2a4636; box-shadow: inset 2px 0 #b7e14f; }
+      .c1-nav .nav-count { margin-left: auto; min-width: 20px; padding: 2px 6px; border-radius: 99px; color: #203123; background: #c5e77c; font-size: 9px; font-weight: 850; text-align: center; }
+      .c1-health { margin-top: auto; padding: 12px; border: 1px solid #314639; border-radius: 12px; background: rgba(10,25,16,.28); }
+      .c1-health-head { display: flex; justify-content: space-between; align-items: center; color: #dbe9df; font-size: 10px; font-weight: 700; }
+      .health-bars { height: 26px; display: flex; align-items: end; gap: 3px; margin: 8px 0; }
+      .health-bars i { display: block; flex: 1; border-radius: 2px; background: #4b8a66; }
+      .health-bars i:nth-child(2n) { background: #78a96a; }
+      .c1-health p { margin: 0; color: #809487; font-size: 9px; line-height: 1.4; }
+      .c1-main { min-width: 0; overflow: auto; background: radial-gradient(circle at 90% -10%, #e0edd6 0, transparent 35%), #f2f5f1; }
+      .c1-topbar { height: 59px; display: flex; align-items: center; gap: 12px; padding: 0 25px; border-bottom: 1px solid #d9e0da; background: rgba(249,251,249,.86); backdrop-filter: blur(14px); position: sticky; top: 0; z-index: 2; }
+      .command-search { height: 35px; max-width: 410px; flex: 1; display: flex; align-items: center; gap: 9px; padding: 0 11px; border: 1px solid #d4ddd6; border-radius: 10px; color: #7e8982; background: #fff; font-size: 10px; }
+      .command-search kbd { margin-left: auto; padding: 2px 6px; border: 1px solid #dbe3dd; border-radius: 5px; color: #78847b; background: #f5f7f5; font: 9px ui-monospace, monospace; }
+      .c1-top-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+      .c1-body { max-width: 1190px; margin: 0 auto; padding: 28px 30px 60px; }
+      .welcome { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-bottom: 21px; }
+      .welcome h1 { margin: 0; font-size: clamp(24px, 2vw, 32px); line-height: 1.1; letter-spacing: -.035em; }
+      .welcome p:last-child { margin: 8px 0 0; color: #718078; font-size: 12px; }
+      .c1-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 17px; }
+      .summary-card { min-width: 0; padding: 14px 15px; border: 1px solid #d8e0d9; border-radius: 13px; background: rgba(255,255,255,.82); box-shadow: 0 7px 20px rgba(31,52,38,.035); }
+      .summary-card .label { display: flex; align-items: center; justify-content: space-between; color: #78847c; font-size: 9px; font-weight: 750; text-transform: uppercase; letter-spacing: .07em; }
+      .summary-card strong { display: block; margin-top: 8px; color: #1f2e25; font-size: 22px; letter-spacing: -.03em; }
+      .summary-card small { display: block; margin-top: 3px; color: #849087; font-size: 9px; }
+      .summary-card.attention { border-color: #ead6ae; background: #fffaf0; }
+      .focus-grid { display: grid; grid-template-columns: minmax(0, 1.58fr) minmax(245px, .82fr); gap: 14px; align-items: start; }
+      .panel { border: 1px solid #d8e0d9; border-radius: 14px; background: rgba(255,255,255,.88); box-shadow: 0 8px 28px rgba(31,52,38,.04); overflow: hidden; }
+      .panel-head { min-height: 49px; display: flex; align-items: center; gap: 10px; padding: 0 15px; border-bottom: 1px solid #e1e7e2; }
+      .panel-head h2 { margin: 0; font-size: 12px; letter-spacing: -.01em; }
+      .panel-head p { margin: 0; color: #89958d; font-size: 9px; }
+      .panel-head .push { margin-left: auto; }
+      .attention-list { display: grid; }
+      .attention-item { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 13px 15px; border: 0; border-bottom: 1px solid #e7ebe8; background: transparent; cursor: pointer; text-align: left; }
+      .attention-item:last-child { border-bottom: 0; }
+      .attention-item:hover { background: #f7faf7; }
+      .attention-icon { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 10px; color: #9a5c13; background: #fff1d8; }
+      .attention-icon.green { color: #176b47; background: #e5f3e9; }
+      .attention-icon.blue { color: #376caa; background: #eaf3fd; }
+      .attention-item strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+      .attention-item small { display: block; margin-top: 3px; color: #7b877f; font-size: 9px; }
+      .attention-meta { display: grid; justify-items: end; gap: 5px; }
+      .attention-meta time { color: #8b958f; font-size: 8px; }
+      .side-stack { display: grid; gap: 14px; }
+      .agent-list { padding: 5px 14px 10px; }
+      .agent-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px solid #edf0ed; }
+      .agent-row:last-child { border-bottom: 0; }
+      .agent-row strong { display: block; font-size: 10px; }
+      .agent-row small { display: block; margin-top: 2px; color: #869188; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .agent-state { width: 7px; height: 7px; border-radius: 99px; background: #50a778; }
+      .agent-state.wait { background: #d89539; }
+      .sync-card { padding: 15px; }
+      .sync-visual { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; margin: 10px 0 13px; }
+      .sync-node { padding: 9px; border: 1px solid #dae3dc; border-radius: 10px; background: #f7faf8; text-align: center; }
+      .sync-node strong { display: block; font-size: 9px; }
+      .sync-node small { color: #7d8981; font-size: 8px; }
+
+      /* Direction 2 — Workbench */
+      .c2 { height: 100%; display: grid; grid-template-rows: 48px 91px minmax(0, 1fr); color: #e5ebe7; background: #0f1412; }
+      .c2-global { display: flex; align-items: center; gap: 15px; padding: 0 17px; border-bottom: 1px solid #29322d; background: #111814; }
+      .c2-logo { display: flex; align-items: center; gap: 9px; color: #eff7f0; font-size: 12px; font-weight: 800; }
+      .c2-logo .mini-brand { width: 29px; height: 29px; margin: 0; border-radius: 9px 9px 9px 3px; }
+      .c2-global-nav { display: flex; height: 100%; align-items: center; gap: 2px; }
+      .c2-global-nav button { height: 100%; padding: 0 10px; border: 0; color: #8e9c93; background: transparent; cursor: pointer; font-size: 10px; font-weight: 700; }
+      .c2-global-nav button:hover, .c2-global-nav button.active { color: #eff7f0; }
+      .c2-search { width: min(310px, 28vw); height: 30px; margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid #354039; border-radius: 7px; color: #75837a; background: #1a221e; font-size: 9px; }
+      .c2-global .avatar { width: 27px; height: 27px; border-radius: 8px; }
+      .c2-project { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: end; gap: 12px 20px; padding: 14px 21px 0; border-bottom: 1px solid #2b342f; background: #141b17; }
+      .repo-path { display: flex; align-items: center; gap: 9px; min-width: 0; }
+      .repo-path .repo-icon { width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid #3a473f; border-radius: 8px; color: #a6d46e; background: #1e2922; }
+      .repo-path h1 { margin: 0; font-size: 16px; letter-spacing: -.02em; }
+      .repo-path h1 span { color: #7c8a81; font-weight: 450; }
+      .repo-path p { margin: 3px 0 0; color: #6f7d74; font-size: 8px; }
+      .c2-project-actions { display: flex; align-items: center; gap: 7px; }
+      .c2-tabs { grid-column: 1 / -1; display: flex; gap: 3px; height: 34px; }
+      .c2-tabs button { display: flex; align-items: center; gap: 7px; padding: 0 11px; border: 0; border-bottom: 2px solid transparent; color: #7e8d84; background: transparent; cursor: pointer; font-size: 10px; font-weight: 700; }
+      .c2-tabs button:hover { color: #dfe7e2; }
+      .c2-tabs button.active { color: #edf5ef; border-bottom-color: #acd75f; }
+      .c2-tabs .tab-count { min-width: 18px; padding: 2px 5px; border-radius: 9px; color: #b9c5bd; background: #2b352f; font-size: 8px; text-align: center; }
+      .workbench { min-height: 0; display: grid; grid-template-columns: 305px minmax(360px, 1fr) 270px; overflow: hidden; }
+      .wb-column { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid #2a332e; background: #121915; }
+      .wb-column:last-child { border-right: 0; }
+      .wb-toolbar { height: 47px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-bottom: 1px solid #29332d; background: #171f1b; position: sticky; top: 0; z-index: 2; }
+      .wb-toolbar strong { font-size: 10px; }
+      .wb-toolbar .push { margin-left: auto; }
+      .dark-filter { height: 29px; display: flex; align-items: center; gap: 7px; padding: 0 8px; border: 1px solid #344139; border-radius: 7px; color: #718077; background: #0f1512; font-size: 8px; }
+      .review-row { width: 100%; display: grid; grid-template-columns: 4px minmax(0, 1fr); gap: 10px; padding: 12px 12px 12px 9px; border: 0; border-bottom: 1px solid #263029; color: #dce5df; background: transparent; cursor: pointer; text-align: left; }
+      .review-row:hover { background: #18221c; }
+      .review-row.active { background: #1c2921; }
+      .review-row .severity { width: 3px; height: 100%; min-height: 42px; border-radius: 4px; background: #496054; }
+      .review-row.active .severity { background: #b4de62; }
+      .review-row h3 { margin: 0; font-size: 10px; line-height: 1.35; }
+      .review-row p { margin: 5px 0 0; color: #77857c; font-size: 8px; }
+      .review-row-meta { display: flex; align-items: center; gap: 5px; margin-top: 8px; }
+      .dark-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid #35433a; border-radius: 99px; color: #91a197; background: #17211b; font-size: 7px; font-weight: 700; }
+      .dark-pill.green { color: #b4db83; border-color: #3e5e46; background: #1b2b20; }
+      .dark-pill.amber { color: #e7bd76; border-color: #604d30; background: #2a2419; }
+      .review-canvas { min-height: 100%; background: #0f1512; }
+      .review-head { padding: 19px 20px 15px; border-bottom: 1px solid #2b352f; }
+      .review-head-top { display: flex; gap: 14px; align-items: flex-start; }
+      .review-head h2 { margin: 0; color: #eef5f0; font-size: 16px; letter-spacing: -.025em; }
+      .review-head p { margin: 6px 0 0; color: #7e8c83; font-size: 9px; line-height: 1.5; }
+      .review-head-actions { margin-left: auto; display: flex; gap: 6px; }
+      .commit-line { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: #7d8b82; font-size: 8px; }
+      .commit-line .line { height: 1px; flex: 1; background: #2b3730; }
+      .filebar { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid #2b352f; background: #171f1b; color: #bdc8c0; font-size: 8px; position: sticky; top: 0; z-index: 1; }
+      .filebar strong { font-size: 9px; }
+      .filebar .push { margin-left: auto; }
+      .diff { font: 8px/1.75 "SFMono-Regular", Consolas, monospace; }
+      .diff-line { min-height: 21px; display: grid; grid-template-columns: 34px 34px 14px minmax(0, 1fr); color: #b6c0b9; white-space: pre; }
+      .diff-line .ln { padding-right: 7px; color: #56645b; background: #121915; text-align: right; user-select: none; }
+      .diff-line .sign { text-align: center; }
+      .diff-line.add { color: #c8dfcd; background: rgba(44,105,64,.22); }
+      .diff-line.add .ln { color: #62856c; background: rgba(34,80,48,.28); }
+      .diff-line.del { color: #d7b8b8; background: rgba(126,54,54,.2); }
+      .diff-line.del .ln { color: #956b6b; background: rgba(83,39,39,.28); }
+      .diff-line.hunk { color: #7aa7c7; background: #16212a; }
+      .diff-line code { overflow: hidden; text-overflow: ellipsis; }
+      .wb-inspector { padding-bottom: 30px; background: #141b17; }
+      .inspector-section { padding: 15px; border-bottom: 1px solid #2a342e; }
+      .inspector-section h3 { margin: 0 0 10px; color: #9eaca3; font-size: 8px; letter-spacing: .09em; text-transform: uppercase; }
+      .check-row { display: grid; grid-template-columns: 17px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 0; }
+      .check-icon { width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; color: #bfe19f; background: #25422e; font-size: 9px; }
+      .check-icon.wait { color: #e6bf78; background: #43371f; }
+      .check-row strong { display: block; font-size: 8px; }
+      .check-row small { display: block; margin-top: 2px; color: #6e7c73; font-size: 7px; }
+      .comment-card { margin-top: 9px; padding: 10px; border: 1px solid #344139; border-radius: 9px; color: #aebbb3; background: #18211c; font-size: 8px; line-height: 1.5; }
+      .comment-card header { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; color: #dce6df; font-weight: 750; }
+      .comment-card .avatar { width: 22px; height: 22px; border-radius: 7px; font-size: 8px; }
+
+      /* Direction 3 — Collaboration inbox */
+      .c3 { height: 100%; display: grid; grid-template-columns: 207px 355px minmax(0, 1fr); color: #252824; background: #fbfaf7; }
+      .c3-sidebar { min-height: 0; display: flex; flex-direction: column; padding: 18px 13px 14px; border-right: 1px solid #e4e1da; background: #f1f0eb; }
+      .c3-logo { display: flex; align-items: center; gap: 9px; padding: 0 8px 18px; font-size: 13px; font-weight: 850; }
+      .c3-logo .mini-brand { width: 30px; height: 30px; margin: 0; color: white; background: #276548; border-radius: 9px 9px 9px 3px; }
+      .compose { width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 15px; border: 0; border-radius: 10px; color: white; background: #246244; cursor: pointer; font-size: 10px; font-weight: 800; box-shadow: 0 5px 12px rgba(36,98,68,.16); }
+      .compose:hover { background: #1c5339; }
+      .c3-nav { display: grid; gap: 3px; }
+      .c3-nav button { width: 100%; height: 34px; display: flex; align-items: center; gap: 9px; padding: 0 9px; border: 0; border-radius: 8px; color: #626862; background: transparent; cursor: pointer; font-size: 10px; font-weight: 650; text-align: left; }
+      .c3-nav button:hover { background: #e9e8e2; }
+      .c3-nav button.active { color: #174a32; background: #dce8df; font-weight: 800; }
+      .c3-nav .count { margin-left: auto; color: #4d5d52; font-size: 9px; font-weight: 850; }
+      .sidebar-section-title { margin: 19px 9px 7px; color: #959991; font-size: 8px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
+      .project-shortcut { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 8px; color: #686e68; font-size: 9px; }
+      .project-shortcut.active { color: #253029; background: #e7e6e0; font-weight: 750; }
+      .project-dot { width: 9px; height: 9px; border-radius: 3px; background: #699b7c; }
+      .project-dot.orange { background: #cf8c4b; }
+      .c3-account { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 8px; margin-top: auto; padding: 10px 8px 0; border-top: 1px solid #dfddd6; }
+      .c3-account .avatar { width: 29px; height: 29px; border-radius: 9px; }
+      .c3-account strong { font-size: 9px; }
+      .c3-account small { display: block; color: #91958f; font-size: 7px; }
+      .c3-queue { min-width: 0; min-height: 0; overflow: auto; border-right: 1px solid #e5e2dc; background: #f8f7f3; }
+      .queue-head { padding: 18px 17px 13px; border-bottom: 1px solid #e7e4dd; background: rgba(248,247,243,.94); position: sticky; top: 0; z-index: 2; }
+      .queue-title { display: flex; align-items: center; gap: 8px; }
+      .queue-title h1 { margin: 0; font: 500 22px/1.1 Georgia, serif; letter-spacing: -.02em; }
+      .queue-title .count { color: #929790; font-size: 10px; }
+      .queue-tools { display: flex; gap: 7px; margin-top: 13px; }
+      .queue-search { height: 31px; flex: 1; display: flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid #dedbd4; border-radius: 8px; color: #8f948e; background: #fff; font-size: 8px; }
+      .icon-button { width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid #dedbd4; border-radius: 8px; color: #6f756f; background: #fff; cursor: pointer; }
+      .inbox-item { width: 100%; display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 10px; padding: 14px 15px 13px 12px; border: 0; border-bottom: 1px solid #eae7e1; color: #2c302c; background: transparent; cursor: pointer; text-align: left; }
+      .inbox-item:hover { background: #f0efea; }
+      .inbox-item.active { background: #e8eee9; box-shadow: inset 3px 0 #39785a; }
+      .unread-dot { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: #39785a; }
+      .unread-dot.read { background: transparent; border: 1px solid #c5c8c2; }
+      .inbox-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .inbox-line strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+      .inbox-line time { margin-left: auto; color: #9b9e99; font-size: 7px; white-space: nowrap; }
+      .inbox-item h3 { margin: 5px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 11px/1.4 Georgia, serif; }
+      .inbox-item p { margin: 5px 0 0; color: #878b86; font-size: 8px; line-height: 1.45; }
+      .inbox-tags { display: flex; gap: 5px; margin-top: 8px; }
+      .inbox-tag { padding: 2px 6px; border-radius: 4px; color: #556159; background: #e8e9e4; font-size: 7px; font-weight: 750; }
+      .c3-detail { min-width: 0; min-height: 0; overflow: auto; background: #fdfcf9; }
+      .detail-top { height: 48px; display: flex; align-items: center; gap: 7px; padding: 0 20px; border-bottom: 1px solid #e9e5de; background: rgba(253,252,249,.94); position: sticky; top: 0; z-index: 2; }
+      .detail-top .crumb { color: #848a84; font-size: 8px; }
+      .detail-top .push { margin-left: auto; }
+      .detail-article { max-width: 790px; margin: 0 auto; padding: 31px 34px 70px; }
+      .article-eyebrow { display: flex; align-items: center; gap: 8px; color: #68716b; font-size: 8px; font-weight: 750; }
+      .detail-article h2 { max-width: 650px; margin: 11px 0 10px; font: 500 clamp(23px, 2.5vw, 34px)/1.14 Georgia, serif; letter-spacing: -.025em; }
+      .article-sub { margin: 0 0 22px; color: #777e78; font-size: 10px; line-height: 1.55; }
+      .decision-bar { display: flex; align-items: center; gap: 8px; padding: 11px; border: 1px solid #dfe3dc; border-radius: 11px; background: #f5f8f5; }
+      .decision-bar .decision-copy { min-width: 0; flex: 1; }
+      .decision-bar strong { display: block; font-size: 9px; }
+      .decision-bar small { display: block; margin-top: 2px; color: #818780; font-size: 7px; }
+      .article-section { margin-top: 25px; }
+      .article-section h3 { margin: 0 0 10px; font-size: 10px; }
+      .change-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .change-stat { padding: 10px; border: 1px solid #e4e1da; border-radius: 9px; background: #fff; }
+      .change-stat strong { display: block; font: 600 16px Georgia, serif; }
+      .change-stat small { color: #8f948e; font-size: 7px; }
+      .thread { border-left: 1px solid #d9ded8; margin-left: 14px; padding-left: 20px; }
+      .thread-entry { position: relative; margin-bottom: 18px; }
+      .thread-entry::before { content: ""; position: absolute; left: -25px; top: 5px; width: 8px; height: 8px; border: 2px solid #fdfcf9; border-radius: 50%; background: #789584; box-shadow: 0 0 0 1px #cbd4cd; }
+      .thread-head { display: flex; align-items: center; gap: 7px; }
+      .thread-head .avatar { width: 24px; height: 24px; border-radius: 7px; font-size: 8px; }
+      .thread-head strong { font-size: 9px; }
+      .thread-head time { color: #969b95; font-size: 7px; }
+      .thread-entry p { margin: 7px 0 0 31px; color: #5f665f; font-size: 9px; line-height: 1.55; }
+
+      /* Direction 4 — Agent/lane flow map */
+      .c4 { height: 100%; display: grid; grid-template-rows: 52px minmax(0, 1fr); color: #213027; background: #ecece4; }
+      .c4-top { display: flex; align-items: center; gap: 13px; padding: 0 17px; color: #edf5ef; background: #17231c; border-bottom: 1px solid #334138; }
+      .c4-top .c2-logo { min-width: 140px; }
+      .c4-project-picker { height: 31px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid #405047; border-radius: 8px; color: #d9e5dc; background: #202e26; font-size: 9px; font-weight: 700; }
+      .c4-mode { display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid #34443a; border-radius: 8px; background: #111a15; }
+      .c4-mode button { height: 25px; padding: 0 9px; border: 0; border-radius: 5px; color: #809087; background: transparent; cursor: pointer; font-size: 8px; font-weight: 750; }
+      .c4-mode button.active { color: #1a271e; background: #c4e777; }
+      .c4-top .push { margin-left: auto; }
+      .c4-body { min-width: 0; min-height: 0; display: grid; grid-template-columns: 55px minmax(620px, 1fr) 260px; }
+      .map-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 13px 8px; border-right: 1px solid #d5d7ce; background: #e5e5dd; }
+      .map-rail .rail-button { width: 35px; height: 35px; color: #737c75; }
+      .map-rail .rail-button:hover, .map-rail .rail-button.active { color: #285c40; background: #d3dbd2; }
+      .map-rail .rail-button.active::before { left: -8px; background: #286a48; }
+      .flow-wrap { min-width: 0; min-height: 0; overflow: auto; padding: 18px 19px 35px; background-color: #efefe8; background-image: radial-gradient(#c9cdc5 0.7px, transparent 0.7px); background-size: 17px 17px; }
+      .flow-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; margin-bottom: 15px; }
+      .flow-heading h1 { margin: 0; font: 600 22px/1.1 Georgia, serif; letter-spacing: -.02em; }
+      .flow-heading p { margin: 5px 0 0; color: #747d76; font-size: 9px; }
+      .flow-actions { display: flex; gap: 7px; }
+      .flow-columns { min-width: 650px; display: grid; grid-template-columns: repeat(3, minmax(190px, 1fr)); gap: 12px; position: relative; }
+      .flow-column { min-width: 0; }
+      .flow-col-head { height: 32px; display: flex; align-items: center; gap: 7px; padding: 0 5px; color: #5f6a62; font-size: 8px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+      .flow-col-head .count { margin-left: auto; min-width: 19px; padding: 2px 6px; border-radius: 99px; color: #59635c; background: #d9dbd4; font-size: 7px; text-align: center; }
+      .flow-stack { display: grid; gap: 10px; }
+      .lane-card { padding: 12px; border: 1px solid #d1d5cd; border-radius: 12px; background: rgba(255,255,252,.95); box-shadow: 0 5px 15px rgba(36,49,40,.05); cursor: pointer; position: relative; }
+      .lane-card:hover { border-color: #9eaaa1; box-shadow: 0 9px 24px rgba(36,49,40,.09); transform: translateY(-1px); }
+      .lane-card.selected { border-color: #438463; box-shadow: 0 0 0 2px rgba(67,132,99,.13), 0 9px 24px rgba(36,49,40,.09); }
+      .lane-card.linked::after { content: ""; width: 13px; height: 2px; position: absolute; right: -14px; top: 30px; background: #90a198; }
+      .lane-card-head { display: flex; align-items: center; gap: 7px; }
+      .lane-symbol { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 8px; color: #315f44; background: #e3eee6; }
+      .lane-card-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 10px "SFMono-Regular", Consolas, monospace; }
+      .lane-card h3 { margin: 11px 0 5px; font-size: 10px; line-height: 1.4; }
+      .lane-card p { margin: 0; color: #7d867f; font-size: 8px; line-height: 1.45; }
+      .lane-card-footer { display: flex; align-items: center; gap: 5px; margin-top: 10px; padding-top: 9px; border-top: 1px solid #e7e9e4; }
+      .tiny-avatar { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 6px; color: #f4faf5; background: #3d6f54; font-size: 7px; font-weight: 850; }
+      .tiny-avatar.agent { color: #29432f; background: #c2e57a; }
+      .lane-card-footer small { color: #8b928d; font-size: 7px; }
+      .lane-card-footer .push { margin-left: auto; }
+      .gate-card { padding: 10px 12px; border: 1px dashed #d3ac6f; border-radius: 11px; background: rgba(255,247,228,.88); }
+      .gate-card strong { display: flex; align-items: center; gap: 7px; color: #7e571e; font-size: 9px; }
+      .gate-card p { margin: 5px 0 0; color: #967748; font-size: 7px; }
+      .map-inspector { min-height: 0; overflow: auto; border-left: 1px solid #d3d7ce; background: #f7f7f2; }
+      .map-inspector-head { padding: 15px; border-bottom: 1px solid #dfe2db; }
+      .map-inspector-head .kicker { margin-bottom: 8px; }
+      .map-inspector-head h2 { margin: 0; font: 600 15px Georgia, serif; }
+      .map-inspector-head p { margin: 5px 0 0; color: #7e877f; font: 8px "SFMono-Regular", Consolas, monospace; }
+      .map-section { padding: 14px 15px; border-bottom: 1px solid #e1e3dd; }
+      .map-section h3 { margin: 0 0 10px; color: #747d76; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+      .progress-line { height: 5px; overflow: hidden; border-radius: 99px; background: #e0e4de; }
+      .progress-line i { display: block; width: 72%; height: 100%; border-radius: inherit; background: #4f8a67; }
+      .progress-copy { display: flex; justify-content: space-between; margin-top: 6px; color: #79827b; font-size: 7px; }
+      .meta-list { display: grid; gap: 9px; }
+      .meta-pair { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+      .meta-pair dt { color: #8a928c; font-size: 8px; }
+      .meta-pair dd { margin: 0; color: #303c34; font-size: 8px; font-weight: 700; text-align: right; }
+      .event-row { display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 9px; padding: 6px 0; }
+      .event-row i { width: 7px; height: 7px; margin-top: 3px; border: 2px solid #ecf0ea; border-radius: 50%; background: #5c876b; box-shadow: 0 0 0 1px #9cad9f; }
+      .event-row strong { display: block; font-size: 8px; }
+      .event-row small { display: block; margin-top: 2px; color: #89918b; font-size: 7px; line-height: 1.35; }
+
+      /* Decision guide */
+      .guide { height: 100%; overflow: auto; color: #dce7df; background: radial-gradient(circle at 80% 0, rgba(115,164,104,.18), transparent 32%), #121b16; }
+      .guide-inner { width: min(1130px, calc(100% - 52px)); margin: 0 auto; padding: 43px 0 70px; }
+      .guide .eyebrow { color: #b7de70; }
+      .guide h1 { max-width: 720px; margin: 0; color: #f2f7f3; font-size: clamp(30px, 4vw, 48px); line-height: 1.04; letter-spacing: -.045em; }
+      .guide-lede { max-width: 670px; margin: 16px 0 28px; color: #92a199; font-size: 13px; line-height: 1.6; }
+      .guide-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 11px; }
+      .guide-card { padding: 17px; border: 1px solid #304038; border-radius: 14px; background: rgba(28,40,33,.76); cursor: pointer; }
+      .guide-card:hover { border-color: #5a7165; background: #213028; }
+      .guide-card.recommended { border-color: #789858; background: linear-gradient(145deg, rgba(53,82,55,.8), rgba(28,43,33,.8)); }
+      .guide-num { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid #496052; border-radius: 8px; color: #bdd490; font: 750 10px ui-monospace, monospace; }
+      .guide-card h2 { margin: 15px 0 7px; color: #edf4ef; font-size: 13px; }
+      .guide-card p { min-height: 51px; margin: 0; color: #8e9c94; font-size: 9px; line-height: 1.55; }
+      .guide-card dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 9px; margin: 16px 0 0; padding-top: 13px; border-top: 1px solid #31423a; font-size: 8px; }
+      .guide-card dt { color: #6f7e75; }
+      .guide-card dd { margin: 0; color: #b6c3bb; text-align: right; }
+      .recommendation { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; margin-top: 22px; padding: 17px 19px; border: 1px solid #415b49; border-radius: 14px; background: #1a2920; }
+      .recommendation-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; color: #18301f; background: #b8de70; }
+      .recommendation strong { display: block; color: #eff6f1; font-size: 12px; }
+      .recommendation p { margin: 5px 0 0; color: #8f9f95; font-size: 9px; line-height: 1.5; }
+      .guide-button { height: 34px; padding: 0 12px; border: 1px solid #617a69; border-radius: 9px; color: #e4eee7; background: transparent; cursor: pointer; font-size: 9px; font-weight: 750; }
+      .guide-button:hover { background: #26382d; }
+      .matrix { margin-top: 22px; overflow: hidden; border: 1px solid #2e3e35; border-radius: 14px; background: #17231c; }
+      .matrix h2 { margin: 0; padding: 14px 16px; border-bottom: 1px solid #2e3e35; color: #e7efe9; font-size: 11px; }
+      .matrix table { width: 100%; border-collapse: collapse; font-size: 9px; }
+      .matrix th, .matrix td { padding: 11px 14px; border-bottom: 1px solid #29382f; text-align: left; }
+      .matrix tr:last-child th, .matrix tr:last-child td { border-bottom: 0; }
+      .matrix th { color: #77877d; font-weight: 650; }
+      .matrix td { color: #b4c1b9; }
+      .matrix td:first-child { color: #dce6df; font-weight: 750; }
+      .score { color: #b8db78; letter-spacing: 1px; }
+
+      /* Notes dialog + toast */
+      .notes-backdrop { display: none; position: fixed; inset: var(--deck-h) 0 0; z-index: 80; padding: 24px; background: rgba(8,14,10,.55); backdrop-filter: blur(7px); }
+      .notes-backdrop.open { display: grid; place-items: center; }
+      .notes-dialog { width: min(720px, 100%); max-height: min(650px, calc(100vh - var(--deck-h) - 48px)); overflow: auto; padding: 24px; border: 1px solid #dce4de; border-radius: 18px; background: #fbfdfb; box-shadow: 0 30px 90px rgba(10,25,15,.3); }
+      .notes-dialog header { display: flex; align-items: flex-start; gap: 14px; }
+      .notes-dialog h2 { margin: 0; font-size: 21px; letter-spacing: -.03em; }
+      .notes-dialog .note-sub { margin: 6px 0 0; color: #718078; font-size: 11px; line-height: 1.5; }
+      .notes-dialog .close { width: 32px; height: 32px; display: grid; place-items: center; margin-left: auto; border: 1px solid #dce4de; border-radius: 9px; background: #fff; cursor: pointer; }
+      .notes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-top: 20px; }
+      .note-card { padding: 14px; border: 1px solid #e0e6e1; border-radius: 12px; background: #f5f8f5; }
+      .note-card h3 { margin: 0 0 8px; color: #2d4938; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+      .note-card ul { margin: 0; padding-left: 16px; color: #627068; font-size: 10px; line-height: 1.55; }
+      .note-card li + li { margin-top: 5px; }
+      .api-note { margin-top: 11px; padding: 12px 14px; border: 1px solid #efd6aa; border-radius: 11px; color: #74511f; background: #fff8e9; font-size: 9px; line-height: 1.5; }
+      .toast { position: fixed; right: 20px; bottom: 18px; z-index: 100; padding: 10px 13px; border: 1px solid #405349; border-radius: 10px; color: #eef6f0; background: #17251d; box-shadow: var(--shadow); font-size: 10px; opacity: 0; transform: translateY(8px); pointer-events: none; transition: 180ms ease; }
+      .toast.show { opacity: 1; transform: none; }
+
+      @media (max-width: 1100px) {
+        .plan-tab { padding-inline: 9px; }
+        .plan-tab .tab-label { display: none; }
+        .c1 { grid-template-columns: 60px 205px minmax(0,1fr); }
+        .c1-summary { grid-template-columns: repeat(2,1fr); }
+        .workbench { grid-template-columns: 275px minmax(350px,1fr); }
+        .wb-inspector { display: none; }
+        .c3 { grid-template-columns: 180px 320px minmax(0,1fr); }
+        .c4-body { grid-template-columns: 52px minmax(610px,1fr); }
+        .map-inspector { display: none; }
+        .guide-grid { grid-template-columns: repeat(2,1fr); }
+      }
+
+      @media (max-width: 760px) {
+        body { overflow: auto; }
+        .deckbar { position: sticky; top: 0; height: auto; min-height: 62px; grid-template-columns: auto 1fr auto; padding: 10px 12px; }
+        .deck-brand div:last-child, .deck-button span { display: none; }
+        .deck-brand { min-width: auto; }
+        .leaf-mark { width: 32px; height: 32px; }
+        .plan-tabs { overflow-x: auto; justify-content: flex-start; }
+        .plan-tab { flex: 0 0 auto; }
+        .concept-stage { height: calc(100vh - 62px); min-height: 600px; }
+        .c1 { grid-template-columns: 54px minmax(0,1fr); }
+        .c1-context { display: none; }
+        .c1-topbar { padding-inline: 14px; }
+        .c1-body { padding: 20px 15px 50px; }
+        .welcome { align-items: flex-start; flex-direction: column; }
+        .focus-grid { grid-template-columns: 1fr; }
+        .c2 { grid-template-rows: 47px 87px minmax(0,1fr); }
+        .c2-global-nav { display: none; }
+        .c2-search { margin-left: auto; width: min(210px, 45vw); }
+        .c2-project { padding-inline: 12px; }
+        .c2-project-actions .btn:first-child { display: none; }
+        .workbench { grid-template-columns: minmax(0,1fr); }
+        .wb-column:first-child { display: none; }
+        .c3 { grid-template-columns: 54px minmax(0,1fr); }
+        .c3-sidebar { padding-inline: 8px; align-items: center; }
+        .c3-logo strong, .compose span, .c3-nav span, .c3-nav .count, .sidebar-section-title, .project-shortcut, .c3-account > :not(.avatar) { display: none; }
+        .c3-logo { padding-inline: 0; }
+        .compose { width: 36px; }
+        .c3-nav button { width: 36px; justify-content: center; padding: 0; }
+        .c3-account { padding-inline: 0; }
+        .c3-detail { display: none; }
+        .c4-body { grid-template-columns: 48px minmax(620px,1fr); }
+        .c4-project-picker, .c4-mode { display: none; }
+        .guide-inner { width: min(100% - 28px,1130px); padding-top: 28px; }
+        .guide-grid { grid-template-columns: 1fr; }
+        .recommendation { grid-template-columns: auto 1fr; }
+        .recommendation .guide-button { grid-column: 1 / -1; }
+        .matrix { overflow-x: auto; }
+        .matrix table { min-width: 650px; }
+        .notes-grid { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <svg aria-hidden="true" width="0" height="0" style="position:absolute">
+      <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M19.5 4.5c-7.2.1-12.4 2.4-14.8 7.1-1.4 2.8-.8 5.7 1.4 7.9 4.4-2.3 7.8-5.5 10.3-9.7-1.8 4.5-4.7 8-8.7 10.4 2.9.9 5.7.1 7.7-2.4 2.8-3.4 3.8-8 4.1-13.3Z"/></symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+      <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 5h16l1.5 10.5A3 3 0 0 1 18.5 19h-13a3 3 0 0 1-3-3.5L4 5Z"/><path d="M3 14h5l2 2h4l2-2h5"/></symbol>
+      <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="6" cy="19" r="2.5"/><path d="M6 7.5v9M8.5 19h2.8A6.7 6.7 0 0 0 18 12.3V8.5"/></symbol>
+      <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 7h-7a6 6 0 0 0-5.7 4.1M4 17h7a6 6 0 0 0 5.7-4.1"/><path d="m17 4 3 3-3 3M7 14l-3 3 3 3"/></symbol>
+      <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="13" rx="3"/><path d="M12 3v4M8 12h.01M16 12h.01M8 16h8"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4V8Z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-git" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="12" r="2"/><path d="M6 7v10M8 5h2a8 8 0 0 1 8 5"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z"/><path d="M14 3v5h4"/></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M4 4h16v13H8l-4 4V4Z"/></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+      <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v6l-4 2v-8L4 5Z"/></symbol>
+      <symbol id="i-archive" viewBox="0 0 24 24"><path d="M4 7v13h16V7M3 4h18v3H3zM9 11h6"/></symbol>
+      <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6V5a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v14a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6Z"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    </svg>
+
+    <header class="deckbar">
+      <div class="deck-brand">
+        <div class="leaf-mark"><svg class="icon lg"><use href="#i-leaf" /></svg></div>
+        <div><strong>Hub overhaul</strong><span>Interactive HTML direction deck</span></div>
+      </div>
+      <nav class="plan-tabs" aria-label="UX directions">
+        <button class="plan-tab active" data-plan="command"><span class="num">01</span><span class="tab-label">Command center</span></button>
+        <button class="plan-tab" data-plan="workbench"><span class="num">02</span><span class="tab-label">Workbench</span></button>
+        <button class="plan-tab" data-plan="inbox"><span class="num">03</span><span class="tab-label">Inbox</span></button>
+        <button class="plan-tab" data-plan="flow"><span class="num">04</span><span class="tab-label">Flow map</span></button>
+        <button class="plan-tab" data-plan="guide"><svg class="icon sm"><use href="#i-grid" /></svg><span class="tab-label">Decision guide</span></button>
+      </nav>
+      <div class="deck-actions">
+        <button class="deck-button" id="notesButton"><svg class="icon sm"><use href="#i-eye" /></svg><span>UX notes</span></button>
+      </div>
+    </header>
+
+    <main class="concept-stage">
+      <section class="concept active" data-concept="command" aria-label="Direction 1: Command center">
+        <div class="c1">
+          <aside class="c1-rail">
+            <div class="mini-brand"><svg class="icon lg"><use href="#i-leaf" /></svg></div>
+            <button class="rail-button active" title="Home"><svg class="icon"><use href="#i-grid" /></svg></button>
+            <button class="rail-button" title="Inbox"><svg class="icon"><use href="#i-inbox" /></svg><span class="rail-count">4</span></button>
+            <button class="rail-button" title="Lanes"><svg class="icon"><use href="#i-branch" /></svg></button>
+            <button class="rail-button" title="Agents"><svg class="icon"><use href="#i-bot" /></svg></button>
+            <div class="rail-spacer"></div>
+            <button class="rail-button" title="Settings"><svg class="icon"><use href="#i-settings" /></svg></button>
+            <div class="avatar">MG</div>
+          </aside>
+          <aside class="c1-context">
+            <div class="context-label">Workspace</div>
+            <button class="project-picker">
+              <span class="project-glyph"><svg class="icon"><use href="#i-git" /></svg></span>
+              <span><strong>Sorrel</strong><small>MGRAFF2006 / sorrel</small></span>
+              <svg class="icon sm chev"><use href="#i-chevron" /></svg>
+            </button>
+            <div class="context-label" style="margin-bottom:7px">Project</div>
+            <nav class="c1-nav" data-demo-nav>
+              <button class="active"><svg class="icon sm"><use href="#i-grid" /></svg>Overview</button>
+              <button><svg class="icon sm"><use href="#i-inbox" /></svg>Reviews<span class="nav-count">4</span></button>
+              <button><svg class="icon sm"><use href="#i-branch" /></svg>Lanes</button>
+              <button><svg class="icon sm"><use href="#i-play" /></svg>Runs<span class="nav-count">2</span></button>
+              <button><svg class="icon sm"><use href="#i-sync" /></svg>Sync</button>
+              <button><svg class="icon sm"><use href="#i-bot" /></svg>Agents</button>
+            </nav>
+            <div class="c1-health">
+              <div class="c1-health-head"><span>System health</span><span style="color:#9dcc7f">98%</span></div>
+              <div class="health-bars"><i style="height:42%"></i><i style="height:63%"></i><i style="height:49%"></i><i style="height:82%"></i><i style="height:72%"></i><i style="height:93%"></i><i style="height:85%"></i><i style="height:96%"></i></div>
+              <p>Hub connected · local and remote refs aligned</p>
+            </div>
+          </aside>
+          <div class="c1-main">
+            <header class="c1-topbar">
+              <div class="command-search"><svg class="icon sm"><use href="#i-search" /></svg>Search, jump to a lane, or run a command…<kbd>⌘ K</kbd></div>
+              <div class="c1-top-actions">
+                <button class="btn"><svg class="icon sm"><use href="#i-plus" /></svg>New</button>
+                <button class="icon-button" aria-label="Notifications"><svg class="icon sm"><use href="#i-bell" /></svg></button>
+                <div class="avatar">MG</div>
+              </div>
+            </header>
+            <div class="c1-body">
+              <div class="welcome">
+                <div><p class="eyebrow">Tuesday · 1 September</p><h1>Good morning, Mathis.</h1><p>Four decisions need you. Everything else is moving.</p></div>
+                <button class="btn primary"><svg class="icon sm"><use href="#i-plus" /></svg>Start a lane</button>
+              </div>
+              <div class="c1-summary">
+                <div class="summary-card attention"><div class="label"><span>Needs you</span><svg class="icon sm"><use href="#i-alert" /></svg></div><strong>4</strong><small>2 reviews · 1 policy gate · 1 conflict</small></div>
+                <div class="summary-card"><div class="label"><span>Active lanes</span><svg class="icon sm"><use href="#i-branch" /></svg></div><strong>7</strong><small>3 human · 4 agent-owned</small></div>
+                <div class="summary-card"><div class="label"><span>Runs today</span><svg class="icon sm"><use href="#i-play" /></svg></div><strong>18</strong><small>16 passed · 2 running</small></div>
+                <div class="summary-card"><div class="label"><span>Sync</span><svg class="icon sm"><use href="#i-sync" /></svg></div><strong style="font-size:16px;margin-top:11px">Up to date</strong><small>Last pull 38 seconds ago</small></div>
+              </div>
+              <div class="focus-grid">
+                <section class="panel">
+                  <header class="panel-head"><div><h2>Your attention</h2><p>Ranked by impact and urgency</p></div><span class="pill amber push">4 unresolved</span></header>
+                  <div class="attention-list">
+                    <button class="attention-item" data-toast="Opening review: Mobile navigation overhaul">
+                      <span class="attention-icon"><svg class="icon"><use href="#i-message" /></svg></span>
+                      <span><strong>Mobile navigation overhaul</strong><small>Astra requested approval · 18 files · +624 −118</small></span>
+                      <span class="attention-meta"><span class="pill amber">Review</span><time>8 min ago</time></span>
+                    </button>
+                    <button class="attention-item" data-toast="Opening policy gate details">
+                      <span class="attention-icon"><svg class="icon"><use href="#i-alert" /></svg></span>
+                      <span><strong>Secret provider permission needs a decision</strong><small>Lane feat/hosted-vault · policy/deploy-production</small></span>
+                      <span class="attention-meta"><span class="pill red">Blocked</span><time>21 min ago</time></span>
+                    </button>
+                    <button class="attention-item" data-toast="Opening sync conflict">
+                      <span class="attention-icon blue"><svg class="icon"><use href="#i-sync" /></svg></span>
+                      <span><strong>main diverged from origin/main</strong><small>3 snapshots local · 1 remote · safe reconciliation available</small></span>
+                      <span class="attention-meta"><span class="pill blue">Sync</span><time>43 min ago</time></span>
+                    </button>
+                    <button class="attention-item" data-toast="Opening review: Windows ARM64 packaging">
+                      <span class="attention-icon green"><svg class="icon"><use href="#i-check" /></svg></span>
+                      <span><strong>Windows ARM64 packaging is ready</strong><small>All 12 required checks passed · no unresolved threads</small></span>
+                      <span class="attention-meta"><span class="pill green">Ready</span><time>1 hr ago</time></span>
+                    </button>
+                  </div>
+                </section>
+                <div class="side-stack">
+                  <section class="panel">
+                    <header class="panel-head"><div><h2>Agents at work</h2><p>Live ownership and state</p></div><button class="btn push" style="min-height:27px">View all</button></header>
+                    <div class="agent-list">
+                      <div class="agent-row"><div class="avatar agent">A</div><div><strong>Astra</strong><small>feat/mobile-navigation · testing</small></div><span class="agent-state"></span></div>
+                      <div class="agent-row"><div class="avatar agent">C</div><div><strong>Clover</strong><small>refactor/sdk-errors · editing</small></div><span class="agent-state"></span></div>
+                      <div class="agent-row"><div class="avatar agent">M</div><div><strong>Moss</strong><small>Waiting for policy decision</small></div><span class="agent-state wait"></span></div>
+                    </div>
+                  </section>
+                  <section class="panel sync-card">
+                    <span class="kicker"><svg class="icon sm"><use href="#i-sync" /></svg>Sync topology</span>
+                    <div class="sync-visual"><div class="sync-node"><strong>Local</strong><small>32 refs</small></div><svg class="icon"><use href="#i-sync" /></svg><div class="sync-node"><strong>Hub</strong><small>32 refs</small></div></div>
+                    <span class="pill green"><span class="status-dot"></span>All objects reachable</span>
+                  </section>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="concept" data-concept="workbench" aria-label="Direction 2: Repository workbench">
+        <div class="c2">
+          <header class="c2-global">
+            <div class="c2-logo"><span class="mini-brand"><svg class="icon"><use href="#i-leaf" /></svg></span>Sorrel</div>
+            <nav class="c2-global-nav"><button class="active">Projects</button><button>Inbox <span class="dark-pill amber">4</span></button><button>Agents</button></nav>
+            <div class="c2-search"><svg class="icon sm"><use href="#i-search" /></svg>Search Sorrel… <span style="margin-left:auto">⌘K</span></div>
+            <button class="rail-button" style="width:30px;height:30px"><svg class="icon sm"><use href="#i-bell" /></svg></button><div class="avatar">MG</div>
+          </header>
+          <header class="c2-project">
+            <div class="repo-path"><span class="repo-icon"><svg class="icon"><use href="#i-git" /></svg></span><div><h1><span>MGRAFF2006 /</span> sorrel</h1><p>Agent-native version control · default lane main · Hub connected</p></div></div>
+            <div class="c2-project-actions"><button class="btn dark"><svg class="icon sm"><use href="#i-sync" /></svg>Sync</button><button class="btn primary"><svg class="icon sm"><use href="#i-plus" /></svg>New lane</button></div>
+            <nav class="c2-tabs" data-demo-nav><button><svg class="icon sm"><use href="#i-grid" /></svg>Overview</button><button class="active"><svg class="icon sm"><use href="#i-message" /></svg>Reviews <span class="tab-count">4</span></button><button><svg class="icon sm"><use href="#i-branch" /></svg>Lanes <span class="tab-count">7</span></button><button><svg class="icon sm"><use href="#i-play" /></svg>Runs</button><button><svg class="icon sm"><use href="#i-sync" /></svg>Refs</button><button><svg class="icon sm"><use href="#i-settings" /></svg>Settings</button></nav>
+          </header>
+          <div class="workbench">
+            <aside class="wb-column">
+              <div class="wb-toolbar"><strong>Review queue</strong><span class="dark-pill amber">4 open</span><button class="rail-button push" style="width:27px;height:27px"><svg class="icon sm"><use href="#i-filter" /></svg></button></div>
+              <div class="dark-filter" style="margin:9px 10px"><svg class="icon sm"><use href="#i-search" /></svg>Filter title, lane, author…</div>
+              <button class="review-row active" data-review-title="Mobile navigation overhaul"><span class="severity"></span><span><h3>Mobile navigation overhaul</h3><p>feat/mobile-navigation · Astra</p><span class="review-row-meta"><span class="dark-pill amber">needs review</span><span class="dark-pill">18 files</span></span></span></button>
+              <button class="review-row" data-review-title="Windows ARM64 packaging"><span class="severity"></span><span><h3>Windows ARM64 packaging</h3><p>feat/desktop-arm64 · Mathis</p><span class="review-row-meta"><span class="dark-pill green">checks pass</span><span class="dark-pill">9 files</span></span></span></button>
+              <button class="review-row" data-review-title="Truthful Hub capabilities"><span class="severity"></span><span><h3>Truthful Hub capabilities</h3><p>fix/hub-capabilities · Clover</p><span class="review-row-meta"><span class="dark-pill amber">2 comments</span><span class="dark-pill">5 files</span></span></span></button>
+              <button class="review-row" data-review-title="Remove agent project mirroring"><span class="severity"></span><span><h3>Remove agent project mirroring</h3><p>refactor/agent-mirror · Moss</p><span class="review-row-meta"><span class="dark-pill green">approved</span><span class="dark-pill">12 files</span></span></span></button>
+            </aside>
+            <main class="wb-column review-canvas">
+              <header class="review-head">
+                <div class="review-head-top"><div><span class="dark-pill amber">Open proposal · #184</span><h2 id="reviewCanvasTitle" style="margin-top:9px">Mobile navigation overhaul</h2><p>Make project navigation accessible and usable across compact desktop and mobile shells.</p></div><div class="review-head-actions"><button class="btn dark">Request changes</button><button class="btn primary"><svg class="icon sm"><use href="#i-check" /></svg>Approve</button></div></div>
+                <div class="commit-line"><span class="mono">feat/mobile-navigation</span><span class="line"></span><span>3 changes · 18 files · +624 −118</span></div>
+              </header>
+              <div class="filebar"><svg class="icon sm"><use href="#i-file" /></svg><strong>sorrel-hub-ui/src/styles/hub.css</strong><span class="dark-pill green">+86</span><span class="dark-pill" style="color:#d49696">−14</span><span class="push">Viewed</span><svg class="icon sm"><use href="#i-more" /></svg></div>
+              <div class="diff" aria-label="Illustrative code diff">
+                <div class="diff-line"><span class="ln">418</span><span class="ln">418</span><span class="sign"> </span><code>.app-sidebar {</code></div>
+                <div class="diff-line del"><span class="ln">419</span><span class="ln"></span><span class="sign">−</span><code>  width: var(--side-w);</code></div>
+                <div class="diff-line add"><span class="ln"></span><span class="ln">419</span><span class="sign">+</span><code>  width: min(86vw, var(--side-w));</code></div>
+                <div class="diff-line"><span class="ln">420</span><span class="ln">420</span><span class="sign"> </span><code>  display: flex;</code></div>
+                <div class="diff-line add"><span class="ln"></span><span class="ln">421</span><span class="sign">+</span><code>  position: fixed;</code></div>
+                <div class="diff-line add"><span class="ln"></span><span class="ln">422</span><span class="sign">+</span><code>  inset: 0 auto 0 0;</code></div>
+                <div class="diff-line add"><span class="ln"></span><span class="ln">423</span><span class="sign">+</span><code>  transform: translateX(var(--drawer-offset));</code></div>
+                <div class="diff-line"><span class="ln">421</span><span class="ln">424</span><span class="sign"> </span><code>  flex-direction: column;</code></div>
+                <div class="diff-line hunk"><span class="ln"></span><span class="ln"></span><span class="sign"></span><code>@@ -468,6 +483,22 @@</code></div>
+                <div class="diff-line add"><span class="ln"></span><span class="ln">483</span><span class="sign">+</span><code>@media (max-width: 760px) {</code></div>
+                <div class="diff-line add"><span class="ln"></span><span class="ln">484</span><span class="sign">+</span><code>  .mobile-trigger {</code></div>
+                <div class="diff-line add"><span class="ln"></span><span class="ln">485</span><span class="sign">+</span><code>    display: inline-grid;</code></div>
+                <div class="diff-line add"><span class="ln"></span><span class="ln">486</span><span class="sign">+</span><code>    place-items: center;</code></div>
+                <div class="diff-line add"><span class="ln"></span><span class="ln">487</span><span class="sign">+</span><code>  }</code></div>
+                <div class="diff-line add"><span class="ln"></span><span class="ln">488</span><span class="sign">+</span><code>}</code></div>
+              </div>
+            </main>
+            <aside class="wb-column wb-inspector">
+              <div class="wb-toolbar"><strong>Review state</strong><span class="dark-pill green push">mergeable</span></div>
+              <section class="inspector-section"><h3>Required checks</h3><div class="check-row"><span class="check-icon">✓</span><span><strong>UI package</strong><small>1m 42s</small></span><span class="dark-pill green">pass</span></div><div class="check-row"><span class="check-icon">✓</span><span><strong>Quick checks</strong><small>28s</small></span><span class="dark-pill green">pass</span></div><div class="check-row"><span class="check-icon wait">↻</span><span><strong>Root E2E</strong><small>running</small></span><span class="dark-pill amber">2m</span></div></section>
+              <section class="inspector-section"><h3>Ownership</h3><div class="check-row"><div class="avatar agent" style="width:25px;height:25px;border-radius:7px;font-size:8px">A</div><span><strong>Astra</strong><small>author · agent</small></span><span class="status-dot"></span></div><div class="check-row"><div class="avatar" style="width:25px;height:25px;border-radius:7px;font-size:8px">MG</div><span><strong>Mathis</strong><small>reviewer</small></span><span></span></div></section>
+              <section class="inspector-section"><h3>Unresolved thread</h3><div class="comment-card"><header><div class="avatar">MG</div>Mathis <span style="margin-left:auto;color:#68766d;font-weight:400">line 483</span></header>Can the drawer preserve focus when it closes? Keyboard flow is the important edge case here.</div><button class="btn dark" style="width:100%;margin-top:8px">Reply</button></section>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="concept" data-concept="inbox" aria-label="Direction 3: Collaboration inbox">
+        <div class="c3">
+          <aside class="c3-sidebar">
+            <div class="c3-logo"><span class="mini-brand"><svg class="icon"><use href="#i-leaf" /></svg></span><strong>Sorrel</strong></div>
+            <button class="compose"><svg class="icon sm"><use href="#i-plus" /></svg><span>Start work</span></button>
+            <nav class="c3-nav" data-demo-nav>
+              <button class="active"><svg class="icon sm"><use href="#i-inbox" /></svg><span>Inbox</span><span class="count">4</span></button>
+              <button><svg class="icon sm"><use href="#i-clock" /></svg><span>Later</span><span class="count">2</span></button>
+              <button><svg class="icon sm"><use href="#i-check" /></svg><span>Resolved</span></button>
+              <button><svg class="icon sm"><use href="#i-bot" /></svg><span>Agent activity</span></button>
+            </nav>
+            <div class="sidebar-section-title">Projects</div>
+            <div class="project-shortcut active"><span class="project-dot"></span>Sorrel<span style="margin-left:auto;font-size:8px">7</span></div>
+            <div class="project-shortcut"><span class="project-dot orange"></span>Public source<span style="margin-left:auto;font-size:8px">2</span></div>
+            <div class="c3-account"><div class="avatar">MG</div><div><strong>Mathis</strong><small>user:local</small></div><svg class="icon sm"><use href="#i-more" /></svg></div>
+          </aside>
+          <section class="c3-queue">
+            <header class="queue-head"><div class="queue-title"><h1>Inbox</h1><span class="count">4 unread</span></div><div class="queue-tools"><div class="queue-search"><svg class="icon sm"><use href="#i-search" /></svg>Search decisions and activity</div><button class="icon-button"><svg class="icon sm"><use href="#i-filter" /></svg></button></div></header>
+            <button class="inbox-item active" data-inbox-title="Mobile navigation overhaul"><span class="unread-dot"></span><span><span class="inbox-line"><strong>Astra requested your review</strong><time>8m</time></span><h3>Mobile navigation overhaul</h3><p>All focused checks pass. Two accessibility decisions are called out.</p><span class="inbox-tags"><span class="inbox-tag">Review</span><span class="inbox-tag">18 files</span></span></span></button>
+            <button class="inbox-item" data-inbox-title="Production deploy needs a grant"><span class="unread-dot"></span><span><span class="inbox-line"><strong>Policy decision</strong><time>21m</time></span><h3>Production deploy needs a grant</h3><p>Moss is waiting for permission to bind the hosted secret provider.</p><span class="inbox-tags"><span class="inbox-tag">Blocked</span><span class="inbox-tag">Policy</span></span></span></button>
+            <button class="inbox-item" data-inbox-title="main diverged from origin/main"><span class="unread-dot"></span><span><span class="inbox-line"><strong>Sync needs attention</strong><time>43m</time></span><h3>main diverged from origin/main</h3><p>Sorrel can park the remote work on a lane and preserve both histories.</p><span class="inbox-tags"><span class="inbox-tag">Sync</span><span class="inbox-tag">3 ↔ 1</span></span></span></button>
+            <button class="inbox-item" data-inbox-title="Windows ARM64 packaging"><span class="unread-dot"></span><span><span class="inbox-line"><strong>Ready to merge</strong><time>1h</time></span><h3>Windows ARM64 packaging</h3><p>All required checks pass and no review threads remain unresolved.</p><span class="inbox-tags"><span class="inbox-tag">Ready</span><span class="inbox-tag">9 files</span></span></span></button>
+            <button class="inbox-item" data-inbox-title="Documentation mirror completed"><span class="unread-dot read"></span><span><span class="inbox-line"><strong>Workflow completed</strong><time>2h</time></span><h3>Documentation mirror completed</h3><p>Canonical guides and public copies are aligned.</p><span class="inbox-tags"><span class="inbox-tag">Run</span></span></span></button>
+          </section>
+          <section class="c3-detail">
+            <header class="detail-top"><span class="crumb">Sorrel / Review #184</span><span class="push"></span><button class="icon-button" title="Save for later"><svg class="icon sm"><use href="#i-clock" /></svg></button><button class="icon-button" title="Archive"><svg class="icon sm"><use href="#i-archive" /></svg></button><button class="icon-button"><svg class="icon sm"><use href="#i-more" /></svg></button></header>
+            <article class="detail-article">
+              <div class="article-eyebrow"><span class="pill amber">Needs review</span><span>Proposal #184 · feat/mobile-navigation</span></div>
+              <h2 id="inboxDetailTitle">Mobile navigation overhaul</h2>
+              <p class="article-sub">Astra proposes a responsive project drawer with explicit keyboard focus management. The change is scoped to the shared Hub UI and its browser host tests.</p>
+              <div class="decision-bar"><div class="avatar agent">A</div><div class="decision-copy"><strong>Astra is waiting for your decision</strong><small>All required package checks pass · root E2E is running</small></div><button class="btn">Request changes</button><button class="btn primary"><svg class="icon sm"><use href="#i-check" /></svg>Approve</button></div>
+              <section class="article-section"><h3>At a glance</h3><div class="change-summary"><div class="change-stat"><strong>18</strong><small>files changed</small></div><div class="change-stat"><strong style="color:#28744c">+624</strong><small>lines added</small></div><div class="change-stat"><strong>2</strong><small>decisions called out</small></div></div></section>
+              <section class="article-section"><h3>Conversation</h3><div class="thread"><div class="thread-entry"><div class="thread-head"><div class="avatar agent">A</div><strong>Astra</strong><time>8 minutes ago</time></div><p>I kept the desktop sidebar intact above 760px. Below that it becomes a focus-trapped drawer, and Escape returns focus to the trigger.</p></div><div class="thread-entry"><div class="thread-head"><div class="avatar">MG</div><strong>Mathis</strong><time>just now</time></div><p>The focus-return behavior is the right direction. I want the active project name to remain visible in the compact header.</p></div></div></section>
+            </article>
+          </section>
+        </div>
+      </section>
+
+      <section class="concept" data-concept="flow" aria-label="Direction 4: Agent and lane flow map">
+        <div class="c4">
+          <header class="c4-top"><div class="c2-logo"><span class="mini-brand"><svg class="icon"><use href="#i-leaf" /></svg></span>Sorrel</div><button class="c4-project-picker"><svg class="icon sm"><use href="#i-git" /></svg>MGRAFF2006 / sorrel<svg class="icon sm"><use href="#i-chevron" /></svg></button><div class="c4-mode"><button class="active">Flow</button><button>List</button><button>Timeline</button></div><span class="push"></span><button class="rail-button" style="width:31px;height:31px"><svg class="icon sm"><use href="#i-search" /></svg></button><button class="btn primary"><svg class="icon sm"><use href="#i-plus" /></svg>Start lane</button><div class="avatar">MG</div></header>
+          <div class="c4-body">
+            <aside class="map-rail"><button class="rail-button active"><svg class="icon"><use href="#i-branch" /></svg></button><button class="rail-button"><svg class="icon"><use href="#i-inbox" /></svg></button><button class="rail-button"><svg class="icon"><use href="#i-play" /></svg></button><button class="rail-button"><svg class="icon"><use href="#i-sync" /></svg></button><div class="rail-spacer"></div><button class="rail-button"><svg class="icon"><use href="#i-settings" /></svg></button></aside>
+            <main class="flow-wrap">
+              <header class="flow-heading"><div><p class="eyebrow">Live project topology</p><h1>Seven lanes moving toward main</h1><p>Ownership, policy gates, checks, and dependencies in one operational view.</p></div><div class="flow-actions"><button class="btn"><svg class="icon sm"><use href="#i-filter" /></svg>Filter</button><button class="btn"><svg class="icon sm"><use href="#i-sync" /></svg>Sync graph</button></div></header>
+              <div class="flow-columns">
+                <section class="flow-column"><header class="flow-col-head">In progress <span class="count">3</span></header><div class="flow-stack">
+                  <article class="lane-card linked selected" data-lane="feat/mobile-navigation"><div class="lane-card-head"><span class="lane-symbol"><svg class="icon sm"><use href="#i-branch" /></svg></span><strong>feat/mobile-navigation</strong></div><h3>Accessible project navigation</h3><p>Shared shell, compact drawer, and focus management.</p><footer class="lane-card-footer"><span class="tiny-avatar agent">A</span><small>Astra · testing</small><span class="pill green push">72%</span></footer></article>
+                  <article class="lane-card linked" data-lane="refactor/sdk-errors"><div class="lane-card-head"><span class="lane-symbol"><svg class="icon sm"><use href="#i-branch" /></svg></span><strong>refactor/sdk-errors</strong></div><h3>Typed SDK failure surface</h3><p>Preserve Hub error identity across clients.</p><footer class="lane-card-footer"><span class="tiny-avatar agent">C</span><small>Clover · editing</small><span class="pill blue push">46%</span></footer></article>
+                  <article class="lane-card" data-lane="docs/design-system"><div class="lane-card-head"><span class="lane-symbol"><svg class="icon sm"><use href="#i-branch" /></svg></span><strong>docs/design-system</strong></div><h3>Document visual foundations</h3><p>Tokens, density, interaction, and accessibility.</p><footer class="lane-card-footer"><span class="tiny-avatar">MG</span><small>Mathis · idle</small><span class="pill push">18%</span></footer></article>
+                </div></section>
+                <section class="flow-column"><header class="flow-col-head">Review & gates <span class="count">3</span></header><div class="flow-stack">
+                  <article class="lane-card linked" data-lane="feat/desktop-arm64"><div class="lane-card-head"><span class="lane-symbol"><svg class="icon sm"><use href="#i-message" /></svg></span><strong>feat/desktop-arm64</strong></div><h3>Windows ARM64 packaging</h3><p>Approved · all required checks passed.</p><footer class="lane-card-footer"><span class="tiny-avatar">MG</span><small>ready to merge</small><span class="pill green push">Ready</span></footer></article>
+                  <div class="gate-card"><strong><svg class="icon sm"><use href="#i-alert" /></svg>Production deploy grant</strong><p>Moss is waiting for user:local · 21 minutes</p></div>
+                  <article class="lane-card" data-lane="fix/hub-capabilities"><div class="lane-card-head"><span class="lane-symbol"><svg class="icon sm"><use href="#i-message" /></svg></span><strong>fix/hub-capabilities</strong></div><h3>Truthful capability reporting</h3><p>Two unresolved review comments.</p><footer class="lane-card-footer"><span class="tiny-avatar agent">C</span><small>Clover · waiting</small><span class="pill amber push">Review</span></footer></article>
+                </div></section>
+                <section class="flow-column"><header class="flow-col-head">Integrated <span class="count">2</span></header><div class="flow-stack">
+                  <article class="lane-card" data-lane="main"><div class="lane-card-head"><span class="lane-symbol"><svg class="icon sm"><use href="#i-check" /></svg></span><strong>main</strong></div><h3>Hostable server releases</h3><p>Merged 34 minutes ago · 7472233</p><footer class="lane-card-footer"><span class="tiny-avatar">MG</span><small>32 refs synced</small><span class="pill green push">Synced</span></footer></article>
+                  <article class="lane-card" data-lane="refactor/dead-code"><div class="lane-card-head"><span class="lane-symbol"><svg class="icon sm"><use href="#i-check" /></svg></span><strong>refactor/dead-code</strong></div><h3>Remove confirmed dead code</h3><p>Merged 2 hours ago · 2d2375c</p><footer class="lane-card-footer"><span class="tiny-avatar agent">M</span><small>Moss · complete</small><span class="pill green push">Synced</span></footer></article>
+                </div></section>
+              </div>
+            </main>
+            <aside class="map-inspector">
+              <header class="map-inspector-head"><span class="kicker">Selected lane</span><h2>Accessible project navigation</h2><p id="laneInspectorName">feat/mobile-navigation</p></header>
+              <section class="map-section"><h3>Progress</h3><div class="progress-line"><i></i></div><div class="progress-copy"><span>12 of 17 tasks</span><span>72%</span></div></section>
+              <section class="map-section"><h3>Context</h3><dl class="meta-list"><div class="meta-pair"><dt>Owner</dt><dd>Astra · agent</dd></div><div class="meta-pair"><dt>Base</dt><dd class="mono">main</dd></div><div class="meta-pair"><dt>Changes</dt><dd>3</dd></div><div class="meta-pair"><dt>Files</dt><dd>18</dd></div><div class="meta-pair"><dt>Policy</dt><dd><span class="pill green">allowed</span></dd></div></dl></section>
+              <section class="map-section"><h3>Recent events</h3><div class="event-row"><i></i><div><strong>Focused tests passed</strong><small>Hub UI · 8 minutes ago</small></div></div><div class="event-row"><i></i><div><strong>Review requested</strong><small>Mathis assigned · 9 minutes ago</small></div></div><div class="event-row"><i></i><div><strong>Snapshot created</strong><small>7bc8…f21 · 14 minutes ago</small></div></div></section>
+              <section class="map-section"><button class="btn primary" style="width:100%">Open lane workspace</button></section>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="concept" data-concept="guide" aria-label="Decision guide">
+        <div class="guide"><div class="guide-inner">
+          <p class="eyebrow">Choosing the product model</p><h1>Four layouts, four different answers to “what is Hub for?”</h1><p class="guide-lede">The strongest overhaul starts with the primary job, not a color palette. Each direction makes a deliberate trade: orientation, code depth, decision speed, or agent-native visibility.</p>
+          <div class="guide-grid">
+            <article class="guide-card recommended" data-open-plan="command"><div class="guide-num">01</div><h2>Command center</h2><p>A calm home for deciding what matters, then drilling into reviews, lanes, runs, or sync.</p><dl><dt>Best for</dt><dd>Daily default</dd><dt>Learning curve</dt><dd>Low</dd><dt>Density</dt><dd>Medium</dd><dt>Build risk</dt><dd>Low–medium</dd></dl></article>
+            <article class="guide-card" data-open-plan="workbench"><div class="guide-num">02</div><h2>Workbench</h2><p>A serious, high-density environment for reviewers who live in diffs and checks.</p><dl><dt>Best for</dt><dd>Deep review</dd><dt>Learning curve</dt><dd>Medium</dd><dt>Density</dt><dd>High</dd><dt>Build risk</dt><dd>Medium</dd></dl></article>
+            <article class="guide-card" data-open-plan="inbox"><div class="guide-num">03</div><h2>Collaboration inbox</h2><p>All human decisions become one queue, regardless of whether they started as review, sync, or policy.</p><dl><dt>Best for</dt><dd>Decision velocity</dd><dt>Learning curve</dt><dd>Low</dd><dt>Density</dt><dd>Medium</dd><dt>Build risk</dt><dd>Medium</dd></dl></article>
+            <article class="guide-card" data-open-plan="flow"><div class="guide-num">04</div><h2>Agent & lane flow</h2><p>The most differentiated vision: make parallel ownership, gates, and integration visually explicit.</p><dl><dt>Best for</dt><dd>Multi-agent teams</dd><dt>Learning curve</dt><dd>High</dd><dt>Density</dt><dd>High</dd><dt>Build risk</dt><dd>High</dd></dl></article>
+          </div>
+          <div class="recommendation"><div class="recommendation-icon"><svg class="icon lg"><use href="#i-leaf" /></svg></div><div><strong>Recommended foundation: 01 + the review interaction from 03</strong><p>Use Command Center as the product shell, make “Needs you” the cross-project inbox, and open review work in a focused reading workspace. Add the flow map later as an expert project view once agent state is rich enough.</p></div><button class="guide-button" data-open-plan="command">Open recommendation</button></div>
+          <div class="matrix"><h2>Relative fit for Sorrel Hub</h2><table><thead><tr><th>Direction</th><th>First-time clarity</th><th>Review depth</th><th>Agent-native differentiation</th><th>Works with today’s API</th><th>Scales to mobile</th></tr></thead><tbody><tr><td>01 · Command center</td><td class="score">★★★★★</td><td class="score">★★★☆☆</td><td class="score">★★★★☆</td><td class="score">★★★★☆</td><td class="score">★★★★☆</td></tr><tr><td>02 · Workbench</td><td class="score">★★★☆☆</td><td class="score">★★★★★</td><td class="score">★★★☆☆</td><td class="score">★★★★☆</td><td class="score">★★☆☆☆</td></tr><tr><td>03 · Inbox</td><td class="score">★★★★★</td><td class="score">★★★★☆</td><td class="score">★★★☆☆</td><td class="score">★★★☆☆</td><td class="score">★★★★★</td></tr><tr><td>04 · Flow map</td><td class="score">★★☆☆☆</td><td class="score">★★★☆☆</td><td class="score">★★★★★</td><td class="score">★★☆☆☆</td><td class="score">★★☆☆☆</td></tr></tbody></table></div>
+        </div></div>
+      </section>
+    </main>
+
+    <div class="notes-backdrop" id="notesBackdrop" role="presentation">
+      <section class="notes-dialog" role="dialog" aria-modal="true" aria-labelledby="notesTitle">
+        <header><div><p class="eyebrow" id="notesEyebrow">Direction 01</p><h2 id="notesTitle">Command center</h2><p class="note-sub" id="notesSubtitle"></p></div><button class="close" id="notesClose" aria-label="Close notes"><svg class="icon"><use href="#i-x" /></svg></button></header>
+        <div class="notes-grid"><div class="note-card"><h3>Core UX move</h3><ul id="notesMoves"></ul></div><div class="note-card"><h3>Trade-offs</h3><ul id="notesTradeoffs"></ul></div></div>
+        <div class="api-note" id="notesApi"></div>
+      </section>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script>
+      const notes = {
+        command: {
+          number: 'Direction 01', title: 'Command center', subtitle: 'A project-aware home that ranks decisions above passive metadata.',
+          moves: ['Replace the always-equal card grid with a ranked “Your attention” queue.', 'Separate global navigation from project navigation using a slim rail plus contextual sidebar.', 'Make health, sync, identity, and platform ambient—not the visual headline.', 'Give lanes, agents, and runs first-class destinations without forcing them onto the overview.'],
+          tradeoffs: ['A dashboard needs a good prioritization model to stay trustworthy.', 'Deep review still needs its own focused workspace.', 'The two-level navigation takes more horizontal space on small laptops.'],
+          api: '<strong>API reality:</strong> projects, proposals, workflows, sync refs, capabilities, and session data exist today. A unified attention ranking and live agent summaries would need an aggregation endpoint or careful client composition.'
+        },
+        workbench: {
+          number: 'Direction 02', title: 'Repository workbench', subtitle: 'A dense, stable shell optimized for reviewing changes without losing context.',
+          moves: ['Move project identity into a persistent repository header with horizontal module tabs.', 'Use a three-pane master/detail/inspector layout for queue, diff, and review state.', 'Keep checks, ownership, policy, and comments visible beside the change.', 'Optimize for keyboard navigation and sustained expert use.'],
+          tradeoffs: ['The density is intimidating for occasional collaborators.', 'Three panes collapse poorly on phones; mobile becomes a separate navigation sequence.', 'This direction feels familiar to Git users but is less distinctly agent-native.'],
+          api: '<strong>API reality:</strong> proposal and comment lifecycle exist, but a real diff surface needs Hub access to change/snapshot detail plus file-level diff data. Checks can begin with workflow runs.'
+        },
+        inbox: {
+          number: 'Direction 03', title: 'Collaboration inbox', subtitle: 'Treat every required human decision as one actionable, readable stream.',
+          moves: ['Unify review requests, policy gates, sync conflicts, and completed work in one queue.', 'Use a reading-first detail view instead of stacking forms and metadata cards.', 'Provide explicit Later and Resolved states to reduce cognitive load.', 'Let project navigation become a filter rather than the root of the entire IA.'],
+          tradeoffs: ['A unified inbox needs durable read/snooze/resolution state.', 'Project browsing is less prominent for users who think repository-first.', 'Poor event grouping could create notification fatigue.'],
+          api: '<strong>API reality:</strong> today’s resources can populate much of the queue, but unread, snooze, grouping, and cross-resource decision semantics require new Hub-side state.'
+        },
+        flow: {
+          number: 'Direction 04', title: 'Agent & lane flow map', subtitle: 'Expose Sorrel’s unique unit of work—lanes—as a living collaboration topology.',
+          moves: ['Make parallel lanes, ownership, dependencies, policy gates, and integration stage spatially legible.', 'Use the inspector for the selected lane instead of navigating away.', 'Show human and agent ownership with the same interaction grammar.', 'Offer list and timeline modes so the map is not the only way to work.'],
+          tradeoffs: ['The map can become noisy above roughly 15–20 active lanes.', 'Touch and mobile require a list fallback.', 'This is the most expensive direction and depends on richer agent/run state.'],
+          api: '<strong>API reality:</strong> lanes are strong in Core/CLI but not yet a rich Hub collection. This direction requires lane topology, ownership, dependency, progress, and agent presence APIs before it can be truthful.'
+        },
+        guide: {
+          number: 'Decision guide', title: 'Recommended product model', subtitle: 'Start with clarity, preserve room for the agent-native differentiator.',
+          moves: ['Adopt Direction 01 as the shell and default project home.', 'Use Direction 03’s queue and reading model for the cross-project “Needs you” experience.', 'Use Direction 02 as the dedicated deep-review workspace.', 'Introduce Direction 04 later as an expert Flow view when the supporting APIs exist.'],
+          tradeoffs: ['A hybrid needs strict shared primitives so it does not become four visual systems.', 'The first milestone must choose one navigation grammar and one density scale.', 'Do not surface aspirational live data until the Hub can provide it truthfully.'],
+          api: '<strong>Suggested sequence:</strong> shell + overview → focused review → attention aggregation → lane/agent topology. This gives immediate UX improvement without blocking on the most speculative APIs.'
+        }
+      };
+
+      let currentPlan = 'command';
+      const tabs = [...document.querySelectorAll('[data-plan]')];
+      const concepts = [...document.querySelectorAll('[data-concept]')];
+      const notesButton = document.getElementById('notesButton');
+      const backdrop = document.getElementById('notesBackdrop');
+      const toast = document.getElementById('toast');
+      let toastTimer;
+
+      function showPlan(plan) {
+        currentPlan = plan;
+        tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.plan === plan));
+        concepts.forEach(concept => concept.classList.toggle('active', concept.dataset.concept === plan));
+        notesButton.style.visibility = 'visible';
+        location.hash = plan;
+      }
+
+      function openNotes() {
+        const data = notes[currentPlan];
+        document.getElementById('notesEyebrow').textContent = data.number;
+        document.getElementById('notesTitle').textContent = data.title;
+        document.getElementById('notesSubtitle').textContent = data.subtitle;
+        document.getElementById('notesMoves').innerHTML = data.moves.map(item => `<li>${item}</li>`).join('');
+        document.getElementById('notesTradeoffs').innerHTML = data.tradeoffs.map(item => `<li>${item}</li>`).join('');
+        document.getElementById('notesApi').innerHTML = data.api;
+        backdrop.classList.add('open');
+        document.getElementById('notesClose').focus();
+      }
+
+      function closeNotes() { backdrop.classList.remove('open'); notesButton.focus(); }
+      function showToast(message) { clearTimeout(toastTimer); toast.textContent = message; toast.classList.add('show'); toastTimer = setTimeout(() => toast.classList.remove('show'), 1800); }
+
+      tabs.forEach(tab => tab.addEventListener('click', () => showPlan(tab.dataset.plan)));
+      document.querySelectorAll('[data-open-plan]').forEach(item => item.addEventListener('click', () => showPlan(item.dataset.openPlan)));
+      notesButton.addEventListener('click', openNotes);
+      document.getElementById('notesClose').addEventListener('click', closeNotes);
+      backdrop.addEventListener('click', event => { if (event.target === backdrop) closeNotes(); });
+      document.addEventListener('keydown', event => { if (event.key === 'Escape' && backdrop.classList.contains('open')) closeNotes(); });
+      document.querySelectorAll('[data-demo-nav]').forEach(nav => nav.addEventListener('click', event => { const button = event.target.closest('button'); if (!button) return; nav.querySelectorAll('button').forEach(item => item.classList.remove('active')); button.classList.add('active'); showToast(`${button.textContent.trim()} selected — navigation is illustrative`); }));
+      document.querySelectorAll('[data-toast]').forEach(item => item.addEventListener('click', () => showToast(item.dataset.toast)));
+      document.querySelectorAll('[data-review-title]').forEach(item => item.addEventListener('click', () => { document.querySelectorAll('[data-review-title]').forEach(row => row.classList.remove('active')); item.classList.add('active'); document.getElementById('reviewCanvasTitle').textContent = item.dataset.reviewTitle; showToast(`Loaded ${item.dataset.reviewTitle}`); }));
+      document.querySelectorAll('[data-inbox-title]').forEach(item => item.addEventListener('click', () => { document.querySelectorAll('[data-inbox-title]').forEach(row => row.classList.remove('active')); item.classList.add('active'); document.getElementById('inboxDetailTitle').textContent = item.dataset.inboxTitle; showToast(`Opened ${item.dataset.inboxTitle}`); }));
+      document.querySelectorAll('[data-lane]').forEach(item => item.addEventListener('click', () => { document.querySelectorAll('[data-lane]').forEach(card => card.classList.remove('selected')); item.classList.add('selected'); document.getElementById('laneInspectorName').textContent = item.dataset.lane; showToast(`Selected ${item.dataset.lane}`); }));
+
+      const hashPlan = location.hash.slice(1);
+      if (notes[hashPlan]) showPlan(hashPlan);
+    </script>
+  </body>
+</html>
