@@ -165,7 +165,7 @@ export function ReviewsView() {
     <div class="page view-enter">
       <PageHeader
         title="Reviews"
-        lede="Proposals for this project — open one to advance status and discuss."
+        lede="Inspect proposed changes, discuss them, and decide what moves forward."
         actions={
           <>
             <button type="button" class="ghost" onClick={() => setReloadToken((n) => n + 1)}>
@@ -174,10 +174,10 @@ export function ReviewsView() {
             <Show when={tab() === 'proposals'}>
               <button
                 type="button"
-                onClick={() => setCreating((v) => !v)}
+                onClick={() => setCreating(true)}
                 aria-expanded={creating()}
               >
-                {creating() ? 'Cancel' : 'New proposal'}
+                Open review <span aria-hidden="true">＋</span>
               </button>
             </Show>
           </>
@@ -193,7 +193,7 @@ export function ReviewsView() {
             aria-selected={tab() === 'proposals'}
             onClick={() => setTab('proposals')}
           >
-            proposals
+            Reviews
           </button>
           <button
             type="button"
@@ -202,7 +202,7 @@ export function ReviewsView() {
             aria-selected={tab() === 'comments'}
             onClick={() => setTab('comments')}
           >
-            comments
+            Discussion
           </button>
           <button
             type="button"
@@ -211,13 +211,13 @@ export function ReviewsView() {
             aria-selected={tab() === 'workflows'}
             onClick={() => setTab('workflows')}
           >
-            workflows
+            Checks
           </button>
         </div>
         <Show when={tab() === 'proposals'}>
           <input
             type="search"
-            placeholder="Filter proposals…"
+            placeholder="Find a review…"
             autocomplete="off"
             value={filter()}
             onInput={(e) => setFilter(e.currentTarget.value)}
@@ -226,32 +226,43 @@ export function ReviewsView() {
       </div>
 
       <Show when={tab() === 'proposals' && creating()}>
-        <form class="form-card" onSubmit={onOpenProposal}>
-          <h2>Open proposal</h2>
-          <p class="muted" style={{ margin: 0, 'font-size': '0.85rem' }}>
-            Project <code class="mono">{projectId()}</code>
-          </p>
-          <label>
-            Title
-            <input name="title" required placeholder="Land feature lane" autocomplete="off" />
-          </label>
-          <div class="form-grid two">
+        <div class="dialog-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setCreating(false);
+        }}>
+          <form class="form-card project-dialog" role="dialog" aria-modal="true" aria-labelledby="open-review-title" onSubmit={onOpenProposal}>
+            <div class="dialog-heading">
+              <div>
+                <span class="eyebrow">02 / Share changes</span>
+                <h2 id="open-review-title">Open a review</h2>
+                <p class="muted">Bring a lane into the project for discussion and approval.</p>
+              </div>
+              <button class="dialog-close" type="button" aria-label="Close dialog" onClick={() => setCreating(false)}>×</button>
+            </div>
             <label>
-              Sync repo id (optional)
-              <input name="syncRepoId" placeholder="repo_…" autocomplete="off" />
+              <span>Title</span>
+              <input name="title" required placeholder="Land feature lane" autocomplete="off" />
             </label>
+            <div class="form-grid two">
+              <label>
+                <span>Repository <i>optional</i></span>
+                <input name="syncRepoId" placeholder="repo_…" autocomplete="off" />
+              </label>
+              <label>
+                <span>Source lane <i>optional</i></span>
+                <input name="sourceLane" placeholder="lane_feature" autocomplete="off" />
+              </label>
+            </div>
             <label>
-              Source lane (optional)
-              <input name="sourceLane" placeholder="lane_feature" autocomplete="off" />
+              <span>Description <i>optional</i></span>
+              <textarea name="description" rows={4} placeholder="What changed, and what should reviewers focus on?" />
             </label>
-          </div>
-          <label>
-            Description
-            <textarea name="description" rows={2} placeholder="optional" />
-          </label>
-          <button type="submit">Open proposal</button>
-          <FormStatus message={formStatus()} error={formError()} />
-        </form>
+            <div class="dialog-actions">
+              <button type="button" class="ghost" onClick={() => setCreating(false)}>Cancel</button>
+              <button type="submit">Open review <span aria-hidden="true">→</span></button>
+            </div>
+            <FormStatus message={formStatus()} error={formError()} />
+          </form>
+        </div>
       </Show>
 
       <Show when={tab() === 'proposals'}>
@@ -270,11 +281,11 @@ export function ReviewsView() {
                   when={filteredProposals().length > 0}
                   fallback={
                     <EmptyState
-                      title="No proposals yet"
-                      body="Open a proposal here or submit a lane from the CLI."
+                      title="No reviews yet"
+                      body="Submit a lane from the CLI or open a review here."
                       action={
                         <button type="button" onClick={() => setCreating(true)}>
-                          New proposal
+                          Open the first review
                         </button>
                       }
                     />
@@ -321,8 +332,8 @@ export function ReviewsView() {
               <Show when={filteredProposals().length > 0}>
                 <aside class="detail-panel">
                   <EmptyState
-                    title="Select a proposal"
-                    body="Thread, transitions, and metadata open here."
+                    title="Select a review"
+                    body="Discussion, status, and source information open here."
                   />
                 </aside>
               </Show>

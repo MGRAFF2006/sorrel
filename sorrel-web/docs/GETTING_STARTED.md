@@ -4,8 +4,8 @@
 
 Last updated: 2026-09-01
 
-How to install Sorrel, record a first local change, build from source, and start
-the development Hub stack.
+How to install Sorrel, record a first local change, host a release server, build
+from source, and start the development Hub stack.
 
 ## Install the CLI
 
@@ -59,6 +59,55 @@ SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start
 Installer signing/notarization is not yet configured for this developer
 preview, so operating systems may show their standard unverified-publisher
 warning. Verify release checksums before installation.
+
+## Host a release server
+
+Releases produced by the current pipeline publish two OCI images for Linux
+amd64 and arm64:
+
+- `ghcr.io/mgraff2006/sorrel-hub:<VERSION>` — persistent Hub API and sync
+  server.
+- `ghcr.io/mgraff2006/sorrel-hub-web:<VERSION>` — browser UI host and `/api`
+  proxy.
+
+Each GitHub Release includes `sorrel-server.compose.yml`, immutable image
+digests in `sorrel-server-images.txt`, and
+`sorrel-server-assets.sha256`. Images run as an unprivileged user, include
+health checks, and carry build provenance and an SBOM. Replace `<TAG>` with the
+release tag and `<VERSION>` with the same value without the leading `v`:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LO \
+  https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-server.compose.yml
+curl --proto '=https' --tlsv1.2 -LO \
+  https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-server-images.txt
+curl --proto '=https' --tlsv1.2 -LO \
+  https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-server-assets.sha256
+sha256sum --check sorrel-server-assets.sha256
+
+SORREL_VERSION=<VERSION> \
+SORREL_HUB_AUTH=dev \
+SORREL_HUB_ALLOW_INSECURE_DEV_AUTH=1 \
+docker compose -f sorrel-server.compose.yml up -d
+```
+
+This development-auth example is intentionally bound to `127.0.0.1` by the
+Compose file. It persists Hub state in the `hub-data` volume and leaves broad
+bootstrap grants disabled. Set `SORREL_HUB_BOOTSTRAP_GRANTS=1` only for an
+isolated CLI sync demo.
+
+For bearer-authenticated API hosting, set `SORREL_HUB_AUTH=oidc` with
+`SORREL_OIDC_ISSUER` and `SORREL_OIDC_AUDIENCE`, or configure the documented
+WorkOS variables. Put a TLS reverse proxy in front and set
+`SORREL_BIND_ADDRESS` only after the network boundary is in place. The alpha
+browser UI does not yet implement an IdP login flow, sealed WorkOS sessions are
+not shipped, and no alpha Hub should be treated as a production security
+boundary.
+
+Pinning the `image@sha256:...` references from `sorrel-server-images.txt`
+instead of version tags makes a deployment byte-for-byte immutable. Back up the
+`hub-data` volume before changing versions because general Hub data migrations
+are not available yet.
 
 ## Record your first change
 
@@ -127,7 +176,7 @@ reason more specific than Sorrel's operation default. See
 workflow examples. Full devenv task mapping, log streaming to Hub, and a hosted
 secret backend are not part of this alpha.
 
-## Build from source or run the Hub
+## Build from source or run the development Hub
 
 Source builds and the development Hub require Git, Rust stable 1.85+ with
 `clippy` and `rustfmt`, and Node.js 22+. Docker or Podman is optional for the

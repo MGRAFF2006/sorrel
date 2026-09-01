@@ -67,8 +67,8 @@ export function ProjectsHome() {
   return (
     <div class="page view-enter">
       <PageHeader
-        title="Projects"
-        lede="Pick a project to work in. Reviews, sync, and actions live inside the project."
+        title="Your projects"
+        lede="Review changes, coordinate lanes, and keep every workspace in sync."
         actions={
           <>
             <button type="button" class="ghost" onClick={() => setReloadToken((n) => n + 1)}>
@@ -76,10 +76,10 @@ export function ProjectsHome() {
             </button>
             <button
               type="button"
-              onClick={() => setCreating((v) => !v)}
+              onClick={() => setCreating(true)}
               aria-expanded={creating()}
             >
-              {creating() ? 'Cancel' : 'New project'}
+              Create project <span aria-hidden="true">＋</span>
             </button>
           </>
         }
@@ -88,7 +88,7 @@ export function ProjectsHome() {
       <div class="toolbar">
         <input
           type="search"
-          placeholder="Filter by organizationId…"
+          placeholder="Filter by organization…"
           autocomplete="off"
           value={orgFilter()}
           onInput={(e) => setOrgFilter(e.currentTarget.value)}
@@ -99,25 +99,39 @@ export function ProjectsHome() {
       </div>
 
       <Show when={creating()}>
-        <form class="form-card" onSubmit={onCreate}>
-          <h2>Create project</h2>
-          <div class="form-grid two">
+        <div class="dialog-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setCreating(false);
+        }}>
+          <form class="form-card project-dialog" role="dialog" aria-modal="true" aria-labelledby="create-project-title" onSubmit={onCreate}>
+            <div class="dialog-heading">
+              <div>
+                <span class="eyebrow">01 / New workspace</span>
+                <h2 id="create-project-title">Create a project</h2>
+                <p class="muted">A shared home for reviews, repositories, and local workspaces.</p>
+              </div>
+              <button class="dialog-close" type="button" aria-label="Close dialog" onClick={() => setCreating(false)}>×</button>
+            </div>
+            <div class="form-grid two">
             <label>
-              Organization id
-              <input name="organizationId" required placeholder="org_local" autocomplete="off" />
+              <span>Organization</span>
+              <input name="organizationId" required placeholder="Your team" autocomplete="off" />
             </label>
             <label>
-              Name
-              <input name="name" required placeholder="Platform" autocomplete="off" />
+              <span>Project name</span>
+              <input name="name" required placeholder="acme-platform" autocomplete="off" />
             </label>
-          </div>
-          <label>
-            Description
-            <input name="description" placeholder="optional" autocomplete="off" />
-          </label>
-          <button type="submit">Create project</button>
-          <FormStatus message={status()} error={statusError()} />
-        </form>
+            </div>
+            <label>
+              <span>Description <i>optional</i></span>
+              <textarea name="description" rows={3} placeholder="What is this project for?" />
+            </label>
+            <div class="dialog-actions">
+              <button type="button" class="ghost" onClick={() => setCreating(false)}>Cancel</button>
+              <button type="submit">Create and continue <span aria-hidden="true">→</span></button>
+            </div>
+            <FormStatus message={status()} error={statusError()} />
+          </form>
+        </div>
       </Show>
 
       <div class="surface surface-flush" aria-live="polite">
@@ -135,10 +149,10 @@ export function ProjectsHome() {
               fallback={
                 <EmptyState
                   title="No projects yet"
-                  body="Create a project to start collaborating through Hub."
+                  body="Projects connect local workspaces without moving development into the cloud."
                   action={
                     <button type="button" onClick={() => setCreating(true)}>
-                      New project
+                      Create your first project
                     </button>
                   }
                 />

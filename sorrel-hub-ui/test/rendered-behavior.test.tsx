@@ -56,8 +56,8 @@ describe('HubApp rendered behavior', () => {
     render(() => <HubApp platform={createWebPlatform()} />);
 
     expect(await screen.findByText('No projects yet')).toBeInTheDocument();
-    expect(await screen.findByText('API: ok')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'New project' })).toHaveLength(2);
+    expect(await screen.findByText('ok')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Create project' })).toHaveLength(1);
     expect(screen.queryByRole('link', { name: 'Actions' })).not.toBeInTheDocument();
   });
 
@@ -82,12 +82,12 @@ describe('HubApp rendered behavior', () => {
     const calls = installHubFetch();
     render(() => <HubApp platform={createWebPlatform()} />);
 
-    await fireEvent.click((await screen.findAllByRole('button', { name: 'New project' }))[0]);
-    await fireEvent.input(screen.getByLabelText('Organization id'), {
+    await fireEvent.click((await screen.findAllByRole('button', { name: 'Create project' }))[0]);
+    await fireEvent.input(screen.getByLabelText('Organization'), {
       target: { value: 'org_local' },
     });
-    await fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'Platform' } });
-    await fireEvent.submit(screen.getByRole('button', { name: 'Create project' }).closest('form')!);
+    await fireEvent.input(screen.getByLabelText('Project name'), { target: { value: 'Platform' } });
+    await fireEvent.submit(screen.getByRole('button', { name: 'Create and continue' }).closest('form')!);
 
     await waitFor(() => {
       expect(calls.some((call) => call.url === '/api/projects' && call.init?.method === 'POST')).toBe(true);

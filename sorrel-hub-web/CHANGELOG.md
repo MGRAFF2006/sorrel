@@ -6,6 +6,7 @@ Notable changes to the Sorrel Hub web companion are documented here.
 
 ### Changed
 
+- Added the public Sorrel leaf favicon and product-facing page metadata.
 - The Vite host now resolves the declared `sorrel-hub-ui` package dependency
   without reaching into the sibling package's private source path, so a clean
   `sorrel-hub-web` install can build independently.

@@ -1,0 +1,55 @@
+name: sorrel
+
+# Release deployment for the Sorrel Hub API and browser host.
+#
+# SORREL_VERSION is required so deployments never float on `latest`.
+# The Hub refuses non-loopback development auth unless the operator explicitly
+# enables the insecure-demo override. See docs/GETTING_STARTED.md before
+# exposing either port beyond a trusted network.
+
+services:
+  hub:
+    image: ghcr.io/mgraff2006/sorrel-hub:${SORREL_VERSION:?Set SORREL_VERSION to a published Sorrel version}
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "3000"
+      SORREL_HUB_AUTH: "${SORREL_HUB_AUTH:-dev}"
+      SORREL_HUB_ALLOW_INSECURE_DEV_AUTH: "${SORREL_HUB_ALLOW_INSECURE_DEV_AUTH:-0}"
+      SORREL_HUB_BOOTSTRAP_GRANTS: "${SORREL_HUB_BOOTSTRAP_GRANTS:-0}"
+      SORREL_HUB_DATA_DIR: /app/data/sync
+      SORREL_HUB_METADATA_DIR: /app/data/metadata
+      SORREL_OIDC_ISSUER: "${SORREL_OIDC_ISSUER:-}"
+      SORREL_OIDC_AUDIENCE: "${SORREL_OIDC_AUDIENCE:-}"
+      WORKOS_API_KEY: "${WORKOS_API_KEY:-}"
+      WORKOS_CLIENT_ID: "${WORKOS_CLIENT_ID:-}"
+      WORKOS_ISSUER: "${WORKOS_ISSUER:-}"
+      WORKOS_AUDIENCE: "${WORKOS_AUDIENCE:-}"
+      CONVEX_URL: "${CONVEX_URL:-}"
+      CONVEX_PUBLIC_URL: "${CONVEX_PUBLIC_URL:-}"
+    ports:
+      - "${SORREL_BIND_ADDRESS:-127.0.0.1}:${SORREL_HUB_PORT:-3000}:3000"
+    volumes:
+      - hub-data:/app/data
+
+  hub-web:
+    image: ghcr.io/mgraff2006/sorrel-hub-web:${SORREL_VERSION:?Set SORREL_VERSION to a published Sorrel version}
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "5180"
+      HUB_API_URL: http://hub:3000
+    ports:
+      - "${SORREL_BIND_ADDRESS:-127.0.0.1}:${SORREL_HUB_WEB_PORT:-5180}:5180"
+    depends_on:
+      hub:
+        condition: service_healthy
+
+volumes:
+  hub-data:
