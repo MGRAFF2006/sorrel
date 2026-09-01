@@ -20,23 +20,26 @@ test('platform stubs expose expected capability matrix', async () => {
   assert.match(source, /createWebPlatform/);
 });
 
-test('App is project-first and exposes only implemented feature routes', async () => {
+test('App exposes the repository-first project and global collaboration routes', async () => {
   const app = await import('node:fs/promises').then((fs) =>
     fs.readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   );
   assert.doesNotMatch(app, /ActionsPlaceholder|\/actions/);
-  assert.match(app, /review-badge/);
+  assert.match(app, /nav-count/);
   assert.match(app, /useOpenProposalsCount/);
   assert.match(app, /useOpenProposalsCountFromHub/);
-  assert.match(app, /IdentityChip/);
+  assert.match(app, /IdentityControl/);
   assert.match(app, /fetchSession/);
   assert.match(app, /DEV_IDENTITY_PRESETS/);
-  assert.match(app, /app-shell/);
-  assert.match(app, /app-sidebar/);
+  assert.match(app, /hub-shell/);
+  assert.match(app, /global-bar/);
   assert.match(app, /\/projects\/:projectId/);
   assert.match(app, /ProjectLayout/);
-  assert.match(app, /All projects/);
-  assert.match(app, /Overview/);
+  assert.match(app, /\/inbox/);
+  assert.match(app, /\/orgs\/:orgId/);
+  assert.match(app, /\/profile/);
+  assert.match(app, /\/work/);
+  assert.match(app, />Code</);
 });
 
 test('session store and /session client wiring exist', async () => {
@@ -68,7 +71,28 @@ test('Reviews view covers proposal transitions and comment resolve', async () =>
   assert.match(reviews, /projectId/);
 });
 
-test('Projects and Sync views handle empty and error states', async () => {
+test('Inbox, Work, and identity views derive from Hub records', async () => {
+  const fs = await import('node:fs/promises');
+  const [inbox, work, organizations, profile] = await Promise.all([
+    fs.readFile(new URL('../src/views/InboxView.tsx', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../src/views/WorkView.tsx', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../src/views/OrganizationsView.tsx', import.meta.url), 'utf8'),
+    fs.readFile(new URL('../src/views/ProfileView.tsx', import.meta.url), 'utf8'),
+  ]);
+  assert.match(inbox, /admin\/proposals/);
+  assert.match(inbox, /admin\/review-comments/);
+  assert.match(inbox, /admin\/workflow-runs/);
+  assert.match(inbox, /Global, not home/);
+  assert.match(work, /statuses: \['draft'\]/);
+  assert.match(work, /statuses: \['merged', 'closed'\]/);
+  assert.match(work, /Proposal-backed lanes/);
+  assert.match(organizations, /metadataString\(org\(\)\.metadata, 'readme'\)/);
+  assert.match(organizations, /project\.organizationId/);
+  assert.match(profile, /authorPrincipal/);
+  assert.match(profile, /does not invent a biography/);
+});
+
+test('Projects, Code, and Sync views handle repository data and empty states', async () => {
   const projects = await import('node:fs/promises').then((fs) =>
     fs.readFile(new URL('../src/views/ProjectsView.tsx', import.meta.url), 'utf8'),
   );
@@ -84,7 +108,10 @@ test('Projects and Sync views handle empty and error states', async () => {
   assert.match(projects, /ProjectsHome/);
   assert.match(projects, /\/projects\//);
   assert.match(overview, /ProjectOverview/);
-  assert.match(overview, /Go to Reviews|View all/);
+  assert.match(overview, /No synchronized repository yet/);
+  assert.match(overview, /\/tree\?ref=/);
+  assert.match(overview, /\/files\?ref=/);
+  assert.match(overview, /README/);
   assert.match(sync, /No repositories connected yet/);
   assert.match(sync, /No refs/);
   assert.match(sync, /Could not load/);
@@ -92,16 +119,17 @@ test('Projects and Sync views handle empty and error states', async () => {
   assert.match(sync, /useParams/);
 });
 
-test('responsive CSS covers mobile header/nav breakpoints', async () => {
+test('responsive CSS covers the project shell, inbox, workbench, and mobile breakpoints', async () => {
   const css = await import('node:fs/promises').then((fs) =>
     fs.readFile(new URL('../src/styles/hub.css', import.meta.url), 'utf8'),
   );
   assert.match(css, /@media \(max-width: 860px\)/);
   assert.match(css, /prefers-reduced-motion/);
-  assert.match(css, /\.review-badge/);
-  assert.match(css, /\.app-shell/);
-  assert.match(css, /\.app-sidebar/);
+  assert.match(css, /\.global-bar/);
+  assert.match(css, /\.project-chrome/);
+  assert.match(css, /\.inbox-view/);
+  assert.match(css, /\.kanban-board/);
   assert.match(css, /\.split/);
-  assert.match(css, /\.project-switcher/);
-  assert.match(css, /\.feature-tile/);
+  assert.match(css, /\.review-workbench/);
+  assert.match(css, /\.identity-readme/);
 });
