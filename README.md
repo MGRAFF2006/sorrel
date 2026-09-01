@@ -35,10 +35,10 @@ content-addressed object store, changes/lanes/slices, a Core-native
 identity/permission/policy spine, a bidirectional Git bridge, and a collaboration
 product on top.
 
-> **Latest release:** [`v0.1.0-alpha.1`](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1)
-> is a local-first developer preview.
-> The Hub is for localhost development only; it does not provide production
-> authentication.
+> **Latest release:** [`v0.1.0-alpha.2`](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2)
+> is an installable developer preview with downloadable CLI artifacts and
+> hostable server images. The Hub still requires production authentication and
+> network controls before untrusted network exposure.
 
 | Doc | Purpose |
 | --- | --- |
@@ -55,7 +55,7 @@ product on top.
 The public guides and changelog are mirrored onto the landing site
 (`sorrel-web` → Cloudflare) under `/docs/`.
 
-## Status at a glance (2026-08-31)
+## Status at a glance (2026-09-01)
 
 **Working today**
 
@@ -66,6 +66,7 @@ The public guides and changelog are mirrored onto the landing site
   local workflows, and structured redacted run logs
 - Development Hub with FS-backed sync + metadata; writable Hub UI companion
 - Native Sorrel Hub desktop companion for Windows, macOS, and Linux (x64/ARM64)
+- Native Hub companion for iPhone, iPad, Android phones, and Android tablets
 - Vault, runners, slices prototypes; public landing site live on Cloudflare
 - **Single monorepo** — clone once, no submodule tokens
 
@@ -74,7 +75,7 @@ The public guides and changelog are mirrored onto the landing site
 - Production Hub authentication and signed client identity
 - Stable embedding surface (C ABI / N-API / WASM / daemon)
 - Complete devenv task mapping, run-log streaming, and a hosted/BYO secret backend
-- Local-Core desktop integration and mobile applications
+- Signed desktop distribution and on-device Core embedding for native apps
 
 Details: [`docs/STATUS.md`](docs/STATUS.md).
 
@@ -156,6 +157,7 @@ Everything lives in this repository as normal packages:
 | `sorrel-hub-ui` | Shared SolidJS Hub product UI | Active (dev-only) |
 | `sorrel-hub-desktop` | Native Tauri host for Hub UI | Active (local-Hub companion) |
 | `sorrel-hub-web` | Thin browser host for Hub UI | Active (dev-only) |
+| `sorrel-hub-mobile` | Native phone/tablet Hub companion | Active (dev-only) |
 | `sorrel-web` | Public landing (Cloudflare) | Live |
 | `sorrel-agents` | Agent control plane (minimal) | Active |
 | `sorrel-sdk-js` | Hub HTTP client SDK | Active |
@@ -163,7 +165,8 @@ Everything lives in this repository as normal packages:
 
 Hub is split across `sorrel-hub` (API), `sorrel-hub-ui` (shared product UI),
 `sorrel-hub-desktop` (native host), `sorrel-hub-web` (browser host), and
-`sorrel-web` (marketing landing — **not** the Hub UI).
+`sorrel-hub-mobile` (native phone/tablet companion); `sorrel-web` is the
+marketing landing — **not** the Hub UI.
 
 Rust crates form one Cargo workspace (`Cargo.toml` at the root). Brand assets
 used by this README live under [`assets/`](assets/).

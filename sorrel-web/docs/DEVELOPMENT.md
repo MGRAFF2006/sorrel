@@ -2,7 +2,7 @@
 
 # Developing Sorrel
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 This is the operational guide for human and AI contributors. It covers a fresh
 checkout, change ownership, focused validation, generated files, local service
@@ -40,6 +40,7 @@ required.
 | Product UI/interaction | `sorrel-hub-ui` | Browser host, E2E |
 | Desktop host/bundles | `sorrel-hub-desktop` | Shared Hub UI, release workflow |
 | Browser build/proxy/container | `sorrel-hub-web` | Compose, E2E |
+| Native phone/tablet companion | `sorrel-hub-mobile` | JS SDK, Hub API |
 | Workflow model/execution | `sorrel-runners` | CLI workflow/devenv adapter, protocol |
 | Secret schema/providers/injection | `sorrel-vault`, `sorrel-cli` | runners, protocol, run logs |
 | Slice generation | `sorrel-slices` | CLI slice surface |
@@ -106,6 +107,16 @@ Never hand-edit vendored `test(s)/conformance/` copies.
    transport, native-integration, or build concerns.
 5. Check the JS SDK if a public route changed.
 6. Run the Hub/UI/web module gates and a real browser smoke test.
+
+### Mobile Hub companion
+
+1. Keep Core policy and VCS authority on the server; mobile is an HTTP Hub
+   companion until the stable embedding surface exists.
+2. Add or adjust typed routes in `sorrel-sdk-js` before duplicating transport in
+   the app.
+3. Preserve native stacks/tabs, secure bearer storage, and adaptive phone/tablet
+   layouts in `sorrel-hub-mobile`.
+4. Run its typecheck, lint, behavior tests, and both iOS/Android exports.
 
 ### Public documentation
 

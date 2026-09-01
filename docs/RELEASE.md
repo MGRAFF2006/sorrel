@@ -17,9 +17,11 @@ ledgers. They duplicate the changelog and become stale.
 
 ## Alpha scope
 
-`v0.1.0-alpha.1` is a local-first developer preview. Core, CLI, protocol, and
-the Git bridge are the primary supported surface. Hub is localhost/dev-only;
-vault, runners, slices, agents, and SDKs are experimental.
+`v0.1.0-alpha.2` is an installable developer preview. Core, CLI, protocol, and
+the Git bridge are the primary supported surface. Hub server images are
+hostable, but the service remains development-only without a production
+AuthAdapter and network controls; vault, runners, slices, agents, and SDKs are
+experimental.
 
 ## Release candidate checks
 
@@ -62,7 +64,7 @@ will publish:
 docker build --tag sorrel-hub:smoke ./sorrel-hub
 docker build --tag sorrel-hub-web:smoke --file sorrel-hub-web/Dockerfile .
 ./scripts/smoke-server-images.sh
-SORREL_VERSION=0.1.0-alpha.1 \
+SORREL_VERSION=0.1.0-alpha.2 \
   docker compose --file deploy/sorrel-server.compose.yml config --quiet
 ```
 
@@ -82,15 +84,15 @@ After checks pass on `main`:
 4. Confirm the release note extraction:
 
    ```sh
-   npm run release:notes -- v0.1.0-alpha.1
+   npm run release:notes -- v0.1.0-alpha.2
    ```
 
 5. Commit and merge the release candidate to `main`.
 6. Create an annotated tag and push it:
 
    ```sh
-   git tag -a v0.1.0-alpha.1 -m "Sorrel v0.1.0-alpha.1"
-   git push origin v0.1.0-alpha.1
+   git tag -a v0.1.0-alpha.2 -m "Sorrel v0.1.0-alpha.2"
+   git push origin v0.1.0-alpha.2
    ```
 
 7. The tag starts `.github/workflows/release.yml` and

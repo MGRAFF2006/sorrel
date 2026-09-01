@@ -36,6 +36,7 @@ otherwise; do not reset, overwrite, or reformat them as drive-by cleanup.
 | `sorrel-hub-ui` product behavior | web host and root E2E |
 | `sorrel-hub-desktop` | Tauri host, native adapters, desktop bundles only |
 | `sorrel-hub-web` | browser hosting, proxying, Docker only; product UI belongs in `sorrel-hub-ui` |
+| `sorrel-hub-mobile` | native Hub companion behavior, secure device storage, mobile/tablet navigation |
 | `sorrel-web` | public marketing/docs only; never Hub product behavior |
 
 Shared policy and authority semantics flow from Protocol/Core outward. UI,

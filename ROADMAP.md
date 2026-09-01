@@ -1,6 +1,6 @@
 # Sorrel Roadmap
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
 Forward-only plan for the Sorrel monorepo. Shipped progress belongs in
 [GitHub Releases](https://github.com/MGRAFF2006/sorrel/releases) and
@@ -70,9 +70,10 @@ in the alpha. Stabilize and extend them after lanes and embedding settle.
 ### 9. Apps — desktop then mobile — IN PROGRESS
 
 The shared Hub UI now has a Tauri desktop host for Windows, macOS, and Linux.
-It connects to a local Hub while Core embedding waits for item 7's stable API.
-Next: signed installers, authenticated remote-Hub selection, local workspace
-integration after the embedding contract, then thinner mobile clients.
+It connects to a local Hub, while a thin native mobile companion covers
+projects, reviews/comments, and repository refs on iOS/iPadOS/Android. Next:
+signed desktop installers, authenticated remote-Hub selection, and local
+workspace/VCS integration after item 7's stable embedding contract.
 
 ## Not yet
 

@@ -113,7 +113,7 @@ function isSyncPath(pathname) {
   }
 
   const resource = segments[1];
-  return resource === 'refs' || resource === 'objects';
+  return resource === 'refs' || resource === 'objects' || resource === 'tree' || resource === 'files';
 }
 
 function sendError(response, error) {

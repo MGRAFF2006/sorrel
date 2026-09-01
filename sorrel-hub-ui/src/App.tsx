@@ -1,13 +1,5 @@
 import { A, Route, Router, useParams, type RouteSectionProps } from '@solidjs/router';
-import {
-  createMemo,
-  createResource,
-  createSignal,
-  For,
-  onMount,
-  Show,
-  type ParentProps,
-} from 'solid-js';
+import { createMemo, createResource, createSignal, For, onMount, Show, type ParentProps } from 'solid-js';
 import {
   apiGet,
   fetchCapabilities,
@@ -17,21 +9,21 @@ import {
   type HubCapabilities,
   type HubSessionInfo,
 } from './api.ts';
-import {
-  useOpenProposalsCount,
-  useOpenProposalsCountFromHub,
-} from './convex/openProposals.ts';
-import type { Platform } from './platform.ts';
-import {
-  DEV_IDENTITY_PRESETS,
-  setActingPrincipal,
-  useActingPrincipal,
-} from './session.ts';
+import { Icon } from './components/Icon.tsx';
 import { ErrorText, Loading } from './components/ui.tsx';
-import { ProjectsHome } from './views/ProjectsView.tsx';
+import { useOpenProposalsCount, useOpenProposalsCountFromHub } from './convex/openProposals.ts';
+import type { Project, Proposal } from './domain.ts';
+import { initials } from './domain.ts';
+import type { Platform } from './platform.ts';
+import { DEV_IDENTITY_PRESETS, setActingPrincipal, useActingPrincipal } from './session.ts';
+import { InboxView } from './views/InboxView.tsx';
+import { OrganizationsView } from './views/OrganizationsView.tsx';
+import { ProfileView } from './views/ProfileView.tsx';
 import { ProjectOverview } from './views/ProjectOverview.tsx';
+import { ProjectsHome } from './views/ProjectsView.tsx';
 import { ReviewsView } from './views/ReviewsView.tsx';
 import { SyncView } from './views/SyncView.tsx';
+import { WorkView } from './views/WorkView.tsx';
 
 export type HubAppOptions = {
   platform: Platform;
@@ -39,222 +31,135 @@ export type HubAppOptions = {
   base?: string;
 };
 
-type Project = {
-  id?: string;
-  name?: string;
-  organizationId?: string;
-  description?: string;
-  status?: string;
-};
-
-function IdentityChip(props: {
+function IdentityControl(props: {
   capabilities: HubCapabilities | null | undefined;
   hubSession: HubSessionInfo | null | undefined;
 }) {
   const principal = useActingPrincipal();
   const mode = () => props.capabilities?.auth.mode ?? props.hubSession?.auth.mode ?? 'dev';
-  const isDev = () => mode() === 'dev';
-  const label = () => {
-    const p = principal();
-    return `${p.type}:${p.id}`;
-  };
+  const value = () => `${principal().type}:${principal().id}`;
 
   return (
-    <div class="identity-chip" title={`Auth mode: ${mode()}`}>
-      <span class="identity-mode">{mode()}</span>
-      <Show when={isDev()} fallback={<span class="identity-principal">{label()}</span>}>
-        <label class="identity-select-wrap">
-          <span class="sr-only">Acting principal</span>
-          <select
-            class="identity-select"
-            value={label()}
-            onChange={(event) => {
-              const [type, ...rest] = event.currentTarget.value.split(':');
-              const id = rest.join(':');
-              if (type && id) setActingPrincipal({ type, id });
-            }}
-          >
-            <For each={DEV_IDENTITY_PRESETS}>
-              {(preset) => (
-                <option value={`${preset.type}:${preset.id}`}>
-                  {preset.type}:{preset.id}
-                </option>
-              )}
-            </For>
-          </select>
-        </label>
-      </Show>
-      <Show when={!isDev() && props.hubSession?.session == null}>
-        <span class="identity-hint">sign in via IdP</span>
-      </Show>
-    </div>
+    <Show
+      when={mode() === 'dev'}
+      fallback={<A href="/profile" class="avatar-link" title={value()}>{initials(principal().id)}</A>}
+    >
+      <label class="identity-control" title="Development acting principal">
+        <span class="sr-only">Acting principal</span>
+        <select
+          value={value()}
+          onChange={(event) => {
+            const [type, ...id] = event.currentTarget.value.split(':');
+            if (type && id.length) setActingPrincipal({ type, id: id.join(':') });
+          }}
+        >
+          <For each={DEV_IDENTITY_PRESETS}>
+            {(preset) => <option value={`${preset.type}:${preset.id}`}>{preset.id}</option>}
+          </For>
+        </select>
+      </label>
+    </Show>
   );
 }
 
 function GlobalShell(
-  props: ParentProps<{
-    platform: Platform;
+  props: RouteSectionProps & {
     capabilities: HubCapabilities | null | undefined;
     hubSession: HubSessionInfo | null | undefined;
     openCount: number | undefined;
-    apiStatus: string;
     apiOk: boolean | null;
-  }>,
+  },
 ) {
   return (
-    <div class="app-shell">
-      {props.children}
-      <header class="app-topbar">
-        <div class="topbar-context">
-          <span class="topbar-product">Workspace</span>
-          <span class="topbar-separator" aria-hidden="true">/</span>
-          <span class="topbar-view">Collaboration hub</span>
-        </div>
-        <div class="header-status">
-          <IdentityChip capabilities={props.capabilities} hubSession={props.hubSession} />
-          <Show when={props.openCount !== undefined}>
-            <span class="review-badge" title="Open reviews">
-              {props.openCount} review{props.openCount === 1 ? '' : 's'}
-            </span>
-          </Show>
-          <span
-            class={`status ${
-              props.apiOk === true
-                ? 'status-ok'
-                : props.apiOk === false
-                  ? 'status-down'
-                  : 'status-unknown'
-            }`}
-          >
-            <span class="status-dot" aria-hidden="true" />
-            <span class="status-label">{props.apiStatus.replace('API: ', '')}</span>
+    <div class="hub-shell">
+      <header class="global-bar">
+        <A href="/" class="global-brand" aria-label="Sorrel Hub projects">
+          <img src="/favicon.svg" alt="" />
+          <strong>Sorrel</strong>
+          <span>Hub</span>
+        </A>
+        <nav class="global-nav" aria-label="Global">
+          <A href="/" end activeClass="active"><Icon name="project" />Projects</A>
+          <A href="/inbox" activeClass="active">
+            <Icon name="inbox" />Inbox
+            <Show when={props.openCount !== undefined && props.openCount > 0}>
+              <span class="nav-count">{props.openCount}</span>
+            </Show>
+          </A>
+          <A href="/orgs" activeClass="active"><Icon name="org" />Organizations</A>
+        </nav>
+        <div class="global-tools">
+          <span class={`api-indicator ${props.apiOk === true ? 'ok' : props.apiOk === false ? 'down' : ''}`}>
+            <span />Hub
           </span>
+          <IdentityControl capabilities={props.capabilities} hubSession={props.hubSession} />
+          <A href="/profile" class="icon-button" aria-label="Open profile"><Icon name="user" /></A>
         </div>
       </header>
+      {props.children}
     </div>
   );
 }
 
-function HomeLayout(
-  props: RouteSectionProps & {
-    platform: Platform;
-    capabilities: HubCapabilities | null | undefined;
-  },
-) {
-  return (
-    <>
-      <aside class="app-sidebar">
-        <A href="/" class="brand brand-link">
-          <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true" />
-          <span><span class="brand-mark">Sorrel</span><span class="brand-sub">Hub</span></span>
-        </A>
-        <p class="nav-eyebrow">Workspace</p>
-        <nav class="side-nav" aria-label="Primary">
-          <A href="/" class="nav-item" end activeClass="active">
-            <span class="nav-index" aria-hidden="true">01</span>Projects
-          </A>
-        </nav>
-        <div class="sidebar-callout">
-          <span class="callout-kicker">Local-first</span>
-          <strong>Your code stays yours.</strong>
-          <p>Hub coordinates reviews and sync. It does not host your development environment.</p>
-        </div>
-        <div class="side-meta">
-          <CapabilitiesHint capabilities={props.capabilities} />
-          <p>{props.platform.label}</p>
-        </div>
-      </aside>
-      <main class="app-main">{props.children}</main>
-    </>
-  );
+function GlobalPage(props: ParentProps) {
+  return <main class="global-stage">{props.children}</main>;
 }
 
-function ProjectLayout(
-  props: RouteSectionProps & {
-    platform: Platform;
-    capabilities: HubCapabilities | null | undefined;
-  },
-) {
+function ProjectLayout(props: RouteSectionProps) {
   const params = useParams<{ projectId: string }>();
   const projectId = () => decodeURIComponent(params.projectId);
-
-  const [project] = createResource(projectId, async (id) => {
-    const payload = (await apiGet(`/projects/${encodeURIComponent(id)}`)) as {
-      data?: Project;
-    };
-    return (payload.data ?? payload) as Project;
-  });
-
   const base = () => `/projects/${encodeURIComponent(projectId())}`;
 
+  const [project] = createResource(projectId, async (id) => {
+    const payload = (await apiGet(`/projects/${encodeURIComponent(id)}`)) as { data?: Project };
+    return (payload.data ?? payload) as Project;
+  });
+  const [proposals] = createResource(projectId, async (id) => {
+    const payload = await apiGet(`/admin/proposals?projectId=${encodeURIComponent(id)}`);
+    return unwrapList(payload) as Proposal[];
+  });
+  const reviewCount = () => (proposals() ?? []).filter((item) => ['draft', 'open', 'approved', 'rejected'].includes(item.status ?? '')).length;
+
   return (
-    <>
-      <aside class="app-sidebar">
-        <A href="/" class="brand brand-link">
-          <img class="brand-logo" src="/favicon.svg" alt="" aria-hidden="true" />
-          <span><span class="brand-mark">Sorrel</span><span class="brand-sub">Hub</span></span>
-        </A>
-
-        <div class="project-switcher">
-          <A href="/" class="project-back">
-            All projects
-          </A>
-          <Show when={!project.loading} fallback={<p class="muted project-name">Loading…</p>}>
-            <Show
-              when={!project.error && project()}
-              fallback={<p class="error project-name">Project unavailable</p>}
-            >
-              <p class="project-name" title={project()?.id}>
-                {project()?.name ?? projectId()}
-              </p>
-              <p class="project-org muted">{project()?.organizationId}</p>
-            </Show>
-          </Show>
-        </div>
-
-        <nav class="side-nav" aria-label="Project">
-          <A href={base()} class="nav-item" end activeClass="active">
-            <span class="nav-index" aria-hidden="true">01</span>Overview
-          </A>
-          <A href={`${base()}/reviews`} class="nav-item" activeClass="active">
-            <span class="nav-index" aria-hidden="true">02</span>Reviews
-          </A>
-          <A href={`${base()}/sync`} class="nav-item" activeClass="active">
-            <span class="nav-index" aria-hidden="true">03</span>Repositories
-          </A>
-        </nav>
-
-        <div class="side-meta">
-          <CapabilitiesHint capabilities={props.capabilities} />
-          <p>{props.platform.label}</p>
-        </div>
-      </aside>
-
-      <main class="app-main">
-        <Show when={project.error}>
-          <ErrorText
-            text={`Could not load project: ${project.error instanceof Error ? project.error.message : String(project.error)}`}
-          />
-        </Show>
-        <Show when={project.loading}>
-          <Loading text="Loading project…" />
-        </Show>
-        <Show when={project() && !project.error}>{props.children}</Show>
-      </main>
-    </>
-  );
-}
-
-export function CapabilitiesHint(props: { capabilities: HubCapabilities | null | undefined }) {
-  const caps = () => props.capabilities;
-  return (
-    <Show when={caps()}>
-      {(c) => (
-        <p class="deployment-label">
-          <span class="deployment-dot" aria-hidden="true" />
-          {c().deploy === 'saas' ? 'Hosted Hub' : 'Local development'}
-        </p>
-      )}
+    <Show when={!project.loading} fallback={<main class="global-stage"><Loading text="Loading project…" /></main>}>
+      <Show
+        when={!project.error && project()}
+        fallback={<main class="global-stage"><ErrorText text="This project could not be loaded." /></main>}
+      >
+        {(current) => (
+          <>
+            <header class="project-chrome">
+              <div class="project-heading">
+                <A href={`/orgs/${encodeURIComponent(current().organizationId ?? '')}`} class="project-owner-mark">
+                  {initials(current().organizationId)}
+                </A>
+                <div class="project-title">
+                  <p>{current().organizationId ?? 'Personal'} /</p>
+                  <h1>{current().name ?? current().id}</h1>
+                  <span>{current().description ?? 'A Sorrel collaboration project.'}</span>
+                </div>
+                <span class={`project-state ${current().status === 'archived' ? 'archived' : ''}`}>
+                  {current().status ?? 'active'}
+                </span>
+                <div class="project-actions">
+                  <A href={`${base()}/sync`} class="button secondary"><Icon name="sync" />Connect</A>
+                  <A href={`${base()}/reviews`} class="button primary"><Icon name="branch" />Open review</A>
+                </div>
+              </div>
+              <nav class="project-tabs" aria-label="Project">
+                <A href={base()} end activeClass="active"><Icon name="code" />Code</A>
+                <A href={`${base()}/work`} activeClass="active"><Icon name="layers" />Work</A>
+                <A href={`${base()}/reviews`} activeClass="active">
+                  <Icon name="branch" />Reviews
+                  <Show when={reviewCount() > 0}><span class="tab-count">{reviewCount()}</span></Show>
+                </A>
+                <A href={`${base()}/sync`} activeClass="active"><Icon name="repo" />Repositories</A>
+              </nav>
+            </header>
+            <main class="project-stage">{props.children}</main>
+          </>
+        )}
+      </Show>
     </Show>
   );
 }
@@ -262,85 +167,60 @@ export function CapabilitiesHint(props: { capabilities: HubCapabilities | null |
 export function HubApp(props: HubAppOptions) {
   const [capabilities] = createResource(fetchCapabilities);
   const [hubSession, { refetch: refetchSession }] = createResource(fetchSession);
-  const [apiStatus, setApiStatus] = createSignal('API: checking…');
   const [apiOk, setApiOk] = createSignal<boolean | null>(null);
   const actingPrincipal = useActingPrincipal();
 
-  onMount(() => {
-    setPrincipalProvider(() => actingPrincipal());
-  });
+  onMount(() => setPrincipalProvider(() => actingPrincipal()));
 
   const convexUrl = createMemo(() => {
     if (props.convexUrl) return props.convexUrl;
-    const fromCaps = capabilities()?.convex;
-    if (fromCaps?.enabled === false) return null;
-    return fromCaps?.url ?? (import.meta.env.VITE_CONVEX_URL as string | undefined) ?? null;
+    const configured = capabilities()?.convex;
+    if (configured?.enabled === false) return null;
+    return configured?.url ?? (import.meta.env.VITE_CONVEX_URL as string | undefined) ?? null;
   });
-
   const convexCount = useOpenProposalsCount(convexUrl);
-  const hubFallbackCount = useOpenProposalsCountFromHub(
-    () => !convexUrl() && apiOk() === true,
-  );
-  const openCount = createMemo(() => convexCount() ?? hubFallbackCount());
+  const fallbackCount = useOpenProposalsCountFromHub(() => !convexUrl() && apiOk() === true);
+  const openCount = createMemo(() => convexCount() ?? fallbackCount());
+
   onMount(() => {
     void (async () => {
       try {
-        const health = (await apiGet('/healthz')) as { status?: string };
-        setApiStatus(`API: ${health.status ?? 'ok'}`);
+        await apiGet('/healthz');
         setApiOk(true);
         void refetchSession();
       } catch {
-        setApiStatus('API: unreachable');
         setApiOk(false);
       }
     })();
   });
 
-  const shell = (children: ParentProps['children']) => (
-    <GlobalShell
-      platform={props.platform}
-      capabilities={capabilities()}
-      hubSession={hubSession()}
-      openCount={openCount()}
-      apiStatus={apiStatus()}
-      apiOk={apiOk()}
-    >
-      {children}
-    </GlobalShell>
-  );
-
   return (
     <Router base={props.base}>
       <Route
         path="/"
-        component={(routeProps) =>
-          shell(
-            <HomeLayout
-              {...routeProps}
-              platform={props.platform}
-              capabilities={capabilities()}
-            />,
-          )
-        }
+        component={(routeProps) => (
+          <GlobalShell
+            {...routeProps}
+            capabilities={capabilities()}
+            hubSession={hubSession()}
+            openCount={openCount()}
+            apiOk={apiOk()}
+          />
+        )}
       >
-        <Route path="/" component={ProjectsHome} />
-      </Route>
-
-      <Route
-        path="/projects/:projectId"
-        component={(routeProps) =>
-          shell(
-            <ProjectLayout
-              {...routeProps}
-              platform={props.platform}
-              capabilities={capabilities()}
-            />,
-          )
-        }
-      >
-        <Route path="/" component={ProjectOverview} />
-        <Route path="/reviews" component={() => <ReviewsView />} />
-        <Route path="/sync" component={() => <SyncView />} />
+        <Route path="/" component={GlobalPage}>
+          <Route path="/" component={ProjectsHome} />
+          <Route path="/inbox" component={InboxView} />
+          <Route path="/orgs" component={OrganizationsView} />
+          <Route path="/orgs/:orgId" component={OrganizationsView} />
+          <Route path="/profile" component={ProfileView} />
+        </Route>
+        <Route path="/projects/:projectId" component={ProjectLayout}>
+          <Route path="/" component={ProjectOverview} />
+          <Route path="/work" component={WorkView} />
+          <Route path="/reviews" component={ReviewsView} />
+          <Route path="/sync" component={SyncView} />
+        </Route>
       </Route>
     </Router>
   );

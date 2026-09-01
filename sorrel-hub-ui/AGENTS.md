@@ -2,8 +2,9 @@
 
 ## What this module is
 
-Shared **SolidJS product UI** for Sorrel Hub. Browser, Tauri desktop, and future
-Tauri mobile hosts mount the same package; they do not fork the product UI.
+Shared **SolidJS product UI** for Sorrel Hub browser and Tauri desktop hosts.
+The native React Native mobile companion shares Hub API/SDK contracts rather
+than mounting this DOM UI.
 
 - `sorrel-hub-ui` (this package): shared UI + platform stubs
 - `sorrel-hub-desktop`: native Tauri host

@@ -4,20 +4,34 @@ Notable changes to the Sorrel public website are documented here.
 
 ## [Unreleased]
 
+No changes yet.
+
+## [0.1.0-alpha.2] - 2026-09-01
+
+### Added
+
+- Add automatic coordinated changelog preparation ([#73](https://github.com/MGRAFF2006/sorrel/pull/73)).
+- Publish hostable Sorrel server releases ([#75](https://github.com/MGRAFF2006/sorrel/pull/75)).
+
 ### Changed
 
-- Reworked the documentation home, topic pages, and Markdown guide reader with
-  a cohesive responsive layout, stronger reading hierarchy, history-aware
-  guide navigation, generated page sidebars, and syntax-highlighted code with
-  whole-block and per-line copy actions.
-- Rebuilt the landing page around Sorrel's agent-native workflow with a
-  responsive lane-graph hero, editorial primitive and architecture sections,
-  a focused CLI walkthrough, and clearer alpha readiness guidance.
-- Replaced the placeholder letter mark across the landing and documentation
-  pages with the current Sorrel leaf logo, also used as the site favicon.
-- Added a compact, keyboard-accessible mobile navigation menu across the landing
-  and documentation pages, plus skip links and visible focus indicators.
-- Updated the theme toggle label to announce the action it will perform.
+- Use current logo on public website ([#56](https://github.com/MGRAFF2006/sorrel/pull/56)).
+- Improve mobile navigation accessibility ([#58](https://github.com/MGRAFF2006/sorrel/pull/58)).
+- Report only implemented Hub capabilities ([#60](https://github.com/MGRAFF2006/sorrel/pull/60)).
+- Forward Hub bearer tokens from the CLI ([#61](https://github.com/MGRAFF2006/sorrel/pull/61)).
+- Overhaul public website design ([#62](https://github.com/MGRAFF2006/sorrel/pull/62)).
+- Replace deprecated Rust YAML parser ([#65](https://github.com/MGRAFF2006/sorrel/pull/65)).
+- Polish CLI installation and contribution workflow ([#71](https://github.com/MGRAFF2006/sorrel/pull/71)).
+- Overhaul public documentation design ([#72](https://github.com/MGRAFF2006/sorrel/pull/72)).
+- Establish review-first Sorrel Hub product interface ([#74](https://github.com/MGRAFF2006/sorrel/pull/74)).
+
+### Removed
+
+- Remove agent project mirroring workaround ([#70](https://github.com/MGRAFF2006/sorrel/pull/70)).
+
+### Fixed
+
+- Reject unsupported run log following ([#59](https://github.com/MGRAFF2006/sorrel/pull/59)).
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
@@ -42,5 +56,7 @@ Notable changes to the Sorrel public website are documented here.
 - Distinguishes shipped alpha capabilities from later embedding, app, hosted
   compute, and richer collaboration work.
 
-[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
 [0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2

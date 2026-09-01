@@ -7,10 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+No changes yet.
+
+## [0.1.0-alpha.2] - 2026-09-01
+
 ### Changed
 
-- Replaced the deprecated, unmaintained `serde_yaml` parser with
-  `serde_yaml_ng` for workflow files.
+- Replace deprecated Rust YAML parser ([#65](https://github.com/MGRAFF2006/sorrel/pull/65)).
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
@@ -32,5 +35,7 @@ Initial alpha release.
 - Hosted compute, Kubernetes, SSH execution, production authentication, and
   external secret providers are not included.
 
-[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
 [0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2

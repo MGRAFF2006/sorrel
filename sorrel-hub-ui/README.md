@@ -1,7 +1,8 @@
 # sorrel-hub-ui
 
-Shared SolidJS Hub product UI for the browser host, the Tauri desktop app, and
-future mobile shells.
+Shared SolidJS Hub product UI for browser and desktop shells. The native mobile
+companion lives in `sorrel-hub-mobile` and shares Hub API/SDK contracts instead
+of mounting this DOM UI.
 
 ```sh
 npm ci
@@ -10,6 +11,23 @@ npm run build  # library build
 npm run check  # typecheck + tests + production build
 ```
 
-Browser hosts call `mountHubApp(element, { platformKind: 'web' })`. Native hosts
-also inject an `apiBase`, scoped `fetch` implementation, and desktop platform
+Browser hosts call `mountHubApp(element, { platformKind: 'web' })`. Desktop
+hosts also inject an `apiBase`, scoped `fetch` implementation, and platform
 adapters; see `sorrel-hub-desktop`.
+
+## Product routes
+
+- `/` — project picker for choosing or creating a workspace
+- `/projects/:id` — Code-first project page backed by synchronized Sorrel
+  trees, snapshot metadata, and README content
+- `/projects/:id/work` — proposal-backed lane lifecycle board
+- `/projects/:id/reviews` — review queue, discussion, checks, and decisions
+- `/projects/:id/sync` — connected repository refs and sync state
+- `/inbox` — cross-project queue derived from current proposals, unresolved
+  comments, and failed workflows; it is deliberately not the splash screen
+- `/orgs/:id` — organization README and projects
+- `/profile` — the active principal, authored work, and profile README surface
+
+The UI presents Hub/Core state without creating a parallel permission or issue
+model. Project repository ids, repository records, or submitted proposal sync
+ids connect the Code page to a synchronized repository.
