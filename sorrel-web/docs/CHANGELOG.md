@@ -22,12 +22,21 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   language instead of transport and administration terminology.
 - Made the redesigned Hub shell, navigation, status controls, master-detail
   views, tables, forms, and dialogs responsive across tablet and phone widths.
+- Overhauled the public documentation with a consistent editorial reading
+  system, clearer navigation, improved code and table treatments, responsive
+  guide layouts, browser-history-aware guide switching, syntax-highlighted
+  code with block and per-line copy actions, and generated page sidebars.
 - Overhauled the public landing page with a new editorial layout, interactive
   lane-graph visual, clearer architecture and workflow storytelling, and a
   more candid developer-preview status presentation.
 - Added cross-platform CLI release binaries, SHA-256 checksums, and shell and
   PowerShell installers for Linux, macOS, and Windows; `sorrel init` now ends
   with a short guided first-change workflow.
+- Added structured pull-request, bug-report, and feature-request templates with
+  explicit testing, compatibility, documentation, and changelog prompts.
+- Added zero-input contributor changelog automation: maintainers can generate
+  coordinated root and package release sections from merged PR metadata and
+  open a reviewable preparation PR from GitHub Actions.
 - Removed the agent-control-plane workaround that represented agent
   registrations as unrelated Hub projects; agent coordination remains local
   until Hub exposes a real agent contract.

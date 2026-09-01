@@ -46,35 +46,60 @@ dist plan
 The plan must include Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows
 x64 archives, their SHA-256 files, and the shell and PowerShell installers.
 
+Build and exercise the exact server containers that the server release workflow
+will publish:
+
+```sh
+docker build --tag sorrel-hub:smoke ./sorrel-hub
+docker build --tag sorrel-hub-web:smoke --file sorrel-hub-web/Dockerfile .
+./scripts/smoke-server-images.sh
+SORREL_VERSION=0.1.0-alpha.1 \
+  docker compose --file deploy/sorrel-server.compose.yml config --quiet
+```
+
 ## Tagging
 
 After checks pass on `main`:
 
-1. Move every shipped entry from `Unreleased` into a dated version section in
-   the root and affected package changelogs.
-2. Update `release/manifest.json` and all package versions together.
-3. Confirm the release note extraction:
+1. Run the **Prepare changelogs** workflow with the next version and release
+   date. It gathers merged PRs since the previous tag, categorizes their titles
+   and labels, maps changed paths to packages, synchronizes the public root
+   changelog mirror, and opens a PR. Contributors do not add fragments or run a
+   changelog command.
+2. Review and merge the generated changelog PR. Edit its prose when a change
+   needs extra migration, security, or compatibility context. `skip-changelog`
+   omits internal-only PRs; unrecognized title formats fall back to `Changed`.
+3. Update `release/manifest.json` and all package versions together.
+4. Confirm the release note extraction:
 
    ```sh
    npm run release:notes -- v0.1.0-alpha.1
    ```
 
-4. Commit and merge the release candidate to `main`.
-5. Create an annotated tag and push it:
+5. Commit and merge the release candidate to `main`.
+6. Create an annotated tag and push it:
 
    ```sh
    git tag -a v0.1.0-alpha.1 -m "Sorrel v0.1.0-alpha.1"
    git push origin v0.1.0-alpha.1
    ```
 
-6. The tag starts `.github/workflows/release.yml`. It builds each supported
-   binary, produces checksums and installers, and creates the GitHub Release.
-   Prerelease-style versions are marked as prereleases automatically. Do not
-   create a competing release manually while the workflow is running.
-7. Verify the workflow, published tag, installer assets, checksum files,
-   release URL, and changelog links. Install into a clean temporary environment
-   and run `sorrel --version`, `sorrel init`, and `sorrel status` before
-   announcing the release.
+7. The tag starts `.github/workflows/release.yml` and
+   `.github/workflows/server-images.yml` in parallel. The first builds each
+   supported CLI binary, produces checksums and installers, and creates the
+   GitHub Release. The second validates the same tag against
+   `release/manifest.json` and publishes attested Linux amd64/arm64
+   `sorrel-hub` and `sorrel-hub-web` images. Prerelease-style versions are
+   marked as prereleases automatically. Do not create a competing release
+   manually while the workflows are running.
+8. After the CLI workflow creates the GitHub Release, the server workflow
+   attaches the release Compose file, immutable image digests, and their
+   checksum file.
+9. Verify both workflows, the published tag, CLI installer assets, server
+   assets, public GHCR pulls, release URL, and changelog links. In clean
+   temporary environments, run `sorrel --version`, `sorrel init`, and
+   `sorrel status`, then start the release Compose stack and probe `/healthz`
+   through both the API and `/api` proxy before announcing the release.
 
 Tags are release anchors; do not move or recreate them. A correction gets a new
 prerelease version.
@@ -85,10 +110,10 @@ workflow and `dist plan` output before committing.
 
 ## After publication
 
-Keep `Unreleased` at the top of each changelog. New user-visible work enters
-there as it lands. The next release moves those entries into a new dated
-section; do not edit prior release entries except to correct broken links or
-factually dangerous errors.
+Keep `Unreleased` at the top of each changelog. Release preparation regenerates
+it from merged PRs and moves those entries into a new dated section. Review the
+generated wording in the preparation PR; do not edit prior release entries
+except to correct broken links or factually dangerous errors.
 
 ## Rollback
 

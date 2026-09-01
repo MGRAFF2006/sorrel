@@ -83,6 +83,22 @@ survives restarts:
 - `SORREL_HUB_SYNC_STORE=memory` — use ephemeral in-memory stores for both
   sync and metadata (the default inside tests via `createApp()`).
 
+### Authentication adapters
+
+`SORREL_HUB_AUTH` selects one of these request-authentication adapters:
+
+- `dev` (default) trusts `x-sorrel-acting-principal` and is restricted to
+  loopback unless the insecure-demo override is explicit.
+- `oidc` verifies RS256/ES256 Bearer JWTs using
+  `SORREL_OIDC_ISSUER` and optional `SORREL_OIDC_AUDIENCE`; keys are read from
+  `<issuer>/.well-known/jwks.json`.
+- `workos` uses `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, optional
+  `WORKOS_ISSUER`, and optional `WORKOS_AUDIENCE` for Bearer verification.
+
+These adapters authenticate a principal; authorization still requires trusted
+Core grant references. WorkOS remains an adapter skeleton without sealed
+sessions, and the browser UI does not provide an IdP login flow in this alpha.
+
 ### Trusted grants (sync push/pull)
 
 Mutating sync routes evaluate Core policy against a trusted grant map. The
@@ -113,6 +129,14 @@ SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start
 
 ### Deployment
 
+Coordinated releases publish the API image for Linux amd64 and arm64 as
+`ghcr.io/mgraff2006/sorrel-hub:<VERSION>`. The same GitHub Release attaches a
+Compose file for this API plus `sorrel-hub-web`, the image digests, and asset
+checksums. See [`docs/GETTING_STARTED.md`](../docs/GETTING_STARTED.md#host-a-release-server)
+for the verified download and hosting flow.
+
+To build the API image from the current checkout instead:
+
 ```sh
 docker build -t sorrel-hub .
 docker run --rm -p 3000:3000 \
@@ -120,6 +144,9 @@ docker run --rm -p 3000:3000 \
   -v hub-data:/app/data \
   sorrel-hub
 ```
+
+The release image runs as an unprivileged user, persists only `/app/data`, and
+has a built-in `/healthz` container health check.
 
 Binding `0.0.0.0` is required for a published Docker port, but it does not
 enable bootstrap grants or add authentication. Local Docker E2E that pushes
@@ -132,7 +159,8 @@ SORREL_HUB_BOOTSTRAP_GRANTS=1 npm test
 
 The same variable must be forwarded when an E2E harness spawns
 `scripts/listen.mjs`. Docker and root E2E opt-in is development-only; do not use
-these settings as a deployment recipe. The alpha has no production auth.
+these settings as a public deployment recipe. OIDC bearer verification is
+available, but the alpha still lacks a complete production login/session flow.
 
 The sync on-disk layout mirrors Core's `FileObjectStore` semantics:
 content-addressed fanout (`<repo>/objects/<id[0..2]>/<id>`), atomic

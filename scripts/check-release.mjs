@@ -9,6 +9,7 @@ const manifest = JSON.parse(
   readFileSync(join(ROOT, 'release/manifest.json'), 'utf8'),
 );
 const expectedVersion = manifest.release.replace(/^v/, '');
+const requestedTag = process.argv[2];
 
 function read(path) {
   return readFileSync(join(ROOT, path), 'utf8');
@@ -46,6 +47,12 @@ check(
   JSON.parse(read('package.json')).version === expectedVersion,
   `root package version must be ${expectedVersion}`,
 );
+if (requestedTag) {
+  check(
+    requestedTag === manifest.release,
+    `requested release tag ${requestedTag} != manifest release ${manifest.release}`,
+  );
+}
 check(
   read('CHANGELOG.md').includes(`## [${expectedVersion}] - ${manifest.releaseDate}`),
   `CHANGELOG.md must contain ${expectedVersion} dated ${manifest.releaseDate}`,

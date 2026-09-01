@@ -1,0 +1,85 @@
+name: Bug report
+description: Report reproducible behavior that is broken or misleading.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Sorrel. Search existing issues first and remove secrets, tokens, private URLs, and sensitive repository content from all examples and logs.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - CLI / local VCS
+        - Core engine or storage
+        - Git bridge
+        - Hub API
+        - Hub UI / browser host
+        - Authentication or permissions
+        - Secrets, environments, or runners
+        - Protocol or SDK
+        - Installation or release
+        - Documentation or public website
+        - Other / unsure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Sorrel version
+      description: Paste `sorrel --version`, a release tag, or a commit SHA.
+      placeholder: sorrel 0.1.0-alpha.1
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe sequence of commands or actions that reproduces the problem.
+      placeholder: |
+        1. Run `sorrel ...`
+        2. Edit ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS/architecture and relevant Git, Rust, Node, browser, container, or Hub details.
+      placeholder: Arch Linux x86_64; Git 2.x; local CLI only
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Include only the smallest useful evidence. Remove credentials, secret values, private URLs, and personal data.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I removed secrets and sensitive data from this report.
+          required: true
+        - label: I am not reporting a security vulnerability publicly.
+          required: true

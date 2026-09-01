@@ -1,0 +1,78 @@
+name: Feature request
+description: Propose a concrete product capability or usability improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Sorrel prioritizes coherent product workflows over isolated features. Describe the user problem and desired outcome before proposing an implementation.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - Installation and onboarding
+        - CLI / local VCS
+        - Git bridge
+        - Collaboration and review
+        - Hub UI
+        - Authentication and permissions
+        - Secrets, environments, and runners
+        - Agents and SDKs
+        - Documentation and website
+        - Other / cross-cutting
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Who is blocked or inconvenienced, and in what workflow?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the observable result without assuming a particular implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example workflow
+      description: Show how a user or agent should experience the feature from start to finish.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List concrete behavior that would make the request complete and testable.
+      placeholder: |
+        - [ ] A fresh user can ...
+        - [ ] Failures explain how to recover ...
+        - [ ] Structured output remains compatible ...
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility and risks
+      description: Note possible effects on CLI/API contracts, persisted data, security, Git interoperability, or supported platforms.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or smaller solutions, if any.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues and the roadmap for this request.
+          required: true
+        - label: This describes a user outcome, not only an implementation preference.
+          required: true
