@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+
+- Removed the optional Hub project mirroring workaround. Agent registration is
+  local until Hub has a real agent-control-plane contract.
 
 ## [0.1.0-alpha.1] - 2026-08-31
 

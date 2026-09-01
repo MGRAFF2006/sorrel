@@ -11,6 +11,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Removed the agent-control-plane workaround that represented agent
+  registrations as unrelated Hub projects; agent coordination remains local
+  until Hub exposes a real agent contract.
 - Replaced the deprecated, unmaintained Rust `serde_yaml` parser with the
   maintained `serde_yaml_ng` continuation for CLI and runner YAML inputs.
 - Updated the public website and documentation pages to use the current Sorrel
