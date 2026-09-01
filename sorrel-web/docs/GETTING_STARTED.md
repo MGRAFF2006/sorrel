@@ -2,61 +2,64 @@
 
 # Getting started
 
-Last updated: 2026-08-31
+Last updated: 2026-09-01
 
-How to clone Sorrel, run the local VCS demo, and start the Hub stack.
+How to install Sorrel, record a first local change, build from source, and start
+the development Hub stack.
 
-## Prerequisites
+## Install the CLI
 
-- **Git**
-- **Rust** stable 1.85+ with clippy + rustfmt
-- **Node.js** 22+ (Hub / hub-web); Node 20+ is enough for protocol/vault/slices
-- **Docker** (optional) for `docker compose` Hub + Hub UI preview
+Sorrel releases that include installer assets provide prebuilt binaries for
+Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows x64. Older alpha
+releases remain source-only. Choose an installer-bearing tag on the
+[Releases page](https://github.com/MGRAFF2006/sorrel/releases), then replace
+`<TAG>` below with it.
 
 ```sh
-rustup toolchain install stable --profile minimal -c clippy -c rustfmt
-rustup default stable
+# Linux and macOS
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-cli-installer.sh | sh
 ```
 
-## Clone
-
-```sh
-git clone https://github.com/MGRAFF2006/sorrel.git
-cd sorrel
+```powershell
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-cli-installer.ps1 | iex"
 ```
 
-Sorrel is a single monorepo. No submodules and no `SUBMODULES_TOKEN` are required.
+The installers select the correct archive, verify its SHA-256 checksum, install
+`sorrel` in the Cargo-style user binary directory, and explain any required
+`PATH` update. They do not install Rust. For environments that disallow piping
+a downloaded script into a shell, download the platform archive and adjacent
+`.sha256` file from the release, verify it with the platform SHA-256 tool, and
+extract `sorrel` into a directory on `PATH`.
 
-Install the locked Node dependencies for every package and prefetch the Rust
-workspace dependencies:
+Confirm the installation:
 
 ```sh
-npm run setup
+sorrel --version
+sorrel --help
 ```
 
-## Local VCS happy path (CLI)
+## Record your first change
 
 ```sh
-cargo build -p sorrel-cli
-SORREL="$(pwd)/target/debug/sorrel"
-
 mkdir /tmp/sorrel-demo && cd /tmp/sorrel-demo
-$SORREL init
+sorrel init
 echo hello > a.txt
-$SORREL status
-$SORREL change create -m "add a.txt"
-$SORREL diff          # after more edits
-$SORREL log
+sorrel status
+sorrel change create -m "add a.txt"
+sorrel diff          # after more edits
+sorrel log
 
 # Lanes + merge
-$SORREL lane create --name feature
-$SORREL lane list
+sorrel lane create --name feature
+sorrel lane list
 # switch using the lane id from `lane list`
-$SORREL lane switch <feature-lane-id>
+sorrel lane switch <feature-lane-id>
 echo feature > b.txt
-$SORREL change create -m "add b"
-$SORREL lane switch lane_main
-$SORREL merge <feature-lane-id>
+sorrel change create -m "add b"
+sorrel lane switch lane_main
+sorrel merge <feature-lane-id>
 ```
 
 Longer walkthrough: [`sorrel-cli/DEMO.md`](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/DEMO.md).  
@@ -67,11 +70,10 @@ Git import/export/sync: [`sorrel-cli/GIT.md`](https://github.com/MGRAFF2006/sorr
 
 ```sh
 cd /path/to/git-checkout
-SORREL=/path/to/sorrel/target/debug/sorrel
-$SORREL git import
+sorrel git import
 # optional: --ref main --limit 20 --json
-$SORREL log
-$SORREL status
+sorrel log
+sorrel status
 ```
 
 Creates `.sorrel/` if needed, imports commits reachable from `HEAD` as Sorrel
@@ -87,14 +89,14 @@ declarations, uses upstream SecretSpec providers after Core grant checks, and
 redacts persisted workflow output:
 
 ```sh
-$SORREL secret list               # handles only, never values
-$SORREL secret sync               # generate/refresh secretspec.toml
-$SORREL secret check --provider dotenv:.env
-$SORREL env info                  # devenv when available, local fallback otherwise
-$SORREL workflow run test
-$SORREL run list
-$SORREL run show <run-id>
-$SORREL run logs <run-id>
+sorrel secret list               # handles only, never values
+sorrel secret sync               # generate/refresh secretspec.toml
+sorrel secret check --provider dotenv:.env
+sorrel env info                  # devenv when available, local fallback otherwise
+sorrel workflow run test
+sorrel run list
+sorrel run show <run-id>
+sorrel run logs <run-id>
 ```
 
 Resolution, `secret set`, and injection require scoped `secret.read` and/or
@@ -104,6 +106,24 @@ reason more specific than Sorrel's operation default. See
 [`sorrel-cli/README.md`](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/README.md) for the complete grant and
 workflow examples. Full devenv task mapping, log streaming to Hub, and a hosted
 secret backend are not part of this alpha.
+
+## Build from source or run the Hub
+
+Source builds and the development Hub require Git, Rust stable 1.85+ with
+`clippy` and `rustfmt`, and Node.js 22+. Docker or Podman is optional for the
+container preview.
+
+```sh
+git clone https://github.com/MGRAFF2006/sorrel.git
+cd sorrel
+rustup toolchain install stable --profile minimal -c clippy -c rustfmt
+npm run setup
+cargo build --release -p sorrel-cli
+./target/release/sorrel --version
+```
+
+Sorrel is a single monorepo. No submodules or private dependency tokens are
+required.
 
 ## Hub API + Hub UI
 
@@ -189,14 +209,14 @@ With Hub listening on port 3000:
 
 ```sh
 cd /tmp/sorrel-demo   # an initialized workspace
-$SORREL remote add origin http://127.0.0.1:3000
-$SORREL push origin
+sorrel remote add origin http://127.0.0.1:3000
+sorrel push origin
 
 # elsewhere
 mkdir /tmp/sorrel-pull && cd /tmp/sorrel-pull
-$SORREL init
-$SORREL remote add origin http://127.0.0.1:3000 --repo-id <repoId-from-source>
-$SORREL pull origin   # downloads objects and restores the working tree
+sorrel init
+sorrel remote add origin http://127.0.0.1:3000 --repo-id <repoId-from-source>
+sorrel pull origin   # downloads objects and restores the working tree
 ```
 
 The alpha Hub has no production authentication. Do not expose it to an

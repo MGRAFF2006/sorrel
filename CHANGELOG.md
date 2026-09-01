@@ -14,6 +14,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Overhauled the public landing page with a new editorial layout, interactive
   lane-graph visual, clearer architecture and workflow storytelling, and a
   more candid developer-preview status presentation.
+- Added cross-platform CLI release binaries, SHA-256 checksums, and shell and
+  PowerShell installers for Linux, macOS, and Windows; `sorrel init` now ends
+  with a short guided first-change workflow.
 - Removed the agent-control-plane workaround that represented agent
   registrations as unrelated Hub projects; agent coordination remains local
   until Hub exposes a real agent contract.

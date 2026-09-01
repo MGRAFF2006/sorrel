@@ -4,7 +4,15 @@ All notable changes to `sorrel-cli` are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Prebuilt CLI archives, SHA-256 checksums, and shell and PowerShell installers
+  for Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows x64 releases.
+
 ### Changed
+
+- `sorrel init` now prints the next commands needed to review and record a first
+  change while preserving its existing `--json` contract.
 
 - Replaced the deprecated, unmaintained `serde_yaml` parser with
   `serde_yaml_ng` for workflow and secret-spec inputs.

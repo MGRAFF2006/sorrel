@@ -4,18 +4,18 @@ This walks the Quick Advance Goal: a single-user, on-disk version-control flow
 where state persists across separate `sorrel` invocations. Everything below is
 real (no mocks) and backed by the content-addressed `sorrel-core` engine.
 
-## Build
+## Install
 
-```bash
-cargo build            # from the sorrel-cli repo
-SORREL=target/debug/sorrel
-```
+Download the installer for your release and platform from
+[GitHub Releases](https://github.com/MGRAFF2006/sorrel/releases). No Rust or
+Node.js toolchain is required. Contributors can instead build from source with
+`cargo build -p sorrel-cli` from the monorepo root.
 
 ## 1. Initialize a repository
 
 ```bash
 mkdir /tmp/sorrel-demo && cd /tmp/sorrel-demo
-$SORREL init
+sorrel init
 # Initialized Sorrel repository repo_<hex> in .sorrel
 ```
 
@@ -37,23 +37,23 @@ This creates a real `.sorrel/` workspace:
 ```bash
 echo "line1" > a.txt
 echo "line2" >> a.txt
-$SORREL status
+sorrel status
 # Sorrel repository repo_<hex> on lane lane_main: dirty
 ```
 
 `status --json` reports the actual added/modified/deleted paths against HEAD:
 
 ```bash
-$SORREL status --json
+sorrel status --json
 ```
 
 ## 3. Record a change (advances HEAD)
 
 ```bash
-$SORREL change create -m "add a.txt"
+sorrel change create -m "add a.txt"
 # Created change <id> (1 path(s))
 
-$SORREL status
+sorrel status
 # ... : clean
 ```
 
@@ -63,7 +63,7 @@ lane's `.sorrel/heads/<lane-id>` pointer). Recording with no changes is
 rejected:
 
 ```bash
-$SORREL change create -m "nothing"
+sorrel change create -m "nothing"
 # sorrel: no changes to record since HEAD   (exit 1)
 ```
 
@@ -71,7 +71,7 @@ $SORREL change create -m "nothing"
 
 ```bash
 printf 'line1\nLINE2\nline3\n' > a.txt
-$SORREL diff
+sorrel diff
 # diff --sorrel a.txt (modified)
 # @@ -1,2 +1,3 @@
 #  line1
@@ -86,11 +86,11 @@ $SORREL diff
 ## 5. History
 
 ```bash
-$SORREL change create -m "edit a.txt"
+sorrel change create -m "edit a.txt"
 echo b > b.txt
-$SORREL change create -m "add b.txt"
+sorrel change create -m "add b.txt"
 
-$SORREL log
+sorrel log
 # <change>  system:sorrel  <timestamp>  add b.txt  (<snapshot>)
 # <change>  system:sorrel  <timestamp>  edit a.txt  (<snapshot>)
 # <change>  system:sorrel  <timestamp>  add a.txt  (<snapshot>)
@@ -111,7 +111,7 @@ Each lane keeps an independent head snapshot under `.sorrel/heads/<lane-id>`.
 `lane list` shows every registered lane, its head, and which one is active:
 
 ```bash
-$SORREL lane list
+sorrel lane list
 # * lane_main  main  <snapshot>
 ```
 
@@ -120,16 +120,16 @@ a clean tree, record work there, then switch back — the working tree is restor
 to that lane's head and `.sorrel/` is left untouched:
 
 ```bash
-$SORREL lane create --name agent/feature
+sorrel lane create --name agent/feature
 # Created lane agent/feature (<lane-id>)
 
-$SORREL lane switch <lane-id>
+sorrel lane switch <lane-id>
 # Switched to lane <lane-id> at <snapshot>
 
 echo feature > feature.txt
-$SORREL change create -m "feature work"
+sorrel change create -m "feature work"
 
-$SORREL lane switch lane_main
+sorrel lane switch lane_main
 # feature.txt is gone; main's files are restored
 ```
 
@@ -137,7 +137,7 @@ Switching refuses a dirty working tree (and leaves HEAD / files unchanged):
 
 ```bash
 echo dirty >> a.txt
-$SORREL lane switch <lane-id>
+sorrel lane switch <lane-id>
 # sorrel: working tree has uncommitted changes; ...   (exit 1)
 ```
 
@@ -152,12 +152,12 @@ active head (and `HEAD`) advance to theirs and the working tree is restored.
 JSON reports `"fastForward": true`:
 
 ```bash
-$SORREL lane create --name agent/feature
-$SORREL lane switch <lane-id>
+sorrel lane create --name agent/feature
+sorrel lane switch <lane-id>
 echo feature > feature.txt
-$SORREL change create -m "feature work"
-$SORREL lane switch lane_main
-$SORREL merge <lane-id>
+sorrel change create -m "feature work"
+sorrel lane switch lane_main
+sorrel merge <lane-id>
 # Fast-forwarded to <snapshot> (merged <lane-id>)
 ```
 
@@ -168,7 +168,7 @@ $SORREL merge <lane-id>
 ```bash
 # after branching at a shared base:
 #   main edits a.txt, feature edits b.txt
-$SORREL merge <lane-id>
+sorrel merge <lane-id>
 # Merged <lane-id> (<change>; N path(s))
 ```
 
@@ -177,7 +177,7 @@ files, leave HEAD unchanged, persist the MergeResult id at
 `.sorrel/MERGE_STATE`, and exit nonzero. Abort restores the pre-merge tree:
 
 ```bash
-$SORREL merge <lane-id>
+sorrel merge <lane-id>
 # sorrel: merge conflicts in: a.txt; resolve or run `sorrel merge --abort`
 
 cat a.txt
@@ -187,10 +187,10 @@ cat a.txt
 # ...
 # >>>>>>> theirs
 
-$SORREL status
+sorrel status
 # ... : dirty
 
-$SORREL merge --abort
+sorrel merge --abort
 # Merge aborted; restored working tree to <snapshot>
 ```
 

@@ -660,7 +660,9 @@ fn init_output() -> io::Result<CommandOutput> {
             "defaultLane": { "id": repo::DEFAULT_LANE_ID, "name": repo::DEFAULT_LANE_NAME },
             "headSnapshot": { "kind": "Snapshot", "id": head_snapshot }
         }),
-        human: format!("Initialized Sorrel repository {repo_id} in .sorrel"),
+        human: format!(
+            "Initialized Sorrel repository {repo_id} in .sorrel\n\nNext steps:\n  1. Add or edit files\n  2. Review them with `sorrel status` and `sorrel diff`\n  3. Record them with `sorrel change create -m \"Describe the change\"`"
+        ),
     })
 }
 
