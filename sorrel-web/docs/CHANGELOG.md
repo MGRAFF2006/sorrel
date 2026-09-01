@@ -13,6 +13,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Overhauled the public landing page with a new editorial layout, interactive
+  lane-graph visual, clearer architecture and workflow storytelling, and a
+  more candid developer-preview status presentation.
 - Removed the agent-control-plane workaround that represented agent
   registrations as unrelated Hub projects; agent coordination remains local
   until Hub exposes a real agent contract.

@@ -6,6 +6,9 @@ Notable changes to the Sorrel public website are documented here.
 
 ### Changed
 
+- Rebuilt the landing page around Sorrel's agent-native workflow with a
+  responsive lane-graph hero, editorial primitive and architecture sections,
+  a focused CLI walkthrough, and clearer alpha readiness guidance.
 - Replaced the placeholder letter mark across the landing and documentation
   pages with the current Sorrel leaf logo, also used as the site favicon.
 - Added a compact, keyboard-accessible mobile navigation menu across the landing
