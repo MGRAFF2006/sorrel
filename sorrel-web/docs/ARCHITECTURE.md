@@ -19,7 +19,7 @@ secret prototypes, and small SDK/control-plane packages.
 human / agent / SDK
         |
         v
-  sorrel CLI or Hub UI
+  sorrel CLI or Hub client
         |
         +----------------------+
         |                      |
@@ -49,6 +49,7 @@ no authoritative policy or VCS data.
 | `sorrel-hub` | JSON API, product metadata, sync store, auth adapters, capabilities | Node HTTP server |
 | `sorrel-hub-ui` | Shared SolidJS product UI and platform seams | Browser/Tauri-ready library |
 | `sorrel-hub-web` | Browser mount, Vite build, static server, `/api` proxy | Browser + Node host |
+| `sorrel-hub-mobile` | Native projects/reviews/refs companion, secure connection profile, adaptive navigation | React Native / iOS / Android |
 | `sorrel-runners` | Workflow parsing and local/container execution | Rust library |
 | `sorrel-vault` | Secret declaration schema and local reference/redaction tooling | Node tooling |
 | `sorrel-slices` | Deterministic TS/JS dependency-closure manifests | Node CLI/library |
@@ -122,11 +123,19 @@ Hub separates product metadata from VCS transport:
 - `/capabilities` describes installed modules, auth mode, deployment shape, and
   optional Convex availability. `/session` exposes the resolved Hub session.
 - The shared SolidJS UI calls Hub through the browser host's `/api` proxy.
+- The native mobile companion calls Hub directly through `sorrel-sdk-js`;
+  bearer credentials stay in the platform keychain/keystore.
 - Optional Convex state mirrors proposal metadata only. VCS objects and refs do
   not move into Convex.
 
-The development stack is intentionally modular: Hub API, shared UI, browser
-host, and public website are four distinct packages.
+The development stack is intentionally modular: Hub API, shared web/desktop UI,
+browser host, native mobile companion, and public website are distinct packages.
+
+The mobile app uses platform-native stack and tab controllers, including an
+adaptive iPad sidebar, while rendering product content with React Native. It
+supports projects, reviews/comments, proposal lifecycle updates, and connected
+repository refs. It does not embed `sorrel-core`, clone workspaces, or make
+authorization decisions; those require the future stable embedding surface.
 
 ## Identity, policy, and secrets
 

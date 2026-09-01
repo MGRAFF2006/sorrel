@@ -4,7 +4,12 @@
 
 export class HubClient {
   /**
-   * @param {{ baseUrl: string, principal?: { type: string, id: string } }} options
+   * @param {{
+   *   baseUrl: string,
+   *   principal?: { type: string, id: string },
+   *   accessToken?: string,
+   *   fetch?: typeof globalThis.fetch,
+   * }} options
    */
   constructor(options) {
     if (!options?.baseUrl) {
@@ -12,6 +17,11 @@ export class HubClient {
     }
     this.baseUrl = options.baseUrl.replace(/\/$/, '');
     this.principal = options.principal ?? { type: 'user', id: 'local' };
+    this.accessToken = options.accessToken;
+    this.fetch = options.fetch ?? globalThis.fetch;
+    if (typeof this.fetch !== 'function') {
+      throw new Error('HubClient requires fetch');
+    }
   }
 
   /**
@@ -19,17 +29,20 @@ export class HubClient {
    * @param {RequestInit} [init]
    */
   async request(path, init = {}) {
-    const headers = {
-      accept: 'application/json',
-      ...(init.headers ?? {}),
-    };
-    if (init.body && !headers['content-type']) {
-      headers['content-type'] = 'application/json';
+    const headers = new Headers(init.headers);
+    if (!headers.has('accept')) {
+      headers.set('accept', 'application/json');
     }
-    if (init.method && init.method !== 'GET') {
-      headers['x-sorrel-acting-principal'] = JSON.stringify(this.principal);
+    if (this.accessToken && !headers.has('authorization')) {
+      headers.set('authorization', `Bearer ${this.accessToken}`);
     }
-    const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
+    if (init.body && !headers.has('content-type')) {
+      headers.set('content-type', 'application/json');
+    }
+    if (init.method && init.method !== 'GET' && !headers.has('x-sorrel-acting-principal')) {
+      headers.set('x-sorrel-acting-principal', JSON.stringify(this.principal));
+    }
+    const response = await this.fetch(`${this.baseUrl}${path}`, { ...init, headers });
     const text = await response.text();
     let body = null;
     if (text) {
@@ -54,8 +67,24 @@ export class HubClient {
     return this.request('/healthz');
   }
 
-  listProjects() {
-    return this.request('/projects');
+  capabilities() {
+    return this.request('/capabilities');
+  }
+
+  session() {
+    return this.request('/session', {
+      headers: {
+        'x-sorrel-acting-principal': JSON.stringify(this.principal),
+      },
+    });
+  }
+
+  listProjects(query = {}) {
+    return this.request(withQuery('/projects', query, ['organizationId']));
+  }
+
+  getProject(id) {
+    return this.request(`/projects/${encodeURIComponent(id)}`);
   }
 
   createProject(payload) {
@@ -75,6 +104,24 @@ export class HubClient {
 
   listAdminCollection(name) {
     return this.request(`/admin/${encodeURIComponent(name)}`);
+  }
+
+  listRepositories(query = {}) {
+    return this.request(
+      withQuery('/admin/repositories', query, ['organizationId', 'projectId']),
+    );
+  }
+
+  listProposals(query = {}) {
+    return this.request(
+      withQuery('/admin/proposals', query, [
+        'projectId',
+        'repositoryId',
+        'syncRepoId',
+        'status',
+        'sourceLane',
+      ]),
+    );
   }
 
   getProposal(id, { includeComments = false } = {}) {
@@ -118,10 +165,20 @@ export class HubClient {
   }
 
   proposalSummary(query = {}) {
-    const params = new URLSearchParams();
-    if (query.projectId) params.set('projectId', query.projectId);
-    if (query.syncRepoId) params.set('syncRepoId', query.syncRepoId);
-    const qs = params.toString();
-    return this.request(`/collaboration/proposal-summary${qs ? `?${qs}` : ''}`);
+    return this.request(
+      withQuery('/collaboration/proposal-summary', query, ['projectId', 'syncRepoId']),
+    );
   }
+}
+
+function withQuery(path, query, allowedKeys) {
+  const params = new URLSearchParams();
+  for (const key of allowedKeys) {
+    const value = query[key];
+    if (value !== undefined && value !== null && value !== '') {
+      params.set(key, String(value));
+    }
+  }
+  const encoded = params.toString();
+  return `${path}${encoded ? `?${encoded}` : ''}`;
 }
