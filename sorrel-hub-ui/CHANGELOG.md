@@ -4,7 +4,16 @@ Notable changes to the shared Sorrel Hub UI (`sorrel-hub-ui`) are documented her
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- Add global Inbox and organization/profile routes, a proposal-backed Work
+  board, safe README rendering, and repository tree browsing.
+
+### Changed
+
+- Replace the dashboard-style Hub shell with repository-shaped project chrome,
+  a Code-first project page, and a denser review workbench in Sorrel's Nord
+  product theme.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

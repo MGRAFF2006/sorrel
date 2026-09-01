@@ -36,6 +36,29 @@ function installHubFetch(projects: unknown[] = []) {
     if (url === '/api/projects' && (init?.method ?? 'GET') === 'GET') {
       return json({ data: projects });
     }
+    if (url.startsWith('/api/projects/') && (init?.method ?? 'GET') === 'GET') {
+      const id = decodeURIComponent(url.slice('/api/projects/'.length));
+      const project = projects.find((item) => (item as { id?: string }).id === id);
+      if (project) return json({ data: project });
+    }
+    if (url === '/api/admin/repositories?projectId=project_alpha') {
+      return json({ data: [{ id: 'repo_alpha', name: 'alpha', owner: 'acme', provider: 'sorrel', defaultBranch: 'main' }] });
+    }
+    if (url === '/api/admin/proposals?projectId=project_alpha') return json({ data: [] });
+    if (url === '/api/admin/sync-repos') return json({ repos: [{ id: 'repo_alpha', refCount: 1 }] });
+    if (url === '/api/repo_alpha/refs') return json({ refs: [{ name: 'main', snapshot: 'a'.repeat(64) }] });
+    if (url === '/api/repo_alpha/tree?ref=main&path=') {
+      return json({
+        repoId: 'repo_alpha',
+        ref: 'main',
+        path: '',
+        snapshot: { id: 'a'.repeat(64), message: 'Ship repository view', createdAt: '2026-09-01T10:00:00Z', author: { type: 'user', id: 'local' }, parents: [] },
+        entries: [{ name: 'README.md', path: 'README.md', type: 'file', mode: 'normal', size: 32, objectId: 'b'.repeat(64) }],
+      });
+    }
+    if (url === '/api/repo_alpha/files?ref=main&path=README.md') {
+      return json({ repoId: 'repo_alpha', ref: 'main', path: 'README.md', objectId: 'b'.repeat(64), size: 32, encoding: 'utf-8', content: '# Alpha\n\nRepository-shaped work.' });
+    }
     if (url === '/api/projects' && init?.method === 'POST') {
       return json({ data: { id: 'project_new' } }, 201);
     }
@@ -56,7 +79,7 @@ describe('HubApp rendered behavior', () => {
     render(() => <HubApp platform={createWebPlatform()} />);
 
     expect(await screen.findByText('No projects yet')).toBeInTheDocument();
-    expect(await screen.findByText('ok')).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector('.api-indicator')).toHaveClass('ok'));
     expect(screen.getAllByRole('button', { name: 'Create project' })).toHaveLength(1);
     expect(screen.queryByRole('link', { name: 'Actions' })).not.toBeInTheDocument();
   });
@@ -102,5 +125,24 @@ describe('HubApp rendered behavior', () => {
       organizationId: 'org_local',
       name: 'Platform',
     });
+  });
+
+  test('renders the real repository tree and README on a project route', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha');
+    installHubFetch([
+      {
+        id: 'project_alpha',
+        name: 'Alpha',
+        organizationId: 'acme',
+        description: 'First project',
+        status: 'active',
+      },
+    ]);
+    render(() => <HubApp platform={createWebPlatform()} />);
+
+    expect(await screen.findByText('Ship repository view')).toBeInTheDocument();
+    expect(await screen.findByText('Repository-shaped work.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /README.md/ })).toBeDisabled();
+    expect(screen.getByRole('link', { name: /Work/ })).toHaveAttribute('href', '/projects/project_alpha/work');
   });
 });

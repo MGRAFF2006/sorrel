@@ -38,8 +38,8 @@ const PROPOSAL_TRANSITIONS: Record<string, string[]> = {
 };
 
 const WORKFLOW_NEXT: Record<string, string[]> = {
-  queued: ['running', 'failed'],
-  running: ['succeeded', 'failed'],
+  queued: ['in_progress', 'failed'],
+  in_progress: ['succeeded', 'failed'],
 };
 
 type Tab = 'proposals' | 'comments' | 'workflows';
@@ -162,10 +162,10 @@ export function ReviewsView() {
   }
 
   return (
-    <div class="page view-enter">
+    <div class="page review-page view-enter">
       <PageHeader
-        title="Reviews"
-        lede="Inspect proposed changes, discuss them, and decide what moves forward."
+        title="Review workbench"
+        lede="Move from proposal queue to discussion and decision without leaving the project context."
         actions={
           <>
             <button type="button" class="ghost" onClick={() => setReloadToken((n) => n + 1)}>
@@ -266,7 +266,7 @@ export function ReviewsView() {
       </Show>
 
       <Show when={tab() === 'proposals'}>
-        <div class={`split${selectedProposalId() ? ' has-detail' : ''}`}>
+        <div class={`split review-workbench${selectedProposalId() ? ' has-detail' : ''}`}>
           <div class="surface surface-flush" aria-live="polite">
             <Show when={!proposals.loading} fallback={<Loading text="Loading proposals…" />}>
               <Show

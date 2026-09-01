@@ -4,7 +4,10 @@ Notable changes to Sorrel Hub are documented here.
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- Add read-only tree and UTF-8 file browsing endpoints over synchronized
+  Sorrel snapshots, with path validation and bounded text previews.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

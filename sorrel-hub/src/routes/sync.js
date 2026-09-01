@@ -1,6 +1,7 @@
 import { evaluateWithTrustedGrants } from '../core-policy.js';
 import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
 import { resolveActingPrincipal } from '../policy-guard.js';
+import { browseTextFile, browseTree } from '../sync-browser.js';
 import {
   isDescendant,
   missingObjects,
@@ -64,6 +65,22 @@ export async function handleSyncRoute(request, response, context) {
     }
 
     throw new HttpError(404, 'sync route not found', 'not_found');
+  }
+
+  if (resource === 'tree' || resource === 'files') {
+    if (segments.length !== 2) {
+      throw new HttpError(404, 'sync route not found', 'not_found');
+    }
+    if (request.method !== 'GET') {
+      return sendMethodNotAllowed(response, ['GET']);
+    }
+
+    const refName = parseRefName([context.url.searchParams.get('ref') ?? 'main']);
+    const path = context.url.searchParams.get('path') ?? '';
+    const result = resource === 'tree'
+      ? browseTree(repoId, refName, path, context.store.sync)
+      : browseTextFile(repoId, refName, path, context.store.sync);
+    return sendJson(response, 200, result);
   }
 
   throw new HttpError(404, 'sync route not found', 'not_found');

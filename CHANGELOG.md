@@ -9,7 +9,16 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- Add read-only Hub APIs for browsing synchronized repository trees and UTF-8
+  files from named refs.
+
+### Changed
+
+- Rebuild Sorrel Hub around repository-shaped project pages, a global Inbox,
+  proposal-backed Work board, review workbench, and README-style organization
+  and profile pages.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

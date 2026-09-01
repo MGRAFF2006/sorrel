@@ -73,6 +73,10 @@ function makeBlob(content) {
   return { id: objectId(bytes), bytes };
 }
 
+function makeProtocolBlob(content) {
+  return makeBlob(`sorrel.blob.v0\n${content}`);
+}
+
 function makeTree(entries) {
   const bytes = Buffer.from(JSON.stringify({ kind: 'Tree', entries }));
   return { id: objectId(bytes), bytes };
@@ -179,6 +183,111 @@ test('pull flow: get refs -> missing -> download objects', async () => {
       const bytes = Buffer.from(objectBody.bytes, 'base64');
       assert.equal(objectId(bytes), id);
     }
+  });
+});
+
+test('browse flow: list a nested tree and read a UTF-8 file', async () => {
+  await withSyncServer(async (baseUrl, app) => {
+    const readme = makeProtocolBlob('# Sorrel\n\nAgent-native version control.');
+    const source = makeProtocolBlob('export const leaf = true;\n');
+    const sourceTree = makeTree([
+      {
+        name: 'leaf.js',
+        path: 'src/leaf.js',
+        type: 'file',
+        mode: 'normal',
+        size: 26,
+        object: { kind: 'Blob', id: source.id },
+      },
+    ]);
+    const rootTree = makeTree([
+      {
+        name: 'README.md',
+        path: 'README.md',
+        type: 'file',
+        mode: 'normal',
+        size: 40,
+        object: { kind: 'Blob', id: readme.id },
+      },
+      {
+        name: 'src',
+        path: 'src',
+        type: 'directory',
+        mode: 'directory',
+        object: { kind: 'Tree', id: sourceTree.id },
+      },
+    ]);
+    const snapshotBytes = Buffer.from(JSON.stringify({
+      kind: 'Snapshot',
+      rootTree: { kind: 'Tree', id: rootTree.id },
+      parents: [],
+      message: 'Build the product shell',
+      createdAt: '2026-09-01T10:30:00Z',
+      author: { type: 'user', id: 'user_pusher' },
+    }));
+    const snapshot = { id: objectId(snapshotBytes), bytes: snapshotBytes };
+
+    for (const object of [readme, source, sourceTree, rootTree, snapshot]) {
+      app.store.sync.put(repoId, object.bytes);
+    }
+    app.store.sync.setRef(repoId, 'main', snapshot.id);
+
+    const treeResponse = await fetch(`${baseUrl}/${repoId}/tree?ref=main&path=src`);
+    const treeBody = await treeResponse.json();
+
+    assert.equal(treeResponse.status, 200);
+    assert.equal(treeBody.path, 'src');
+    assert.equal(treeBody.snapshot.message, 'Build the product shell');
+    assert.deepEqual(treeBody.entries, [
+      {
+        name: 'leaf.js',
+        path: 'src/leaf.js',
+        type: 'file',
+        mode: 'normal',
+        size: 26,
+        objectId: source.id,
+      },
+    ]);
+
+    const fileResponse = await fetch(
+      `${baseUrl}/${repoId}/files?ref=main&path=${encodeURIComponent('README.md')}`,
+    );
+    const fileBody = await fileResponse.json();
+
+    assert.equal(fileResponse.status, 200);
+    assert.equal(fileBody.content, '# Sorrel\n\nAgent-native version control.');
+    assert.equal(fileBody.encoding, 'utf-8');
+    assert.equal(fileBody.objectId, readme.id);
+  });
+});
+
+test('browse flow rejects traversal and non-blob file objects', async () => {
+  await withSyncServer(async (baseUrl, app) => {
+    const invalidFile = makeBlob('not prefixed');
+    const tree = makeTree([
+      {
+        name: 'README.md',
+        type: 'file',
+        object: { kind: 'Blob', id: invalidFile.id },
+      },
+    ]);
+    const snapshot = makeSnapshot(tree.id);
+    for (const object of [invalidFile, tree, snapshot]) {
+      app.store.sync.put(repoId, object.bytes);
+    }
+    app.store.sync.setRef(repoId, 'main', snapshot.id);
+
+    const traversalResponse = await fetch(
+      `${baseUrl}/${repoId}/tree?path=${encodeURIComponent('../secrets')}`,
+    );
+    const traversalBody = await traversalResponse.json();
+    assert.equal(traversalResponse.status, 400);
+    assert.equal(traversalBody.error.code, 'invalid_request');
+
+    const fileResponse = await fetch(`${baseUrl}/${repoId}/files?path=README.md`);
+    const fileBody = await fileResponse.json();
+    assert.equal(fileResponse.status, 422);
+    assert.equal(fileBody.error.code, 'invalid_sync_object');
   });
 });
 

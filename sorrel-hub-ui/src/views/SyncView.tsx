@@ -7,6 +7,7 @@ type SyncRepo = { id?: string; refCount?: number };
 type SyncRef = { name?: string; snapshot?: string };
 type Proposal = { syncRepoId?: string; projectId?: string };
 type Repository = { id?: string; name?: string; projectId?: string; provider?: string };
+type Project = { repositoryIds?: string[] };
 
 export function SyncView() {
   const params = useParams<{ projectId: string }>();
@@ -40,11 +41,15 @@ export function SyncView() {
     },
   );
 
-  /** Sync repos referenced by this project's proposals, else empty. */
+  const [project] = createResource(projectId, async (id) => {
+    const payload = (await apiGet(`/projects/${encodeURIComponent(id)}`)) as { data?: Project };
+    return (payload.data ?? payload) as Project;
+  });
+
+  /** Sync repos referenced by project repository records or proposals. */
   const projectSyncRepos = createMemo(() => {
     const linked = new Set(
-      (proposals() ?? [])
-        .map((p) => p.syncRepoId)
+      [...(project()?.repositoryIds ?? []), ...(proposals() ?? []).map((p) => p.syncRepoId), ...(repositories() ?? []).map((repo) => repo.id)]
         .filter((id): id is string => typeof id === 'string' && id.length > 0),
     );
     const all = allSyncRepos() ?? [];
@@ -68,8 +73,8 @@ export function SyncView() {
     },
   );
 
-  const loading = () => allSyncRepos.loading || proposals.loading || repositories.loading;
-  const error = () => allSyncRepos.error || proposals.error || repositories.error;
+  const loading = () => allSyncRepos.loading || proposals.loading || repositories.loading || project.loading;
+  const error = () => allSyncRepos.error || proposals.error || repositories.error || project.error;
 
   return (
     <div class="page view-enter">

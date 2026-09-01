@@ -277,6 +277,11 @@ Per-repo object and ref transport for Core snapshot graphs (content-addressed
 BLAKE3 objects, filesystem-backed by default — see Persistence above):
 
 - `GET /{repoId}/refs` — list ref names and snapshot ids (`{ repoId, refs }`)
+- `GET /{repoId}/tree?ref=main&path=src` — resolve a named ref and list the
+  normalized entries in a protocol Tree; `path` is optional and relative to
+  the snapshot root
+- `GET /{repoId}/files?ref=main&path=README.md` — resolve a Sorrel Blob and
+  return at most 512 KiB of valid UTF-8 text with snapshot context
 - `POST /{repoId}/objects/missing` — negotiate missing object ids (`want`, `have`)
 - `POST /{repoId}/objects` — upload objects (`repo.object.write` + acting
   principal + `grantRefs`; response `{ stored, skipped }`)
@@ -289,6 +294,11 @@ The wire contract is the `sorrel-protocol` sync-transport spec
 (`docs/sync-transport.md` there); error envelopes carry `code`, `message`, and
 code-specific fields (`missing` for `closure_incomplete`, `current` for
 `non_fast_forward` / `expected` mismatches).
+
+Tree and file reads reject absolute paths, traversal segments, backslashes,
+non-protocol object kinds, non-Blob payloads, invalid UTF-8, and oversized text
+previews. They expose structured repository content rather than raw object
+bytes and follow the same read boundary as refs and object downloads.
 
 Example push:
 

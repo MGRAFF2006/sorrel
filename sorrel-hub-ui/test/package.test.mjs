@@ -19,6 +19,10 @@ test('platform stubs and mount surface exist', async () => {
     'src/App.tsx',
     'src/views/ProjectsView.tsx',
     'src/views/ProjectOverview.tsx',
+    'src/views/InboxView.tsx',
+    'src/views/WorkView.tsx',
+    'src/views/OrganizationsView.tsx',
+    'src/views/ProfileView.tsx',
     'src/views/ReviewsView.tsx',
     'src/views/SyncView.tsx',
     'src/styles/hub.css',
@@ -28,13 +32,15 @@ test('platform stubs and mount surface exist', async () => {
   }
 });
 
-test('UI talks to Hub under /api and includes live badge wiring', async () => {
+test('UI talks to Hub under /api and includes live inbox-count wiring', async () => {
   const api = await readFile(new URL('../src/api.ts', import.meta.url), 'utf8');
   assert.match(api, /\/api/);
   assert.match(api, /\/capabilities/);
 
   const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
-  assert.match(app, /review-badge/);
+  assert.match(app, /nav-count/);
+  assert.match(app, /Inbox/);
+  assert.match(app, /Work/);
   assert.match(app, /Reviews/);
   assert.match(app, /Sync/);
   assert.match(app, /\/projects\/:projectId/);
