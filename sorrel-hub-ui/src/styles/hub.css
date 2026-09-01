@@ -1140,13 +1140,19 @@ body::before {
   border-right-color: var(--border);
 }
 
-.brand { padding: 0 0 1.5rem; }
+.brand {
+  align-items: center;
+  min-height: 2.15rem;
+  padding: 0 0 1.5rem;
+}
 .brand-logo {
+  flex: 0 0 2.15rem;
   width: 2.15rem;
   height: 2.15rem;
 }
-.brand-mark { color: var(--fg); font-size: 1.08rem; }
-.brand-sub { padding: .18rem .35rem; color: var(--accent); border: 1px solid rgba(143, 206, 216, .35); font: 600 .55rem var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.brand > span:last-child { align-items: center; line-height: 1; }
+.brand-mark { color: var(--fg); font-size: 1.08rem; line-height: 1; }
+.brand-sub { display: inline-flex; align-items: center; min-height: 1.2rem; padding: .15rem .35rem; color: var(--accent); border: 1px solid rgba(143, 206, 216, .35); font: 600 .55rem/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
 .nav-eyebrow { padding: 1.3rem .65rem .45rem; border-top: 1px solid var(--border); font-size: .6rem; letter-spacing: .16em; }
 .side-nav { gap: 0; }
 .nav-item {
