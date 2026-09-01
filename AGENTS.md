@@ -32,12 +32,13 @@ Project progress is recorded in [GitHub Releases](https://github.com/MGRAFF2006/
 and [`CHANGELOG.md`](CHANGELOG.md). `ROADMAP.md` is future work only. Do not add
 parallel agent task packs, progress dashboards, or feature-audit ledgers.
 
-Changelog entries are intentionally curated, not generated from commit titles.
-For every user-visible or operator-visible change, add a concise entry under
-`Unreleased` in the root changelog and every affected package changelog. If a
-change genuinely needs no changelog entry, explain why in the pull request.
-After changing the root changelog, run `npm run sync:docs` and commit its public
-mirror.
+Do not manually add routine `Unreleased` changelog entries. Release preparation
+derives entries from merged pull requests, maps changed paths to affected
+packages, and opens a reviewable changelog PR. Write a clear, user-facing PR
+title; the automation understands Conventional Commit prefixes but does not
+require them. Maintainers may apply `skip-changelog` to omit changes with no
+user or operator impact. Hand-edit generated release prose only in the release
+PR when it needs clarification.
 
 ## Rust toolchain
 

@@ -51,9 +51,11 @@ rules or persist raw secret values.
    repository gate.
 5. Commit and open one PR against `main` when asked.
 
-User-visible behavior must be recorded under `Unreleased` in the root and
-affected package changelogs. GitHub Releases and those changelogs are the
-progress record; do not create parallel agent-note or feature-audit documents.
+User-visible behavior is collected automatically from merged pull requests
+during release preparation. Use a clear user-facing PR title; do not manually
+edit routine `Unreleased` entries. GitHub Releases and the generated changelogs
+are the progress record; do not create parallel agent-note or feature-audit
+documents.
 
 Cross-package Rust changes use path dependencies. There are no git revision pins
 and no submodule pointer advances.

@@ -22,7 +22,7 @@
 ## Impact checklist
 
 - [ ] Tests cover changed behavior, regressions, and relevant failure paths.
-- [ ] Root and affected package changelogs have `Unreleased` entries, or the reason no entry is needed is written below.
+- [ ] The PR title clearly describes the user or operator impact so release automation can generate changelogs.
 - [ ] User-facing guides, README content, CLI help, examples, and API/SDK docs are updated where behavior changed.
 - [ ] Canonical public Markdown and root changelog changes were mirrored with `npm run sync:docs`.
 - [ ] `docs/ARCHITECTURE.md`, `docs/STATUS.md`, and `ROADMAP.md` reflect any boundary, shipped-capability, or future-plan changes.
@@ -30,6 +30,6 @@
 - [ ] Lockfiles are updated where dependencies changed.
 - [ ] No secrets, local state, build output, logs, or `.env*` files are included.
 
-Changelog exception, omitted checks, screenshots, or reviewer notes:
+Omitted checks, `skip-changelog` rationale, screenshots, or reviewer notes:
 
 <!-- Explain unchecked items that would normally apply. Add UI screenshots when useful. -->

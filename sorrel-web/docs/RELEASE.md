@@ -52,28 +52,34 @@ x64 archives, their SHA-256 files, and the shell and PowerShell installers.
 
 After checks pass on `main`:
 
-1. Move every shipped entry from `Unreleased` into a dated version section in
-   the root and affected package changelogs.
-2. Update `release/manifest.json` and all package versions together.
-3. Confirm the release note extraction:
+1. Run the **Prepare changelogs** workflow with the next version and release
+   date. It gathers merged PRs since the previous tag, categorizes their titles
+   and labels, maps changed paths to packages, synchronizes the public root
+   changelog mirror, and opens a PR. Contributors do not add fragments or run a
+   changelog command.
+2. Review and merge the generated changelog PR. Edit its prose when a change
+   needs extra migration, security, or compatibility context. `skip-changelog`
+   omits internal-only PRs; unrecognized title formats fall back to `Changed`.
+3. Update `release/manifest.json` and all package versions together.
+4. Confirm the release note extraction:
 
    ```sh
    npm run release:notes -- v0.1.0-alpha.1
    ```
 
-4. Commit and merge the release candidate to `main`.
-5. Create an annotated tag and push it:
+5. Commit and merge the release candidate to `main`.
+6. Create an annotated tag and push it:
 
    ```sh
    git tag -a v0.1.0-alpha.1 -m "Sorrel v0.1.0-alpha.1"
    git push origin v0.1.0-alpha.1
    ```
 
-6. The tag starts `.github/workflows/release.yml`. It builds each supported
+7. The tag starts `.github/workflows/release.yml`. It builds each supported
    binary, produces checksums and installers, and creates the GitHub Release.
    Prerelease-style versions are marked as prereleases automatically. Do not
    create a competing release manually while the workflow is running.
-7. Verify the workflow, published tag, installer assets, checksum files,
+8. Verify the workflow, published tag, installer assets, checksum files,
    release URL, and changelog links. Install into a clean temporary environment
    and run `sorrel --version`, `sorrel init`, and `sorrel status` before
    announcing the release.
@@ -87,10 +93,10 @@ workflow and `dist plan` output before committing.
 
 ## After publication
 
-Keep `Unreleased` at the top of each changelog. New user-visible work enters
-there as it lands. The next release moves those entries into a new dated
-section; do not edit prior release entries except to correct broken links or
-factually dangerous errors.
+Keep `Unreleased` at the top of each changelog. Release preparation regenerates
+it from merged PRs and moves those entries into a new dated section. Review the
+generated wording in the preparation PR; do not edit prior release entries
+except to correct broken links or factually dangerous errors.
 
 ## Rollback
 

@@ -19,6 +19,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with a short guided first-change workflow.
 - Added structured pull-request, bug-report, and feature-request templates with
   explicit testing, compatibility, documentation, and changelog prompts.
+- Added zero-input contributor changelog automation: maintainers can generate
+  coordinated root and package release sections from merged PR metadata and
+  open a reviewable preparation PR from GitHub Actions.
 - Removed the agent-control-plane workaround that represented agent
   registrations as unrelated Hub projects; agent coordination remains local
   until Hub exposes a real agent contract.

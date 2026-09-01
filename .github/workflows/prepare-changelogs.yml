@@ -1,0 +1,70 @@
+name: Prepare changelogs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Next coordinated version without the v prefix
+        required: true
+        type: string
+      release-date:
+        description: Release date in YYYY-MM-DD format
+        required: true
+        type: string
+      base-tag:
+        description: Previous release tag; defaults to release/manifest.json
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-changelogs
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Generate coordinated changelogs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT_VERSION: ${{ inputs.version }}
+          RELEASE_DATE: ${{ inputs['release-date'] }}
+          BASE_TAG: ${{ inputs['base-tag'] }}
+        run: |
+          args=(--version "$NEXT_VERSION" --date "$RELEASE_DATE")
+          if [[ -n "$BASE_TAG" ]]; then
+            args+=(--base "$BASE_TAG")
+          fi
+          node scripts/prepare-changelogs.mjs "${args[@]}"
+          npm run sync:docs
+          npm run test:changelogs
+          npm run validate:docs
+      - name: Open changelog pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT_VERSION: ${{ inputs.version }}
+          RELEASE_DATE: ${{ inputs['release-date'] }}
+        run: |
+          branch="release/changelogs-v${NEXT_VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add CHANGELOG.md sorrel-*/CHANGELOG.md sorrel-web/docs/CHANGELOG.md
+          git commit -m "chore: prepare v${NEXT_VERSION} changelogs"
+          git push origin "$branch"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: prepare v${NEXT_VERSION} changelogs" \
+            --body "Automated changelog preparation for v${NEXT_VERSION} (${RELEASE_DATE}). Entries were derived from merged PR metadata and mapped to affected packages by changed paths. Review and edit the generated prose where additional compatibility or migration context is useful."
