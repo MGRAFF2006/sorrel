@@ -25,6 +25,16 @@ test('landing page exposes its primary navigation and theme controls', async () 
   assert.match(html, /href="\.\/docs\/index\.html"/);
 });
 
+test('landing page presents the agent-native model and honest alpha status', async () => {
+  const html = await readFile(resolve(ROOT, 'index.html'), 'utf8');
+  assert.match(html, /id="model"/);
+  assert.match(html, /id="architecture"/);
+  assert.match(html, /class="lane-map"/);
+  assert.match(html, /Working now/);
+  assert.match(html, /Still ahead/);
+  assert.match(html, /Production Hub authentication/);
+});
+
 test('every page uses the current Sorrel logo for its brand and favicon', async () => {
   const htmlFiles = (await filesUnder(ROOT)).filter((path) => path.endsWith('.html'));
 

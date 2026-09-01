@@ -13,6 +13,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Overhauled the public landing page with a new editorial layout, interactive
+  lane-graph visual, clearer architecture and workflow storytelling, and a
+  more candid developer-preview status presentation.
 - Updated the public website and documentation pages to use the current Sorrel
   leaf logo for their header branding and favicon.
 - Added `SORREL_HUB_TOKEN` bearer authentication for CLI Hub requests and made
