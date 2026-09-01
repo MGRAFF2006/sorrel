@@ -4,7 +4,8 @@ Sorrel has several policy/authorization consumers that must agree on the same
 decisions for the same inputs:
 
 - `sorrel-core` — the canonical Rust authority/permission evaluator.
-- `sorrel-cli` — currently ships an embedded copy of Core (`crates/sorrel-core`).
+- `sorrel-cli` — owns a CLI-facing evaluator with different type shapes while
+  consuming `sorrel-core` as a workspace dependency for engine behavior.
 - `sorrel-hub` — a JavaScript administration guard mirroring Core semantics.
 - `sorrel-runners` — a `CorePermissionEvaluator` gate before bundle execution.
 - `sorrel-vault` — an injected `corePolicy.evaluate()` adapter for secrets.
@@ -129,9 +130,9 @@ consumer's conformance/sync tests so the new vectors are enforced.
 
 Mapping notes per consumer:
 
-- **Core / CLI embedded Core**: map `permissionDecisions` to `evaluate()` and
-  `policyChanges` to `evaluate_policy_change()`. `needs_grant`/`deny` are both
-  "not allowed"; Core distinguishes them, so assert the exact Core decision.
+- **Core / CLI**: map `permissionDecisions` and `policyChanges` into each
+  package's native evaluator types. `needs_grant`/`deny` are both "not
+  allowed"; both evaluators distinguish them, so assert the exact decision.
 - **Hub**: map `permissionDecisions` to the JS guard's `evaluate()`; `allow`
   must map to `allowed: true`, everything else to `allowed: false`. Hub is an
   administration layer, not the source of truth.
@@ -150,6 +151,6 @@ Mapping notes per consumer:
 - Production cryptography is intentionally out of scope. Signature trust is
   modeled deterministically (signed/unsigned/forged flags), matching the current
   evaluator pattern.
-- The CLI embeds Core in `crates/sorrel-core`. This is temporary until a shared
-  `sorrel-core` release/package path exists. Conformance proves the embed matches
-  the canonical decisions in the meantime.
+- The CLI-facing policy model and Core's native policy model still use
+  different Rust type shapes. Both consume these fixtures, but converging the
+  CLI on Core's decision objects would also change the CLI JSON contract.
