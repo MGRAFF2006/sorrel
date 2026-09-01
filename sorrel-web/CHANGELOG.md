@@ -7,8 +7,9 @@ Notable changes to the Sorrel public website are documented here.
 ### Changed
 
 - Reworked the documentation home, topic pages, and Markdown guide reader with
-  a cohesive responsive layout, stronger reading hierarchy, and history-aware
-  in-page guide navigation.
+  a cohesive responsive layout, stronger reading hierarchy, history-aware
+  guide navigation, generated page sidebars, and syntax-highlighted code with
+  whole-block and per-line copy actions.
 - Rebuilt the landing page around Sorrel's agent-native workflow with a
   responsive lane-graph hero, editorial primitive and architecture sections,
   a focused CLI walkthrough, and clearer alpha readiness guidance.

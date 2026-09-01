@@ -171,6 +171,11 @@ body:has(.doc-hero) {
   line-height: 1.75;
 }
 
+.doc-body pre.is-enhanced,
+.docs-content pre.is-enhanced {
+  padding: 0;
+}
+
 .doc-body pre::before,
 .docs-content pre::before {
   position: absolute;
@@ -189,6 +194,108 @@ body:has(.doc-hero) {
 .docs-content pre[data-lang]::before {
   content: attr(data-lang);
 }
+
+.doc-body pre.is-enhanced::before,
+.docs-content pre.is-enhanced::before {
+  display: none;
+}
+
+.code-toolbar {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  min-width: min(100%, 520px);
+  height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 16px;
+  color: #8e99aa;
+  font: 700 0.61rem "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--n1);
+  border-bottom: 1px solid #424a59;
+}
+
+.copy-block,
+.copy-line {
+  color: #cbd3df;
+  font: 700 0.62rem "SFMono-Regular", Consolas, monospace;
+  background: transparent;
+  border: 1px solid #566071;
+  cursor: pointer;
+}
+
+.copy-block {
+  min-width: 62px;
+  height: 28px;
+  padding: 0 10px;
+}
+
+.copy-block:hover,
+.copy-block:focus-visible,
+.copy-line:hover,
+.copy-line:focus-visible {
+  color: var(--n0);
+  background: var(--cyan);
+  border-color: var(--cyan);
+}
+
+.is-enhanced > code {
+  display: block;
+  min-width: max-content;
+  padding: 14px 0 18px;
+}
+
+.code-line {
+  display: grid;
+  min-width: 100%;
+  grid-template-columns: 46px minmax(28rem, 1fr) 62px;
+  align-items: stretch;
+}
+
+.code-line:hover,
+.code-line:focus-within {
+  background: rgba(136, 192, 208, 0.07);
+}
+
+.line-number {
+  padding: 0 14px;
+  color: #596475;
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid #2d3440;
+}
+
+.line-source {
+  padding: 0 16px;
+  white-space: pre;
+}
+
+.copy-line {
+  align-self: center;
+  width: 48px;
+  height: 22px;
+  margin-right: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.code-line:hover .copy-line,
+.copy-line:focus-visible,
+.code-line:focus-within .copy-line {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.syntax-comment { color: #687488; font-style: italic; }
+.syntax-string { color: var(--green); }
+.syntax-keyword { color: var(--purple); }
+.syntax-number { color: var(--yellow); }
+.syntax-flag { color: var(--yellow); }
+.syntax-prompt { color: var(--green); font-weight: 800; }
 
 .doc-body pre code,
 .docs-content pre code {
@@ -362,8 +469,8 @@ body:has(.doc-hero) {
 /* Markdown guide reader */
 .docs-layout {
   display: grid;
-  grid-template-columns: 230px minmax(0, 820px);
-  gap: clamp(48px, 7vw, 100px);
+  grid-template-columns: 210px minmax(0, 780px) 190px;
+  gap: clamp(32px, 4vw, 64px);
   align-items: start;
   padding-top: 68px;
 }
@@ -374,6 +481,69 @@ body:has(.doc-hero) {
   margin-bottom: 18px;
   padding-bottom: 54px;
   border-bottom: 1px solid var(--line);
+}
+
+.page-toc {
+  position: sticky;
+  top: 100px;
+  min-width: 0;
+  align-self: start;
+}
+
+.page-toc > p {
+  margin: 0 0 18px;
+  padding-bottom: 13px;
+  color: var(--muted);
+  font: 700 0.62rem "SFMono-Regular", Consolas, monospace;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+
+.page-toc ol {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.page-toc li {
+  margin: 0;
+}
+
+.page-toc a {
+  display: block;
+  padding: 7px 0 7px 11px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  border-left: 1px solid var(--line);
+}
+
+.page-toc a:hover,
+.page-toc a:focus-visible {
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+.page-toc .toc-h3 a {
+  padding-left: 22px;
+  font-size: 0.7rem;
+}
+
+.section.has-page-toc {
+  display: grid;
+  grid-template-columns: minmax(0, 850px) 210px;
+  gap: clamp(48px, 7vw, 90px);
+  align-items: start;
+}
+
+.has-page-toc .doc-body {
+  margin: 0;
 }
 
 .guides-intro .overline {
@@ -503,6 +673,25 @@ body:has(.doc-hero) {
 
 .muted {
   color: var(--muted);
+}
+
+@media (max-width: 1100px) {
+  .docs-layout {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .docs-layout > .page-toc,
+  .section.has-page-toc > .page-toc {
+    display: none;
+  }
+
+  .section.has-page-toc {
+    display: block;
+  }
+
+  .has-page-toc .doc-body {
+    margin: 0 auto;
+  }
 }
 
 @media (max-width: 900px) {

@@ -15,7 +15,8 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Overhauled the public documentation with a consistent editorial reading
   system, clearer navigation, improved code and table treatments, responsive
-  guide layouts, and browser-history-aware guide switching.
+  guide layouts, browser-history-aware guide switching, syntax-highlighted
+  code with block and per-line copy actions, and generated page sidebars.
 - Overhauled the public landing page with a new editorial layout, interactive
   lane-graph visual, clearer architecture and workflow storytelling, and a
   more candid developer-preview status presentation.
