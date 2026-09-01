@@ -2,10 +2,13 @@
 
 ## [Unreleased]
 
-### Changed
+No changes yet.
 
-- Removed the optional Hub project mirroring workaround. Agent registration is
-  local until Hub has a real agent-control-plane contract.
+## [0.1.0-alpha.2] - 2026-09-01
+
+### Removed
+
+- Remove agent project mirroring workaround ([#70](https://github.com/MGRAFF2006/sorrel/pull/70)).
 
 ## [0.1.0-alpha.1] - 2026-08-31
 
@@ -14,5 +17,7 @@
   inspect active work.
 - Optionally mirror coordination state to a Sorrel Hub project.
 
-[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.1...HEAD
 [0.1.0-alpha.1]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.1
+
+[Unreleased]: https://github.com/MGRAFF2006/sorrel/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2
