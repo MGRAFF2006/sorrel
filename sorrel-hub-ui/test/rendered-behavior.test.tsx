@@ -3,6 +3,25 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import { HubApp } from '../src/App.tsx';
 import { createWebPlatform } from '../src/platform.ts';
 
+const convexCalls = vi.hoisted(() => ({
+  construct: vi.fn(),
+  subscribe: vi.fn(),
+  unsubscribe: vi.fn(),
+  close: vi.fn(),
+}));
+
+vi.mock('convex/browser', () => ({
+  ConvexClient: class {
+    constructor(url: string) { convexCalls.construct(url); }
+    onUpdate(query: unknown, args: unknown, callback: (value: unknown) => void) {
+      convexCalls.subscribe(query, args);
+      callback(7);
+      return convexCalls.unsubscribe;
+    }
+    async close() { convexCalls.close(); }
+  },
+}));
+
 type FetchCall = { url: string; init?: RequestInit };
 
 function json(data: unknown, status = 200) {
@@ -12,7 +31,10 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function installHubFetch(projects: unknown[] = []) {
+function installHubFetch(
+  projects: unknown[] = [],
+  convex: { enabled: boolean; url?: string; publicCounter?: boolean } = { enabled: false },
+) {
   const calls: FetchCall[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -23,7 +45,7 @@ function installHubFetch(projects: unknown[] = []) {
         data: {
           modules: { core: true, actions: false, agents: true, secrets: true, objectStorage: 'fs' },
           auth: { mode: 'dev', session: 'none' },
-          convex: { enabled: false },
+          convex,
           deploy: 'dev',
         },
       });
@@ -71,9 +93,31 @@ function installHubFetch(projects: unknown[] = []) {
   return calls;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 
 describe('HubApp rendered behavior', () => {
+  test.each([false, undefined])('uses the Hub fallback when the public counter capability is %s', async (publicCounter) => {
+    const calls = installHubFetch([], { enabled: true, url: 'https://internal.convex.cloud', publicCounter });
+    render(() => <HubApp platform={createWebPlatform()} convexUrl="https://override.convex.cloud" />);
+
+    expect(await screen.findByText('No projects yet')).toBeInTheDocument();
+    await waitFor(() => expect(calls.some((call) => call.url === '/api/admin/proposals?status=open')).toBe(true));
+    expect(convexCalls.construct).not.toHaveBeenCalled();
+    expect(convexCalls.subscribe).not.toHaveBeenCalled();
+  });
+
+  test('subscribes only when Hub explicitly advertises a public counter', async () => {
+    installHubFetch([], { enabled: true, url: 'https://public.convex.cloud', publicCounter: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+
+    await waitFor(() => expect(convexCalls.construct).toHaveBeenCalledWith('https://public.convex.cloud'));
+    expect(convexCalls.subscribe).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.nav-count')).toHaveTextContent('7');
+  });
+
   test('renders API health and the empty-project action from live responses', async () => {
     installHubFetch();
     render(() => <HubApp platform={createWebPlatform()} />);

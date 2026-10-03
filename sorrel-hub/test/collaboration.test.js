@@ -211,7 +211,10 @@ test('lane-submit attributes an authenticated session instead of a spoofed body 
 
     assert.equal(response.status, 201);
     assert.deepEqual(proposal.authorPrincipal, sessionPrincipal);
-  }, { authAdapter });
+  }, { authAdapter, trustedGrantsById: {
+    grant_admin: { id: 'grant_admin', principal: sessionPrincipal, action: 'policy.grant', resource: { kind: 'org', id: 'org_auth' } },
+    grant_submit: { id: 'grant_submit', principal: sessionPrincipal, action: 'proposal.write', resource: { kind: 'project', id: '*' } },
+  } });
 });
 
 test('workflow run status updates', async () => {

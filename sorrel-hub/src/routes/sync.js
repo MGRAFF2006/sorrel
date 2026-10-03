@@ -1,6 +1,6 @@
 import { evaluateWithTrustedGrants } from '../core-policy.js';
 import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
-import { resolveActingPrincipal } from '../policy-guard.js';
+import { assertCoreAccess, resolveActingPrincipal } from '../policy-guard.js';
 import { browseTextFile, browseTree } from '../sync-browser.js';
 import {
   isDescendant,
@@ -34,6 +34,9 @@ export async function handleSyncRoute(request, response, context) {
 
   const repoId = parseRepoId(segments[0]);
   const resource = segments[1];
+  if (request.method === 'GET' || (resource === 'objects' && segments[2] === 'missing')) {
+    assertCoreAccess(context, 'repo.object.read', { kind: 'repo', id: repoId });
+  }
 
   if (resource === 'refs') {
     if (segments.length === 2) {
@@ -219,7 +222,7 @@ async function advanceRef(request, response, context, repoId, refName) {
     }
   }
 
-  const { incomplete, missingIds } = walkClosure(repoId, [snapshot], context.store.sync);
+  const { incomplete, missingIds } = walkClosure(repoId, [snapshot], context.store.sync, { snapshotRoots: true });
   if (incomplete) {
     throw new HttpError(
       409,
@@ -304,7 +307,7 @@ function decodeObjectBytes(entry, index) {
 
   try {
     const bytes = Buffer.from(data, 'base64');
-    if (bytes.length === 0) {
+    if (bytes.length === 0 || bytes.toString('base64') !== data) {
       throw new Error('empty');
     }
     return bytes;

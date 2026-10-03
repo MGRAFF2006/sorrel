@@ -41,6 +41,13 @@ pub enum GitImportError {
     #[error(transparent)]
     Git(#[from] git2::Error),
 
+    /// The current snapshot model cannot preserve a non-UTF-8 commit message.
+    #[error("git commit {commit} has a non-UTF-8 message")]
+    UnsupportedMessage {
+        /// Commit containing the unsupported message.
+        commit: String,
+    },
+
     /// Selected ref could not be resolved.
     #[error("git ref not found: {reference}")]
     RefNotFound {
@@ -101,7 +108,7 @@ pub struct ImportedCommit {
     pub snapshot_id: ObjectId,
     /// Sorrel change linking the base snapshot to this snapshot.
     pub change_id: ObjectId,
-    /// Commit subject (first line of the message).
+    /// Complete commit message, including its body and trailing newline.
     pub message: String,
 }
 
@@ -147,8 +154,9 @@ pub fn git_import(
     let mut git_to_snapshot: BTreeMap<String, ObjectId> = options.known_commits.clone();
     let mut git_to_change: BTreeMap<String, ObjectId> = BTreeMap::new();
     let mut commits = Vec::with_capacity(oids.len());
-    // Cache Git tree oid → Sorrel tree id within this import.
-    let mut tree_cache: BTreeMap<git2::Oid, ObjectId> = BTreeMap::new();
+    // Sorrel entries store root-relative paths, so the same Git tree needs a
+    // distinct Sorrel tree at each prefix.
+    let mut tree_cache: BTreeMap<(git2::Oid, PathBuf), ObjectId> = BTreeMap::new();
 
     for oid in oids {
         let git_sha = oid.to_string();
@@ -156,7 +164,7 @@ pub fn git_import(
             continue;
         }
         let commit = repo.find_commit(oid)?;
-        let message = commit_subject(&commit);
+        let message = commit_message(&commit)?;
         let author = principal_from_signature(commit.author());
         let created_at = timestamp_to_rfc3339(commit.time().seconds());
 
@@ -265,20 +273,12 @@ fn collect_commits(
     Ok(oids)
 }
 
-fn commit_subject(commit: &git2::Commit<'_>) -> String {
-    if let Ok(Some(summary)) = commit.summary() {
-        if !summary.is_empty() {
-            return summary.to_owned();
-        }
-    }
-    if let Ok(message) = commit.message() {
-        if let Some(line) = message.lines().next() {
-            if !line.is_empty() {
-                return line.to_owned();
-            }
-        }
-    }
-    "(no message)".to_owned()
+fn commit_message(commit: &git2::Commit<'_>) -> GitImportResult<String> {
+    std::str::from_utf8(commit.message_bytes())
+        .map(str::to_owned)
+        .map_err(|_| GitImportError::UnsupportedMessage {
+            commit: commit.id().to_string(),
+        })
 }
 
 fn principal_from_signature(sig: git2::Signature<'_>) -> Principal {
@@ -317,9 +317,10 @@ fn import_tree(
     repo: &git2::Repository,
     tree: &git2::Tree<'_>,
     prefix: &Path,
-    cache: &mut BTreeMap<git2::Oid, ObjectId>,
+    cache: &mut BTreeMap<(git2::Oid, PathBuf), ObjectId>,
 ) -> GitImportResult<Tree> {
-    if let Some(id) = cache.get(&tree.id()) {
+    let cache_key = (tree.id(), prefix.to_path_buf());
+    if let Some(id) = cache.get(&cache_key) {
         // Re-read so callers get a full Tree value; trees are small JSON objects.
         return Ok(crate::read_tree(store, id)?);
     }
@@ -398,14 +399,14 @@ fn import_tree(
     }
 
     let written = write_tree(store, entries)?;
-    cache.insert(tree.id(), written.id);
+    cache.insert(cache_key, written.id);
     Ok(written)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{read_snapshot_files, InMemoryObjectStore};
+    use crate::{read_snapshot, read_snapshot_files, InMemoryObjectStore};
     use std::process::Command;
     use tempfile::TempDir;
 
@@ -420,6 +421,38 @@ mod tests {
             .status()
             .expect("spawn git");
         assert!(status.success(), "git {args:?} failed");
+    }
+
+    #[test]
+    fn import_export_preserves_full_commit_message() {
+        let source = TempDir::new().unwrap();
+        git(source.path(), &["init"]);
+        std::fs::write(source.path().join("script"), b"hello\n").unwrap();
+        git(source.path(), &["add", "script"]);
+        git(
+            source.path(),
+            &[
+                "commit",
+                "-m",
+                "Subject\n\nDetailed body.\n\nCo-authored-by: Agent <agent@example.com>",
+            ],
+        );
+        let git_repo = git2::Repository::open(source.path()).unwrap();
+        let original = git_repo.head().unwrap().peel_to_commit().unwrap();
+        let message = original.message().unwrap().to_owned();
+        let store = InMemoryObjectStore::new();
+        let imported = git_import(&store, GitImportOptions::new(source.path(), "repo")).unwrap();
+        assert_eq!(imported.commits[0].message, message);
+        let snap = read_snapshot(&store, &imported.head_snapshot).unwrap();
+        assert_eq!(snap.message.as_deref(), Some(message.as_str()));
+        let target = TempDir::new().unwrap();
+        let mut options = crate::GitExportOptions::new(target.path(), imported.head_snapshot);
+        options.init_if_missing = true;
+        crate::git_export(&store, options).unwrap();
+        let exported_repo = git2::Repository::open(target.path()).unwrap();
+        let exported = exported_repo.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(exported.message_bytes(), original.message_bytes());
+        assert_eq!(exported.tree_id(), original.tree_id());
     }
 
     fn make_linear_repo() -> TempDir {
@@ -454,9 +487,9 @@ mod tests {
         let result = git_import(&store, options).expect("import");
 
         assert_eq!(result.commits.len(), 3);
-        assert_eq!(result.commits[0].message, "first");
-        assert_eq!(result.commits[1].message, "second");
-        assert_eq!(result.commits[2].message, "third");
+        assert_eq!(result.commits[0].message, "first\n");
+        assert_eq!(result.commits[1].message, "second\n");
+        assert_eq!(result.commits[2].message, "third\n");
         assert_eq!(result.head_snapshot, result.commits[2].snapshot_id);
         assert_eq!(result.git_to_snapshot.len(), 3);
 
@@ -485,8 +518,8 @@ mod tests {
         let result = git_import(&store, options).expect("import");
         // Revwalk tip→root truncated to N, then reversed → the N newest commits.
         assert_eq!(result.commits.len(), 2);
-        assert_eq!(result.commits[0].message, "second");
-        assert_eq!(result.commits[1].message, "third");
+        assert_eq!(result.commits[0].message, "second\n");
+        assert_eq!(result.commits[1].message, "third\n");
     }
 
     #[test]
@@ -510,7 +543,7 @@ mod tests {
         let second = git_import(&store, options).expect("incremental import");
 
         assert_eq!(second.commits.len(), 1);
-        assert_eq!(second.commits[0].message, "fourth");
+        assert_eq!(second.commits[0].message, "fourth\n");
         assert_eq!(second.head_snapshot, second.commits[0].snapshot_id);
         // The new snapshot's parent is the previously imported tip.
         let snapshot = crate::read_snapshot(&store, &second.head_snapshot).expect("snapshot");
@@ -536,6 +569,40 @@ mod tests {
 
         assert!(second.commits.is_empty());
         assert_eq!(second.head_snapshot, first.head_snapshot);
+    }
+
+    #[test]
+    fn identical_subtrees_keep_paths_when_reused_or_renamed() {
+        let git_dir = make_linear_repo();
+        let root = git_dir.path();
+        for directory in ["first", "second"] {
+            std::fs::create_dir(root.join(directory)).unwrap();
+            std::fs::write(root.join(directory).join("same.txt"), b"same\n").unwrap();
+        }
+        git(root, &["add", "first", "second"]);
+        git(root, &["commit", "-m", "identical subtrees"]);
+        git(root, &["mv", "first", "renamed"]);
+        git(root, &["commit", "-m", "rename subtree"]);
+
+        let store = InMemoryObjectStore::new();
+        let imported = git_import(&store, GitImportOptions::new(root, "repo")).unwrap();
+        let files = read_snapshot_files(&store, &imported.head_snapshot).unwrap();
+        assert_eq!(files[Path::new("renamed/same.txt")], b"same\n");
+        assert_eq!(files[Path::new("second/same.txt")], b"same\n");
+        assert!(!files.contains_key(Path::new("first/same.txt")));
+
+        let restored = tempfile::tempdir().unwrap();
+        crate::restore_snapshot_to_directory(&store, &imported.head_snapshot, restored.path())
+            .unwrap();
+        assert_eq!(
+            std::fs::read(restored.path().join("renamed/same.txt")).unwrap(),
+            b"same\n"
+        );
+        assert_eq!(
+            std::fs::read(restored.path().join("second/same.txt")).unwrap(),
+            b"same\n"
+        );
+        assert!(!restored.path().join("first").exists());
     }
 
     #[test]

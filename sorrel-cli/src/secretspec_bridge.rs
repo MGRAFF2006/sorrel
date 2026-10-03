@@ -369,6 +369,7 @@ fn grant_from_persisted(object: &Value) -> Option<Grant> {
         capabilities.push("secret.read".to_owned());
     }
     Some(Grant {
+        effect: crate::cli_policy::effect_from_value(object.get("effect")),
         principal: PrincipalId {
             kind: "agent".to_owned(),
             id: agent_id.to_owned(),
@@ -620,5 +621,23 @@ secretRefs:
         );
         assert!(!text.contains("super-secret-token"));
         assert!(text.contains("<sorrel:redacted secret_npm_token_dev>"));
+    }
+    #[test]
+    fn persisted_restrictive_or_unknown_effect_is_not_an_allow_grant() {
+        let base = serde_json::json!({"action":"secret.inject","resource":{"ref":"secret_test"},"access":{"agents":[{"id":"agent_mock_cli"}]}});
+        assert_eq!(
+            grant_from_persisted(&base).unwrap().effect,
+            crate::cli_policy::GrantEffect::Allow
+        );
+        for (effect, expected) in [
+            ("deny", crate::cli_policy::GrantEffect::Deny),
+            ("redact", crate::cli_policy::GrantEffect::Redact),
+            ("review", crate::cli_policy::GrantEffect::Review),
+            ("unknown", crate::cli_policy::GrantEffect::Deny),
+        ] {
+            let mut persisted = base.clone();
+            persisted["effect"] = serde_json::json!(effect);
+            assert_eq!(grant_from_persisted(&persisted).unwrap().effect, expected);
+        }
     }
 }

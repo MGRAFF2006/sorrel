@@ -468,7 +468,7 @@ jobs:
   const active = await plane.activeWork();
   assert.ok(active.agents.length >= 1);
   assert.ok(active.claims.length >= 1);
-  assert.ok(existsSync(join(workA, '.sorrel/agents/state.json')));
+  assert.ok(existsSync(join(workA, '.sorrel/agents/agents/agent_e2e.json')));
   log('sorrel-agents', 'register + claim');
 
   // Runners already exercised via `sorrel workflow run` above.

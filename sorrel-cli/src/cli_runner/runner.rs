@@ -131,6 +131,7 @@ mod tests {
             default_rules: vec![],
         };
         context.grants.push(Grant {
+            effect: crate::cli_policy::GrantEffect::Allow,
             principal: PrincipalId {
                 kind: "agent".to_owned(),
                 id: "agent_mock_cli".to_owned(),

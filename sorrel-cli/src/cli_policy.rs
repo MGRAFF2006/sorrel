@@ -9,6 +9,7 @@
 //! in shape and semantics.
 
 use serde::{Deserialize, Serialize};
+pub use sorrel_core::policy::GrantEffect;
 
 /// Portable principal identifier used by CLI-compat policy evaluation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,40 +64,77 @@ pub struct ResourceScope {
 }
 
 impl ResourceScope {
-    pub fn matches(&self, resource: &ResourceRef) -> bool {
-        if self.scope != resource.scope {
-            return false;
+    fn pattern(&self) -> Result<Option<&str>, ()> {
+        match self.fields.get("ref").or_else(|| self.fields.get("path")) {
+            Some(value) => value.as_str().map(Some).ok_or(()),
+            None => Ok(None),
         }
+    }
 
-        match self.fields.get("ref").and_then(serde_json::Value::as_str) {
-            Some(pattern) => resource.id == pattern || pattern.ends_with("/**"),
-            None => match self.fields.get("path").and_then(serde_json::Value::as_str) {
-                Some(path) => resource.id == path || path.ends_with("/**"),
-                None => true,
-            },
-        }
+    pub fn matches(&self, resource: &ResourceRef) -> bool {
+        self.scope == resource.scope
+            && match self.pattern() {
+                Ok(Some(pattern)) => pattern_matches(pattern, &resource.id),
+                Ok(None) => true,
+                Err(()) => false,
+            }
     }
 
     fn covers(&self, other: &ResourceScope) -> bool {
         if self.scope != other.scope {
             return false;
         }
-
-        let self_ref = self
-            .fields
-            .get("ref")
-            .or_else(|| self.fields.get("path"))
-            .and_then(serde_json::Value::as_str);
-        let other_ref = other
-            .fields
-            .get("ref")
-            .or_else(|| other.fields.get("path"))
-            .and_then(serde_json::Value::as_str);
-
-        match (self_ref, other_ref) {
-            (Some(base), Some(target)) => base == target || base.ends_with("/**"),
-            _ => true,
+        match (self.pattern(), other.pattern()) {
+            (Ok(None), Ok(_)) => true,
+            (Ok(Some(base)), Ok(Some(target))) => pattern_matches(base, target),
+            _ => false,
         }
+    }
+}
+
+fn valid_scoped_id(value: &str) -> bool {
+    !value.is_empty()
+        && !value.contains(['\\', '\0'])
+        && value
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
+fn pattern_matches(pattern: &str, target: &str) -> bool {
+    if !valid_scoped_id(pattern) || !valid_scoped_id(target) {
+        return false;
+    }
+    if pattern == target {
+        return true;
+    }
+    pattern.strip_suffix("/**").is_some_and(|prefix| {
+        !prefix.is_empty()
+            && (target == prefix
+                || target
+                    .strip_prefix(prefix)
+                    .is_some_and(|rest| rest.starts_with('/')))
+    })
+}
+
+fn allow_effect() -> GrantEffect {
+    GrantEffect::Allow
+}
+
+/// Converts loosely typed persisted effects without letting unknown values allow.
+#[must_use]
+pub fn effect_from_value(value: Option<&serde_json::Value>) -> GrantEffect {
+    match value {
+        None => GrantEffect::Allow,
+        Some(value) => serde_json::from_value(value.clone()).unwrap_or(GrantEffect::Deny),
+    }
+}
+
+fn effect_priority(effect: GrantEffect) -> u8 {
+    match effect {
+        GrantEffect::Allow => 0,
+        GrantEffect::Review => 1,
+        GrantEffect::Redact => 2,
+        GrantEffect::Deny => 3,
     }
 }
 
@@ -136,6 +174,8 @@ impl Decision {
 /// A grant under the previous effective policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Grant {
+    #[serde(default = "allow_effect")]
+    pub effect: GrantEffect,
     pub principal: PrincipalId,
     pub capabilities: Vec<String>,
     pub resources: Vec<ResourceScope>,
@@ -221,6 +261,7 @@ impl PolicyContext {
                 id: "alice".to_owned(),
             }],
             grants: vec![Grant {
+                effect: GrantEffect::Allow,
                 principal: PrincipalId {
                     kind: "user".to_owned(),
                     id: "alice".to_owned(),
@@ -267,7 +308,12 @@ impl PolicyContext {
 pub fn evaluate(input: &EvaluateInput, context: &PolicyContext) -> PolicyDecision {
     if let Some(grant) = matching_grant(&input.principal, &input.action, &input.resource, context) {
         return PolicyDecision {
-            decision: Decision::Allow,
+            decision: match grant.effect {
+                GrantEffect::Allow => Decision::Allow,
+                GrantEffect::Deny => Decision::Deny,
+                GrantEffect::Redact => Decision::Redact,
+                GrantEffect::Review => Decision::NeedsReview,
+            },
             reason: format!(
                 "Matched grant issued by {}",
                 grant
@@ -409,8 +455,15 @@ fn evaluate_grant_change(change: &PolicyChange, context: &PolicyContext) -> Poli
         };
     }
 
-    let has_grant_authority = actor_has_capability(&change.actor, "policy.grant", None, context)
-        || actor_has_capability(&change.actor, "authority.admin", None, context);
+    let has_grant_authority = context.authority_principals.contains(&change.actor)
+        || context.grants.iter().any(|grant| {
+            grant.principal == change.actor
+                && grant.effect == GrantEffect::Allow
+                && grant
+                    .capabilities
+                    .iter()
+                    .any(|cap| cap == "policy.grant" || cap == "authority.admin")
+        });
 
     if !has_grant_authority {
         return PolicyChangeEvaluation {
@@ -465,11 +518,15 @@ fn matching_grant<'a>(
     resource: &ResourceRef,
     context: &'a PolicyContext,
 ) -> Option<&'a Grant> {
-    context.grants.iter().find(|grant| {
-        grant.principal == *principal
-            && grant.capabilities.iter().any(|cap| cap == action)
-            && grant.resources.iter().any(|scope| scope.matches(resource))
-    })
+    context
+        .grants
+        .iter()
+        .filter(|grant| {
+            grant.principal == *principal
+                && grant.capabilities.iter().any(|cap| cap == action)
+                && grant.resources.iter().any(|scope| scope.matches(resource))
+        })
+        .max_by_key(|grant| effect_priority(grant.effect))
 }
 
 fn actor_has_capability(
@@ -478,32 +535,52 @@ fn actor_has_capability(
     proposed: Option<&ProposedGrant>,
     context: &PolicyContext,
 ) -> bool {
-    if context
-        .authority_principals
+    let relevant = context
+        .grants
         .iter()
-        .any(|principal| principal == actor)
+        .filter(|grant| {
+            grant.principal == *actor && grant.capabilities.iter().any(|cap| cap == capability)
+        })
+        .collect::<Vec<_>>();
+    let repository = ResourceRef {
+        scope: "repo".to_owned(),
+        id: context.repo_id.clone(),
+    };
+    let applies = |grant: &&Grant| match proposed {
+        Some(proposed) => proposed.resources.iter().any(|target| {
+            grant
+                .resources
+                .iter()
+                .any(|scope| scope.covers(target) || target.covers(scope))
+        }),
+        None => grant
+            .resources
+            .iter()
+            .any(|scope| scope.matches(&repository)),
+    };
+    if relevant
+        .iter()
+        .any(|grant| grant.effect != GrantEffect::Allow && applies(grant))
     {
+        return false;
+    }
+    if context.authority_principals.contains(actor) {
         return true;
     }
-
-    context.grants.iter().any(|grant| {
-        if grant.principal != *actor {
-            return false;
+    match proposed {
+        Some(proposed) => {
+            !proposed.resources.is_empty()
+                && proposed.resources.iter().all(|target| {
+                    relevant.iter().any(|grant| {
+                        grant.effect == GrantEffect::Allow
+                            && grant.resources.iter().any(|scope| scope.covers(target))
+                    })
+                })
         }
-        if !grant.capabilities.iter().any(|cap| cap == capability) {
-            return false;
-        }
-
-        match proposed {
-            Some(proposed_grant) => proposed_grant.resources.iter().all(|target| {
-                grant
-                    .resources
-                    .iter()
-                    .any(|delegated| delegated.covers(target))
-            }),
-            None => true,
-        }
-    })
+        None => relevant
+            .iter()
+            .any(|grant| grant.effect == GrantEffect::Allow && applies(grant)),
+    }
 }
 
 fn scope_broadening_violation(
@@ -511,28 +588,8 @@ fn scope_broadening_violation(
     proposed: &ProposedGrant,
     context: &PolicyContext,
 ) -> bool {
-    if context
-        .authority_principals
-        .iter()
-        .any(|principal| principal == actor)
-    {
-        return false;
-    }
-
-    let Some(delegated_grant) = context
-        .grants
-        .iter()
-        .find(|grant| grant.principal == *actor)
-    else {
-        return false;
-    };
-
-    !proposed.resources.iter().all(|target| {
-        delegated_grant
-            .resources
-            .iter()
-            .any(|delegated| delegated.covers(target))
-    })
+    !actor_has_capability(actor, "policy.grant", Some(proposed), context)
+        && !actor_has_capability(actor, "authority.admin", Some(proposed), context)
 }
 
 #[cfg(test)]
@@ -650,6 +707,7 @@ mod tests {
     fn delegated_grant_cannot_broaden_scope() {
         let mut context = PolicyContext::headless_default();
         context.grants.push(Grant {
+            effect: GrantEffect::Allow,
             principal: user("bob"),
             capabilities: vec!["policy.grant".to_owned()],
             resources: vec![ResourceScope {
@@ -682,5 +740,187 @@ mod tests {
         let evaluation = evaluate_policy_change(&change, &context);
         assert_eq!(evaluation.decision, Decision::Deny);
         assert!(evaluation.reason.contains("broaden"));
+    }
+    fn path_scope(pattern: &str) -> ResourceScope {
+        ResourceScope {
+            scope: "path".into(),
+            fields: serde_json::json!({"path":pattern})
+                .as_object()
+                .unwrap()
+                .clone(),
+        }
+    }
+
+    fn scoped_grant(effect: GrantEffect, capability: &str, resource: ResourceScope) -> Grant {
+        Grant {
+            effect,
+            principal: user("bob"),
+            capabilities: vec![capability.into()],
+            resources: vec![resource],
+            issued_by: None,
+        }
+    }
+
+    #[test]
+    fn restrictive_effects_override_allows_in_both_orders() {
+        let input = EvaluateInput {
+            principal: user("bob"),
+            action: "path.write".into(),
+            resource: ResourceRef {
+                scope: "path".into(),
+                id: "src/file.rs".into(),
+            },
+            environment: None,
+        };
+        for (effect, expected) in [
+            (GrantEffect::Deny, Decision::Deny),
+            (GrantEffect::Redact, Decision::Redact),
+            (GrantEffect::Review, Decision::NeedsReview),
+        ] {
+            let allow = scoped_grant(GrantEffect::Allow, "path.write", path_scope("src/**"));
+            let restriction = scoped_grant(effect, "path.write", path_scope("src/file.rs"));
+            for grants in [
+                vec![allow.clone(), restriction.clone()],
+                vec![restriction, allow],
+            ] {
+                let mut context = PolicyContext::headless_default();
+                context.grants = grants;
+                assert_eq!(evaluate(&input, &context).decision, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn missing_effect_is_compatible_but_unknown_effect_never_allows() {
+        let value = serde_json::json!({"principal":{"kind":"user","id":"bob"},"capabilities":["path.write"],"resources":[{"scope":"path","ref":"src/**"}]});
+        let legacy: Grant = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(legacy.effect, GrantEffect::Allow);
+        let mut unknown = value;
+        unknown["effect"] = serde_json::json!("surprise");
+        assert!(serde_json::from_value::<Grant>(unknown).is_err());
+        assert_eq!(
+            effect_from_value(Some(&serde_json::json!("surprise"))),
+            GrantEffect::Deny
+        );
+        assert_eq!(
+            effect_from_value(Some(&serde_json::json!(null))),
+            GrantEffect::Deny
+        );
+    }
+
+    #[test]
+    fn wildcard_paths_require_segment_prefix_and_safe_components() {
+        let scope = path_scope("src/**");
+        for path in ["src", "src/lib.rs", "src/nested/file.rs"] {
+            assert!(scope.matches(&ResourceRef {
+                scope: "path".into(),
+                id: path.into()
+            }));
+        }
+        for path in [
+            "secrets/credentials",
+            "src-other/file.rs",
+            "src/../secrets",
+            "src/./file",
+            "src//file",
+        ] {
+            assert!(
+                !scope.matches(&ResourceRef {
+                    scope: "path".into(),
+                    id: path.into()
+                }),
+                "scope escaped through {path}"
+            );
+        }
+        assert!(scope.covers(&path_scope("src/nested/**")));
+        assert!(!scope.covers(&path_scope("secrets/**")));
+        assert!(!scope.covers(&path_scope("src-other/**")));
+        assert!(!scope.covers(&ResourceScope {
+            scope: "path".into(),
+            fields: Default::default()
+        }));
+    }
+
+    #[test]
+    fn delegation_only_uses_allow_grants_and_cannot_escape_prefix() {
+        let proposed = |path| ProposedGrant {
+            principal: agent("worker"),
+            capabilities: vec!["path.write".into()],
+            resources: vec![path_scope(path)],
+        };
+        let change = |path| PolicyChange {
+            actor: user("bob"),
+            operation: "grant".into(),
+            grant: Some(proposed(path)),
+            signatures: vec!["sig_bob".into()],
+        };
+        let mut context = PolicyContext::headless_default();
+        context.grants = vec![scoped_grant(
+            GrantEffect::Allow,
+            "policy.grant",
+            path_scope("src/**"),
+        )];
+        assert_eq!(
+            evaluate_policy_change(&change("src/public/**"), &context).decision,
+            Decision::Allow
+        );
+        for path in ["secrets/**", "src-other/**", "src/../secrets/**"] {
+            assert_eq!(
+                evaluate_policy_change(&change(path), &context).decision,
+                Decision::Deny
+            );
+        }
+        for effect in [GrantEffect::Deny, GrantEffect::Redact, GrantEffect::Review] {
+            context.grants = vec![scoped_grant(effect, "policy.grant", path_scope("src/**"))];
+            assert_eq!(
+                evaluate_policy_change(&change("src/public/**"), &context).decision,
+                Decision::Deny
+            );
+        }
+        context.grants = vec![
+            scoped_grant(GrantEffect::Allow, "policy.grant", path_scope("src/**")),
+            scoped_grant(
+                GrantEffect::Deny,
+                "policy.grant",
+                path_scope("src/private/**"),
+            ),
+        ];
+        assert_eq!(
+            evaluate_policy_change(&change("src/private/file.rs"), &context).decision,
+            Decision::Deny
+        );
+        assert_eq!(
+            evaluate_policy_change(&change("src/public/file.rs"), &context).decision,
+            Decision::Allow
+        );
+        assert_eq!(
+            evaluate_policy_change(&change("src/**"), &context).decision,
+            Decision::Deny
+        );
+        context.grants.reverse();
+        assert_eq!(
+            evaluate_policy_change(&change("src/private/file.rs"), &context).decision,
+            Decision::Deny
+        );
+    }
+
+    #[test]
+    fn path_delegation_does_not_authorize_repository_policy_mutations() {
+        let mut context = PolicyContext::headless_default();
+        context.grants = vec![scoped_grant(
+            GrantEffect::Allow,
+            "policy.grant",
+            path_scope("src/**"),
+        )];
+        let change = PolicyChange {
+            actor: user("bob"),
+            operation: "revoke".into(),
+            grant: None,
+            signatures: vec!["sig_bob".into()],
+        };
+        assert_eq!(
+            evaluate_policy_change(&change, &context).decision,
+            Decision::Deny
+        );
     }
 }

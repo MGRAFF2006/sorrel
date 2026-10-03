@@ -119,8 +119,11 @@ pub fn git_export(
     store: &impl ObjectStore,
     options: GitExportOptions,
 ) -> GitExportResult<ExportResult> {
-    let repo = open_or_init_repository(&options.git_path, options.init_if_missing)?;
     let ordered = topological_ancestors(store, options.tip_snapshot)?;
+    for snapshot_id in &ordered {
+        crate::validate_snapshot(store, snapshot_id)?;
+    }
+    let repo = open_or_init_repository(&options.git_path, options.init_if_missing)?;
 
     let mut snapshot_to_git = options.snapshot_to_git.clone();
     let mut commits = Vec::with_capacity(ordered.len());
@@ -222,32 +225,109 @@ fn update_branch(repo: &git2::Repository, branch: &str, tip_sha: &str) -> GitExp
     // Capture HEAD state before creating the branch: when `init.defaultBranch`
     // matches the exported branch, HEAD resolves fine right after the ref
     // exists and the bootstrap checkout below would be skipped.
-    let head_was_unborn = repo.head().is_err();
+    let head_was_unborn = match repo.head() {
+        Ok(_) => false,
+        Err(error) if error.code() == git2::ErrorCode::UnbornBranch => true,
+        Err(error) => return Err(error.into()),
+    };
+    if !git2::Reference::is_valid_name(&refname) {
+        return Err(git2::Error::from_str("invalid export branch name").into());
+    }
+    if head_was_unborn && !repo.is_bare() {
+        let index = repo.index()?;
+        if !index.is_empty() {
+            return Err(git2::Error::from_str(
+                "unborn Git destination has staged data; commit or clear it before export",
+            )
+            .into());
+        }
+        let tree = commit.tree()?;
+        let missing_paths = preflight_bootstrap_checkout(repo, &tree)?;
+        // Existing byte-identical files stay untouched (colocated bootstrap).
+        // Safe checkout refuses new collisions before any branch is published.
+        if !missing_paths.is_empty() {
+            let mut checkout = git2::build::CheckoutBuilder::new();
+            checkout
+                .safe()
+                .overwrite_ignored(false)
+                .disable_pathspec_match(true);
+            for path in missing_paths {
+                checkout.path(path);
+            }
+            repo.checkout_tree(commit.as_object(), Some(&mut checkout))?;
+        }
+        // Fresh colocated repos must have an index matching the exported tree.
+        let mut index = repo.index()?;
+        index.read_tree(&tree)?;
+        index.write()?;
+    }
     match repo.find_reference(&refname) {
         Ok(mut reference) => {
             reference.set_target(oid, "sorrel git export")?;
         }
-        Err(_) => {
+        Err(error) if error.code() == git2::ErrorCode::NotFound => {
             repo.reference(&refname, oid, true, "sorrel git export")?;
         }
+        Err(error) => return Err(error.into()),
     }
-    // Point HEAD at the branch when this is a fresh repo with no HEAD target yet.
     if head_was_unborn {
         repo.set_head(&refname)?;
-        // Best-effort checkout for non-bare repos so the worktree matches.
-        if !repo.is_bare() {
-            let mut checkout = git2::build::CheckoutBuilder::new();
-            checkout.force();
-            repo.checkout_tree(commit.as_object(), Some(&mut checkout))?;
-            // Align the index with the checked-out tree; otherwise a fresh
-            // colocated repo is left with an empty index and the next `git
-            // commit` would silently delete every exported file.
-            let mut index = repo.index()?;
-            index.read_tree(&commit.tree()?)?;
-            index.write()?;
-        }
     }
     Ok(())
+}
+
+/// Read-only collision preflight for a fresh checkout.
+// git2 0.21's dry_run maps to libgit2 CHECKOUT_NONE, which does not inspect
+// conflicts. Compare the target paths explicitly before the real safe checkout.
+fn preflight_bootstrap_checkout(
+    repo: &git2::Repository,
+    tree: &git2::Tree<'_>,
+) -> GitExportResult<Vec<PathBuf>> {
+    let root = repo
+        .workdir()
+        .ok_or_else(|| git2::Error::from_str("Git checkout has no working directory"))?;
+    let mut pending = vec![(tree.id(), PathBuf::new())];
+    let mut missing_paths = Vec::new();
+    while let Some((id, prefix)) = pending.pop() {
+        let tree = repo.find_tree(id)?;
+        for entry in &tree {
+            let name = entry
+                .name()
+                .map_err(|_| git2::Error::from_str("Git tree path must be UTF-8"))?;
+            let relative = prefix.join(name);
+            let path = root.join(&relative);
+            let metadata = match std::fs::symlink_metadata(&path) {
+                Ok(metadata) => Some(metadata),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(git2::Error::from_str(&error.to_string()).into()),
+            };
+            let directory = entry.kind() == Some(git2::ObjectType::Tree);
+            if let Some(metadata) = &metadata {
+                let safe = if directory {
+                    metadata.is_dir() && !metadata.file_type().is_symlink()
+                } else {
+                    metadata.is_file()
+                        && !metadata.file_type().is_symlink()
+                        && std::fs::read(&path)
+                            .map_err(|error| git2::Error::from_str(&error.to_string()))?
+                            == repo.find_blob(entry.id())?.content()
+                };
+                if !safe {
+                    return Err(git2::Error::from_str(&format!(
+                        "Git export would overwrite existing destination path {}",
+                        relative.display(),
+                    ))
+                    .into());
+                }
+            }
+            if directory {
+                pending.push((entry.id(), relative));
+            } else if metadata.is_none() {
+                missing_paths.push(relative);
+            }
+        }
+    }
+    Ok(missing_paths)
 }
 
 /// Returns ancestors of `tip` (including `tip`) in topological order: parents first.
@@ -314,7 +394,6 @@ fn snapshot_message(snapshot: &Snapshot) -> String {
     snapshot
         .message
         .as_deref()
-        .filter(|m| !m.is_empty())
         .unwrap_or("(no message)")
         .to_owned()
 }
@@ -543,6 +622,93 @@ mod tests {
         let log = String::from_utf8_lossy(&log.stdout);
         assert!(log.contains("first"));
         assert!(log.contains("second"));
+    }
+
+    #[test]
+    fn bootstrap_export_preserves_existing_destination_data_and_staged_index() {
+        let store = InMemoryObjectStore::new();
+        let tip = make_sorrel_history(&store);
+        for already_git in [false, true] {
+            let dest = TempDir::new().unwrap();
+            if already_git {
+                git2::Repository::init(dest.path()).unwrap();
+            }
+            std::fs::write(dest.path().join("a.txt"), b"unrecorded local bytes\n").unwrap();
+            assert!(git_export(&store, GitExportOptions::new(dest.path(), tip)).is_err());
+            assert_eq!(
+                std::fs::read(dest.path().join("a.txt")).unwrap(),
+                b"unrecorded local bytes\n"
+            );
+            let repo = git2::Repository::open(dest.path()).unwrap();
+            assert!(repo.find_reference("refs/heads/main").is_err());
+            assert!(repo.index().unwrap().is_empty());
+        }
+        let staged = TempDir::new().unwrap();
+        let repo = git2::Repository::init(staged.path()).unwrap();
+        std::fs::write(staged.path().join("keep.txt"), b"staged bytes\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("keep.txt")).unwrap();
+        index.write().unwrap();
+        let original_index = std::fs::read(repo.path().join("index")).unwrap();
+        assert!(git_export(&store, GitExportOptions::new(staged.path(), tip)).is_err());
+        assert_eq!(
+            std::fs::read(repo.path().join("index")).unwrap(),
+            original_index
+        );
+        assert_eq!(
+            std::fs::read(staged.path().join("keep.txt")).unwrap(),
+            b"staged bytes\n"
+        );
+        assert!(!staged.path().join("a.txt").exists());
+        assert!(repo.find_reference("refs/heads/main").is_err());
+    }
+
+    #[test]
+    fn malformed_source_graph_is_rejected_before_destination_creation() {
+        let store = InMemoryObjectStore::new();
+        let blob = write_blob(&store, b"must not become repository metadata").unwrap();
+        let tree = write_tree(
+            &store,
+            vec![TreeEntry {
+                name: ".git".into(),
+                path: ".git".into(),
+                entry_type: EntryType::File,
+                object: crate::ObjectRef::new(ObjectKind::Blob, blob.id),
+                mode: EntryMode::Normal,
+                size: Some(blob.size()),
+                content_hash: Some(blob.content_hash),
+            }],
+        )
+        .unwrap();
+        let snapshot = write_snapshot(&store, tree.id, SnapshotOptions::new("repo")).unwrap();
+        let parent = TempDir::new().unwrap();
+        let destination = parent.path().join("must-not-exist");
+        assert!(matches!(
+            git_export(&store, GitExportOptions::new(&destination, snapshot.id)),
+            Err(GitExportError::Snapshot(SnapshotError::InvalidPath { .. }))
+        ));
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn bootstrap_export_adopts_identical_worktree_files_without_overwriting_them() {
+        let store = InMemoryObjectStore::new();
+        let tip = make_sorrel_history(&store);
+        let destination = TempDir::new().unwrap();
+        std::fs::write(destination.path().join("a.txt"), b"two\n").unwrap();
+        std::fs::write(destination.path().join("untracked.txt"), b"keep\n").unwrap();
+        git_export(&store, GitExportOptions::new(destination.path(), tip)).unwrap();
+        assert_eq!(
+            std::fs::read(destination.path().join("a.txt")).unwrap(),
+            b"two\n"
+        );
+        assert_eq!(
+            std::fs::read(destination.path().join("untracked.txt")).unwrap(),
+            b"keep\n"
+        );
+        let repo = git2::Repository::open(destination.path()).unwrap();
+        assert!(repo.find_reference("refs/heads/main").is_ok());
+        assert_eq!(repo.index().unwrap().len(), 1);
     }
 
     #[test]

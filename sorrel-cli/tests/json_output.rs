@@ -10,6 +10,19 @@ use tempfile::TempDir;
 const PROTOCOL_VERSION: &str = "sorrel.protocol.v0";
 const MOCK_TIMESTAMP: &str = "2026-06-24T09:00:00Z";
 
+fn assert_json_error(output: &std::process::Output, code: &str) -> String {
+    assert!(!output.status.success());
+    let error: Value =
+        serde_json::from_slice(&output.stdout).expect("JSON errors use structured stdout");
+    assert_eq!(error["schemaVersion"], "sorrel.cli.v1");
+    assert_eq!(error["status"], "error");
+    assert_eq!(error["error"]["code"], code);
+    error["error"]["message"]
+        .as_str()
+        .expect("error has a message")
+        .to_owned()
+}
+
 #[test]
 fn init_writes_real_persistent_workspace() {
     let temp_dir = TempDir::new().expect("temp dir is available");
@@ -612,10 +625,10 @@ fn lane_switch_with_dirty_tree_fails_without_modifying_state() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let message = assert_json_error(&output, "dirty_worktree");
     assert!(
-        stderr.contains("uncommitted"),
-        "stderr should mention uncommitted changes: {stderr}"
+        message.contains("uncommitted"),
+        "unexpected dirty-worktree error: {message}"
     );
 
     let head_after = std::fs::read(temp_dir.path().join(".sorrel/HEAD")).expect("read HEAD");
@@ -649,10 +662,10 @@ fn lane_switch_to_missing_lane_fails() {
         .output()
         .expect("run lane switch");
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let message = assert_json_error(&output, "not_found");
     assert!(
-        stderr.contains("does not exist"),
-        "stderr should mention missing lane: {stderr}"
+        message.contains("does not exist"),
+        "unexpected missing-lane error: {message}"
     );
 
     let head_after = std::fs::read(temp_dir.path().join(".sorrel/HEAD")).expect("read HEAD");
@@ -908,10 +921,10 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
         .output()
         .expect("run merge");
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let message = assert_json_error(&output, "merge_conflict");
     assert!(
-        stderr.contains("merge conflicts") && stderr.contains("a.txt"),
-        "stderr should list conflicted paths, got: {stderr}"
+        message.contains("merge conflicts") && message.contains("a.txt"),
+        "error should list conflicted paths: {message}"
     );
 
     let markers = std::fs::read_to_string(temp_dir.path().join("a.txt")).expect("read a");
@@ -1018,7 +1031,11 @@ fn merge_continue_after_manual_resolution() {
         .output()
         .expect("continue with markers");
     assert!(!blocked.status.success());
-    assert!(String::from_utf8_lossy(&blocked.stderr).contains("unresolved conflict markers"));
+    let message = assert_json_error(&blocked, "operation_failed");
+    assert!(
+        message.contains("unresolved conflict markers"),
+        "unexpected marker error: {message}"
+    );
 
     std::fs::write(temp_dir.path().join("a.txt"), b"resolved\n").expect("resolve");
     let continued = command_json(temp_dir.path(), &["merge", "--continue", "--json"]);
@@ -1047,10 +1064,10 @@ fn merge_with_self_errors() {
         .output()
         .expect("run merge");
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let message = assert_json_error(&output, "operation_failed");
     assert!(
-        stderr.contains("into itself"),
-        "expected self-merge error, got: {stderr}"
+        message.contains("into itself"),
+        "expected self-merge error: {message}"
     );
 }
 
@@ -1074,10 +1091,10 @@ fn merge_equal_heads_errors() {
         .output()
         .expect("run merge");
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let message = assert_json_error(&output, "operation_failed");
     assert!(
-        stderr.contains("nothing to merge"),
-        "expected equal-heads error, got: {stderr}"
+        message.contains("nothing to merge"),
+        "expected equal-heads error: {message}"
     );
 }
 
@@ -1139,10 +1156,10 @@ fn merge_unrelated_histories_errors() {
         .output()
         .expect("run merge");
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let message = assert_json_error(&output, "operation_failed");
     assert!(
-        stderr.contains("unrelated histories") || stderr.contains("no merge base"),
-        "expected unrelated-history error, got: {stderr}"
+        message.contains("unrelated histories") || message.contains("no merge base"),
+        "expected unrelated-history error: {message}"
     );
 }
 
@@ -1158,10 +1175,10 @@ fn merge_missing_lane_errors() {
         .output()
         .expect("run merge");
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let message = assert_json_error(&output, "not_found");
     assert!(
-        stderr.contains("does not exist"),
-        "expected missing-lane error, got: {stderr}"
+        message.contains("does not exist"),
+        "expected missing-lane error: {message}"
     );
 }
 

@@ -1,5 +1,5 @@
 import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
-import { assertPrivilegedAdminAccess } from '../policy-guard.js';
+import { assertCoreAccess, canCoreAccess, metadataCapability, metadataResource, assertPrivilegedAdminAccess } from '../policy-guard.js';
 import { StoreNotFoundError } from '../store.js';
 
 const COLLECTIONS = {
@@ -115,7 +115,7 @@ export async function handleAdminRoute(request, response, context) {
   }
 
   if (request.method === 'GET') {
-    return listCollection(response, context, collection);
+    return listCollection(response, context, collection, collectionName);
   }
 
   if (request.method === 'POST') {
@@ -125,10 +125,12 @@ export async function handleAdminRoute(request, response, context) {
   return sendMethodNotAllowed(response, ['GET', 'POST']);
 }
 
-function listSyncRepos(response, { store }) {
+function listSyncRepos(response, context) {
+  const { store } = context;
   const repos = store.sync
     .listRepos()
     .slice()
+    .filter((id) => canCoreAccess(context, 'repo.object.read', { kind: 'repo', id }))
     .sort()
     .map((id) => ({
       id,
@@ -138,7 +140,8 @@ function listSyncRepos(response, { store }) {
   sendJson(response, 200, { repos });
 }
 
-function listCollection(response, { store, url }, collection) {
+function listCollection(response, context, collection, collectionName) {
+  const { store, url } = context;
   const filters = Object.fromEntries(
     (collection.filters ?? [])
       .map((filterName) => [filterName, url.searchParams.get(filterName) ?? undefined])
@@ -146,15 +149,18 @@ function listCollection(response, { store, url }, collection) {
   );
 
   sendJson(response, 200, {
-    data: store[collection.list](filters),
+    data: store[collection.list](filters).filter((item) => canCoreAccess(context, metadataCapability(collectionName), metadataResource(context, item, collectionName))),
   });
 }
 
-function getCollectionItem(response, { store, url }, collection, itemId, collectionName) {
+function getCollectionItem(response, context, collection, itemId, collectionName) {
+  const { store, url } = context;
   const item = store[collection.get](itemId);
   if (!item) {
     throw new HttpError(404, `${singular(collectionName)} ${itemId} not found`, 'not_found');
   }
+
+  assertCoreAccess(context, metadataCapability(collectionName), metadataResource(context, item, collectionName));
 
   if (collectionName === 'proposals' && url.searchParams.get('include') === 'comments') {
     sendJson(response, 200, {
@@ -169,10 +175,12 @@ function getCollectionItem(response, { store, url }, collection, itemId, collect
   sendJson(response, 200, { data: item });
 }
 
-function getProposalComments(response, { store }, proposalId) {
+function getProposalComments(response, context, proposalId) {
+  const { store } = context;
   if (!store.getProposal(proposalId)) {
     throw new HttpError(404, `proposal ${proposalId} not found`, 'not_found');
   }
+  assertCoreAccess(context, 'proposal.read', metadataResource(context, store.getProposal(proposalId), 'proposals'));
   sendJson(response, 200, {
     data: store.listReviewComments({ proposalId }),
   });
@@ -185,6 +193,19 @@ async function createCollectionItem(request, response, context, collection, coll
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
   }
 
+  if (context.authAdapter.mode !== 'dev' && context.session?.principal) {
+    const actorField = { proposals: 'authorPrincipal', 'review-comments': 'authorPrincipal', 'workflow-runs': 'requestedByPrincipal' }[collectionName];
+    if (actorField) {
+      body[actorField] = context.session.principal;
+      if (actorField === 'authorPrincipal') delete body.authorRef;
+    }
+  }
+  if (context.authAdapter.mode !== 'dev' && collectionName === 'workflow-runs' && body.proposalId) {
+    const proposal = context.store.getProposal(body.proposalId);
+    if (!proposal) throw new HttpError(404, `proposal ${body.proposalId} not found`, 'not_found');
+    if (proposal.projectId !== body.projectId) throw new HttpError(400, 'workflow proposal belongs to a different project', 'invalid_request_body');
+  }
+  assertCoreAccess(context, metadataCapability(collectionName, true), metadataResource(context, body, collectionName));
   assertPrivilegedAdminAccess(request, body, collectionName, context);
 
   let item;
@@ -227,6 +248,10 @@ async function updateCollectionItem(
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
   }
 
+  const existing = context.store[collection.get](itemId);
+  if (!existing) throw new HttpError(404, `${singular(collectionName)} ${itemId} not found`, 'not_found');
+  assertCoreAccess(context, metadataCapability(collectionName, true), metadataResource(context, existing, collectionName));
+  assertCoreAccess(context, metadataCapability(collectionName, true), metadataResource(context, { ...existing, ...body }, collectionName));
   assertPrivilegedAdminAccess(request, body, collectionName, context);
 
   let item;

@@ -182,6 +182,7 @@ export class FsRepoSyncStore {
 
     const refs = [];
     for (const file of files.sort()) {
+      if (file.startsWith('.tmp-')) continue;
       const parsed = readRefFile(path.join(refsDir, file));
       if (parsed) {
         refs.push(parsed);
@@ -227,14 +228,15 @@ function readRefFile(filePath) {
       value &&
       typeof value === 'object' &&
       typeof value.name === 'string' &&
-      typeof value.snapshot === 'string'
+      typeof value.snapshot === 'string' && OBJECT_ID_PATTERN.test(value.snapshot) &&
+      value.name === decodePathSegment(path.basename(filePath))
     ) {
       return { name: value.name, snapshot: value.snapshot };
     }
   } catch {
-    // fall through: a torn/corrupt ref file reads as absent rather than crashing
+    // A corrupt ref must never be treated as an absent ref and overwritten.
   }
-  return undefined;
+  throw new Error(`corrupt sync ref ${path.basename(filePath)}`);
 }
 
 /**

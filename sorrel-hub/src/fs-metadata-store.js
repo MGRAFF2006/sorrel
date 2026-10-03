@@ -44,64 +44,58 @@ export class FsMetadataStore extends InMemoryStore {
     this.#hydrate();
   }
 
-  createOrganization(attributes) {
-    const organization = super.createOrganization(attributes);
-    this.#persist('organizations', organization);
-    return organization;
+  createOrganization(...args) {
+    return this.#writeRecord('organizations', () => super.createOrganization(...args));
   }
 
-  createProject(attributes) {
-    const project = super.createProject(attributes);
-    this.#persist('projects', project);
-    return project;
+  createProject(...args) {
+    return this.#writeRecord('projects', () => super.createProject(...args));
   }
 
-  createRepository(attributes) {
-    const repository = super.createRepository(attributes);
-    this.#persist('repositories', repository);
-    return repository;
+  createRepository(...args) {
+    return this.#writeRecord('repositories', () => super.createRepository(...args));
   }
 
-  createProposal(attributes) {
-    const proposal = super.createProposal(attributes);
-    this.#persist('proposals', proposal);
-    return proposal;
+  createProposal(...args) {
+    return this.#writeRecord('proposals', () => super.createProposal(...args));
   }
 
-  updateProposal(id, attributes) {
-    const proposal = super.updateProposal(id, attributes);
-    this.#persist('proposals', proposal);
-    return proposal;
+  updateProposal(...args) {
+    return this.#writeRecord('proposals', () => super.updateProposal(...args));
   }
 
-  createReviewComment(attributes) {
-    const reviewComment = super.createReviewComment(attributes);
-    this.#persist('reviewComments', reviewComment);
-    return reviewComment;
+  createReviewComment(...args) {
+    return this.#writeRecord('reviewComments', () => super.createReviewComment(...args));
   }
 
-  updateReviewComment(id, attributes) {
-    const reviewComment = super.updateReviewComment(id, attributes);
-    this.#persist('reviewComments', reviewComment);
-    return reviewComment;
+  updateReviewComment(...args) {
+    return this.#writeRecord('reviewComments', () => super.updateReviewComment(...args));
   }
 
-  createWorkflowRun(attributes) {
-    const workflowRun = super.createWorkflowRun(attributes);
-    this.#persist('workflowRuns', workflowRun);
-    return workflowRun;
+  createWorkflowRun(...args) {
+    return this.#writeRecord('workflowRuns', () => super.createWorkflowRun(...args));
   }
 
-  updateWorkflowRun(id, attributes) {
-    const workflowRun = super.updateWorkflowRun(id, attributes);
-    this.#persist('workflowRuns', workflowRun);
-    return workflowRun;
+  updateWorkflowRun(...args) {
+    return this.#writeRecord('workflowRuns', () => super.updateWorkflowRun(...args));
   }
 
-  createPolicy(attributes) {
-    const policy = super.createPolicy(attributes);
-    this.#persist('policies', policy);
-    return policy;
+  createPolicy(...args) {
+    return this.#writeRecord('policies', () => super.createPolicy(...args));
+  }
+
+  #writeRecord(collection, mutate) {
+    // ponytail: copy one collection for rollback; stage records first if metadata scale warrants it.
+    const previous = new Map(this[collection]);
+    try {
+      const record = mutate();
+      this.#persist(collection, record);
+      return record;
+    } catch (error) {
+      // Methods are synchronous: failed persistence must leave the API view unchanged.
+      this[collection] = previous;
+      throw error;
+    }
   }
 
   #recordPath(collection, id) {

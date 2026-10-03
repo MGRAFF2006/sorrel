@@ -198,6 +198,7 @@ export function createAuthAdapterFromEnv(env = process.env) {
       audience: env.SORREL_OIDC_AUDIENCE,
     });
   }
+  if (mode !== 'dev') throw new TypeError(`unsupported SORREL_HUB_AUTH mode ${mode}`);
   return createDevActingPrincipalAdapter();
 }
 

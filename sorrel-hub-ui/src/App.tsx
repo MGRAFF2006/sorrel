@@ -173,9 +173,9 @@ export function HubApp(props: HubAppOptions) {
   onMount(() => setPrincipalProvider(() => actingPrincipal()));
 
   const convexUrl = createMemo(() => {
-    if (props.convexUrl) return props.convexUrl;
     const configured = capabilities()?.convex;
-    if (configured?.enabled === false) return null;
+    if (configured?.publicCounter !== true || configured.enabled === false) return null;
+    if (props.convexUrl) return props.convexUrl;
     return configured?.url ?? (import.meta.env.VITE_CONVEX_URL as string | undefined) ?? null;
   });
   const convexCount = useOpenProposalsCount(convexUrl);

@@ -43,6 +43,91 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
+/// OS advisory lock, released even when a command is interrupted or killed.
+pub struct RepositoryLock {
+    _file: fs::File,
+}
+
+impl RepositoryLock {
+    /// Serialize VCS operations for this workspace, without stale PID locks.
+    pub fn acquire(root: &Path) -> io::Result<Self> {
+        let metadata = root.join(SORREL_DIR);
+        if fs::symlink_metadata(&metadata).is_ok_and(|entry| entry.file_type().is_symlink()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "repository metadata is a symlink",
+            ));
+        }
+        fs::create_dir_all(&metadata)?;
+        let path = metadata.join("LOCK");
+        if fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "repository lock is a symlink",
+            ));
+        }
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
+        fs2::FileExt::lock_exclusive(&file)?;
+        Ok(Self { _file: file })
+    }
+}
+
+/// Publish a durable file with a unique temporary name in the same directory.
+pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    reject_metadata_symlinks(path)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map_err(|error| error.error)?;
+    #[cfg(unix)]
+    fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+/// Complete a head update interrupted between its two ref writes.
+pub fn recover_head_update() -> io::Result<()> {
+    let path = sorrel_dir().join("HEAD_TRANSACTION");
+    reject_metadata_symlinks(&path)?;
+    let value: Value = match fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let lane = value
+        .get("lane")
+        .and_then(Value::as_str)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid head transaction"))?;
+    let snapshot = value
+        .get("snapshot")
+        .and_then(Value::as_str)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid head transaction"))?;
+    validate_head(&Head {
+        lane: lane.into(),
+        snapshot: snapshot.into(),
+    })?;
+    let store = sorrel_core::FileObjectStore::new(object_store_root()).map_err(io::Error::other)?;
+    if !snapshot.is_empty() {
+        let id = snapshot
+            .parse::<sorrel_core::ObjectId>()
+            .map_err(io::Error::other)?;
+        sorrel_core::validate_snapshot(&store, &id).map_err(io::Error::other)?;
+    }
+    write_lane_head(lane, snapshot)?;
+    write_json_atomic(&head_path(), &json!({"lane":lane,"snapshot":snapshot}))?;
+    if value["clearMergeState"] == true {
+        clear_merge_state()?;
+    }
+    fs::remove_file(path)?;
+    Ok(())
+}
+
 /// Name of the workspace metadata directory.
 pub const SORREL_DIR: &str = ".sorrel";
 /// Slices subdirectory (existing slice feature).
@@ -334,13 +419,7 @@ pub fn append_changes_index(entry: &ChangesIndexEntry) -> io::Result<()> {
     body.extend_from_slice(line.to_string().as_bytes());
     body.push(b'\n');
 
-    let tmp = parent.join(format!(".{CHANGES_INDEX_FILE}.tmp"));
-    {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(&body)?;
-        file.flush()?;
-    }
-    fs::rename(&tmp, &path)
+    write_bytes_atomic(&path, &body)
 }
 
 /// Loads the workspace stat cache, or an empty cache when none exists yet.
@@ -359,18 +438,10 @@ pub fn load_stat_cache() -> sorrel_core::StatCache {
 /// Saves the workspace stat cache atomically (temp file + rename).
 pub fn save_stat_cache(cache: &sorrel_core::StatCache) -> io::Result<()> {
     let path = stat_cache_path();
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let tmp = parent.join(format!(".{STAT_CACHE_FILE}.tmp"));
     let bytes = cache
         .to_bytes()
         .map_err(|error| io::Error::other(error.to_string()))?;
-    {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(&bytes)?;
-        file.flush()?;
-    }
-    fs::rename(&tmp, &path)
+    write_bytes_atomic(&path, &bytes)
 }
 
 /// Returns true when a workspace manifest already exists.
@@ -448,31 +519,33 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 /// Writes `value` as pretty JSON to `path` atomically (temp file + rename).
 pub fn write_json_atomic(path: &Path, value: &Value) -> io::Result<()> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let tmp = parent.join(format!(
-        ".{}.tmp",
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("sorrel")
-    ));
-    {
-        let mut file = fs::File::create(&tmp)?;
-        serde_json::to_writer_pretty(&mut file, value)?;
-        writeln!(file)?;
-        file.flush()?;
-    }
-    fs::rename(&tmp, path)
+    let mut bytes = serde_json::to_vec_pretty(value)?;
+    bytes.push(b'\n');
+    write_bytes_atomic(path, &bytes)
 }
 
 /// Loads the workspace manifest, if present.
 pub fn load_manifest() -> io::Result<Option<Value>> {
     let path = manifest_path();
-    if !path.is_file() {
-        return Ok(None);
+    reject_metadata_symlinks(&path)?;
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let value: Value = serde_json::from_slice(&bytes)?;
+    if value["schemaVersion"] != PROTOCOL_VERSION
+        || value["kind"] != "Workspace"
+        || value["repoId"].as_str().is_none_or(str::is_empty)
+        || value["defaultLane"]["id"]
+            .as_str()
+            .is_none_or(str::is_empty)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "unsupported or corrupt workspace manifest",
+        ));
     }
-    let bytes = fs::read(&path)?;
-    let value = serde_json::from_slice(&bytes)?;
     Ok(Some(value))
 }
 
@@ -504,12 +577,33 @@ pub fn load_head() -> io::Result<Option<Head>> {
 /// Writes the HEAD pointer atomically and mirrors the snapshot into the active
 /// lane's per-lane head file under `.sorrel/heads/`.
 pub fn write_head(head: &Head) -> io::Result<()> {
+    publish_head(head, false)
+}
+
+/// Complete ref publication and merge cleanup through the same replayable journal.
+pub fn write_head_after_merge(head: &Head) -> io::Result<()> {
+    publish_head(head, true)
+}
+
+fn publish_head(head: &Head, clear_merge: bool) -> io::Result<()> {
+    validate_head(head)?;
     let value = json!({
         "lane": head.lane,
         "snapshot": head.snapshot,
     });
+    let transaction = sorrel_dir().join("HEAD_TRANSACTION");
+    let mut journal = value.clone();
+    journal["clearMergeState"] = json!(clear_merge);
+    write_json_atomic(&transaction, &journal)?;
+    write_lane_head(&head.lane, &head.snapshot)?;
     write_json_atomic(&head_path(), &value)?;
-    write_lane_head(&head.lane, &head.snapshot)
+    if clear_merge {
+        clear_merge_state()?;
+    }
+    fs::remove_file(transaction)?;
+    #[cfg(unix)]
+    fs::File::open(sorrel_dir())?.sync_all()?;
+    Ok(())
 }
 
 /// Loads the per-lane head snapshot id for `lane_id`, if present.
@@ -519,19 +613,24 @@ pub fn write_head(head: &Head) -> io::Result<()> {
 pub fn load_lane_head(lane_id: &str) -> io::Result<Option<String>> {
     ensure_heads_migrated()?;
     let path = lane_head_path(lane_id);
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let bytes = fs::read(&path)?;
+    reject_metadata_symlinks(&path)?;
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
     let value: Value = serde_json::from_slice(&bytes)?;
     let snapshot = value
         .get("snapshot")
         .and_then(Value::as_str)
-        .unwrap_or_default()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "lane head missing snapshot"))?
         .to_owned();
     if snapshot.is_empty() {
         Ok(None)
     } else {
+        snapshot
+            .parse::<sorrel_core::ObjectId>()
+            .map_err(io::Error::other)?;
         Ok(Some(snapshot))
     }
 }
@@ -562,22 +661,71 @@ pub fn ensure_heads_migrated() -> io::Result<()> {
 /// Loads HEAD without triggering per-lane head migration (avoids recursion).
 fn load_head_raw() -> io::Result<Option<Head>> {
     let path = head_path();
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let bytes = fs::read(&path)?;
+    reject_metadata_symlinks(&path)?;
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
     let value: Value = serde_json::from_slice(&bytes)?;
     let lane = value
         .get("lane")
         .and_then(Value::as_str)
-        .unwrap_or(DEFAULT_LANE_ID)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "HEAD missing lane"))?
         .to_owned();
     let snapshot = value
         .get("snapshot")
         .and_then(Value::as_str)
-        .unwrap_or_default()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "HEAD missing snapshot"))?
         .to_owned();
-    Ok(Some(Head { lane, snapshot }))
+    let head = Head { lane, snapshot };
+    validate_head(&head)?;
+    Ok(Some(head))
+}
+
+/// Reject symlinks within repository metadata before following a read or write.
+pub fn reject_metadata_symlinks(path: &Path) -> io::Result<()> {
+    let mut prefix = PathBuf::new();
+    let mut metadata = false;
+    for part in path.components() {
+        prefix.push(part);
+        metadata |= part.as_os_str() == SORREL_DIR;
+        if metadata {
+            match fs::symlink_metadata(&prefix) {
+                Ok(entry) if entry.file_type().is_symlink() => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "repository metadata contains a symlink",
+                    ))
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_head(head: &Head) -> io::Result<()> {
+    if head.lane.is_empty()
+        || !head
+            .lane
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid HEAD lane",
+        ));
+    }
+    if !head.snapshot.is_empty() && head.snapshot.parse::<sorrel_core::ObjectId>().is_err() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid HEAD snapshot",
+        ));
+    }
+    Ok(())
 }
 
 /// Returns true when a lane registry entry exists for `lane_id`.

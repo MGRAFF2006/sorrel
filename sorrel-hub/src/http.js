@@ -15,10 +15,18 @@ export class HttpError extends Error {
   }
 }
 
+export const MAX_JSON_BODY_BYTES = 16 * 1024 * 1024;
+
 export async function readJsonBody(request) {
+  let length = 0;
+  if (Number(request.headers['content-length']) > MAX_JSON_BODY_BYTES) {
+    throw new HttpError(413, 'request body exceeds 16 MiB', 'body_too_large');
+  }
   const chunks = [];
 
   for await (const chunk of request) {
+    length += chunk.length;
+    if (length > MAX_JSON_BODY_BYTES) throw new HttpError(413, 'request body exceeds 16 MiB', 'body_too_large');
     chunks.push(chunk);
   }
 
@@ -32,8 +40,13 @@ export async function readJsonBody(request) {
   }
 
   try {
-    return JSON.parse(rawBody);
-  } catch {
+    const value = JSON.parse(rawBody);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
+    }
+    return value;
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
     throw new HttpError(400, 'request body must be valid JSON', 'invalid_json');
   }
 }

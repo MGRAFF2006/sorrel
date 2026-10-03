@@ -12,8 +12,8 @@
 
 use serde_json::{Map, Value};
 use sorrel_cli::cli_policy::{
-    evaluate, evaluate_policy_change, Decision, EvaluateInput, Grant, PolicyChange, PolicyContext,
-    PrincipalId, ProposedGrant, ResourceRef, ResourceScope,
+    effect_from_value, evaluate, evaluate_policy_change, Decision, EvaluateInput, Grant,
+    PolicyChange, PolicyContext, PrincipalId, ProposedGrant, ResourceRef, ResourceScope,
 };
 
 const MANIFEST: &str = include_str!("conformance/policy-conformance.json");
@@ -50,6 +50,7 @@ fn resource_scope_from(value: &Value) -> ResourceScope {
 
 fn grant_from(value: &Value) -> Grant {
     Grant {
+        effect: effect_from_value(value.get("effect")),
         principal: principal_from(&value["principal"]),
         capabilities: vec![value["capability"].as_str().unwrap().to_owned()],
         resources: vec![resource_scope_from(&value["resource"])],
@@ -115,6 +116,7 @@ fn embedded_core_agrees_with_permission_decision_vectors() {
 /// scope-broadening checks behave correctly.
 fn previous_grant_from(value: &Value) -> Grant {
     Grant {
+        effect: effect_from_value(value.get("effect")),
         principal: principal_from(&value["principal"]),
         capabilities: vec![value["capability"].as_str().unwrap().to_owned()],
         resources: vec![resource_scope_from(&value["resource"])],

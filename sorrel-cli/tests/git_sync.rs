@@ -65,7 +65,7 @@ fn sync_pulls_new_git_commits_and_fast_forwards() {
     assert_eq!(synced["command"], "git sync");
     assert_eq!(synced["status"], "pulled");
     assert_eq!(synced["importedCommits"], 1);
-    assert_eq!(synced["commits"][0]["message"], "git side");
+    assert_eq!(synced["commits"][0]["message"], "git side\n");
 
     // HEAD advanced to the imported snapshot and the worktree kept both files.
     let status = sorrel_json(root, &["status", "--json"]);
@@ -220,9 +220,75 @@ fn sync_refuses_dirty_worktree_on_pull() {
         !output.status.success(),
         "sync should refuse a dirty worktree"
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let error: Value = serde_json::from_slice(&output.stdout).expect("structured sync failure");
+    assert_eq!(error["schemaVersion"], "sorrel.cli.v1");
+    assert_eq!(error["status"], "error");
+    assert_eq!(error["error"]["code"], "dirty_worktree");
+    assert!(error["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("uncommitted changes"));
+}
+
+#[test]
+fn sync_refuses_staged_git_index_when_pushing_native_history() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    git(root, &["init"]);
+    std::fs::write(root.join("native.txt"), b"base native\n").unwrap();
+    std::fs::write(root.join("staged.txt"), b"base Git\n").unwrap();
+    git(root, &["add", "native.txt", "staged.txt"]);
+    git(root, &["commit", "-m", "Git baseline"]);
+    git(root, &["branch", "-M", "main"]);
+    sorrel_json(root, &["git", "import", "--json"]);
+
+    std::fs::write(root.join("native.txt"), b"recorded in Sorrel\n").unwrap();
+    sorrel_json(
+        root,
+        &["change", "create", "-m", "native history ahead", "--json"],
+    );
+    // Keep this separate from the recorded native edit: Git's staged content
+    // has not entered Sorrel history and must survive a mirror push refusal.
+    std::fs::write(root.join("staged.txt"), b"uncommitted staged Git work\n").unwrap();
+    git(root, &["add", "staged.txt"]);
+    let index_before = git_stdout(root, &["write-tree"]);
+    let branch_before = git_stdout(root, &["rev-parse", "refs/heads/main"]);
+    let head_before = std::fs::read(root.join(".sorrel/HEAD")).unwrap();
+
+    let output = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .args(["git", "sync", "--json"])
+        .output()
+        .unwrap();
     assert!(
-        stderr.contains("uncommitted changes"),
-        "unexpected error: {stderr}"
+        !output.status.success(),
+        "mirror push must preserve staged Git work"
+    );
+    let error: Value =
+        serde_json::from_slice(&output.stdout).expect("structured index guard failure");
+    assert_eq!(error["schemaVersion"], "sorrel.cli.v1");
+    assert_eq!(error["status"], "error");
+    assert_eq!(error["error"]["code"], "dirty_git_index");
+    assert!(error["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("staged"));
+    assert_eq!(git_stdout(root, &["write-tree"]), index_before);
+    assert_eq!(
+        git_stdout(root, &["rev-parse", "refs/heads/main"]),
+        branch_before
+    );
+    assert_eq!(
+        std::fs::read(root.join(".sorrel/HEAD")).unwrap(),
+        head_before
+    );
+    assert_eq!(
+        std::fs::read(root.join("staged.txt")).unwrap(),
+        b"uncommitted staged Git work\n"
+    );
+    assert_eq!(
+        std::fs::read(root.join("native.txt")).unwrap(),
+        b"recorded in Sorrel\n"
     );
 }

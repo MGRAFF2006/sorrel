@@ -26,8 +26,8 @@ development server, not an internet-facing service. It also
 omits merge queue behavior, hosted compute, and secret values. Two further
 declared gaps: list endpoints return full arrays (no pagination), and object
 upload verifies BLAKE3 content ids but does not JSON-Schema-validate object
-bodies (blobs are raw bytes, so structural validation only applies to typed
-objects; deferred).
+bodies on upload. Ref publication validates the reachable typed Snapshot/Tree
+graph before exposing it; full JSON Schema validation remains deferred.
 
 Hub model objects reference the Core permission spine (`Principal`, `ResourceRef`,
 `Policy`, `PolicyDecision`, `Grant`, and `SecretRef`) so Hub can administer and
@@ -98,6 +98,41 @@ survives restarts:
 These adapters authenticate a principal; authorization still requires trusted
 Core grant references. WorkOS remains an adapter skeleton without sealed
 sessions, and the browser UI does not provide an IdP login flow in this alpha.
+
+Only the explicit `dev` adapter accepts acting-principal headers. OIDC/WorkOS
+data routes require a verified session even when such a header is supplied.
+Authenticated deployments are private by default: metadata and sync reads need
+matching trusted Core grants, and collection discovery filters unauthorized
+records. `/healthz`, `/capabilities`, and `/session` remain public. Empty grants
+never authorize a write. Dev mode retains its explicit localhost workflow.
+
+Hub evaluates trusted grant effects in Core order: deny, redact, review, allow.
+Only allow permits a full read or mutation; metadata redaction/review workflows
+are deferred. Revoked, expired, not-yet-issued, and conditional allow grants do
+not authorize requests. Malformed lifecycle dates or unknown versions fail
+closed. A request cannot omit a trusted restrictive grant by selecting only its
+allow references. Trusted records may use legacy `action`/`resource` or native
+Core `capabilities`/`resource` fields and `principal.kind`; protocol capability
+references must be hydrated into capability strings before configuring Hub.
+Signature trust, policy-rule hydration, rotation, and browser login remain
+incomplete; these checks do not establish production readiness.
+
+| Authenticated data operation | Core capability | Resource scope |
+| --- | --- | --- |
+| Sync refs, objects, trees, files, negotiation, discovery | `repo.object.read` | repo |
+| Organization metadata reads | `org.read` | org |
+| Project metadata reads | `project.read` | project |
+| Repository metadata reads | `repo.read` | repo |
+| Proposal/comment reads or writes | `proposal.read` / `proposal.write` | parent project |
+| Workflow metadata reads or writes | `workflow.read` / `workflow.run` | project |
+| Policy metadata reads | `policy.read` | project or org |
+| Organization/project/repository/policy creation | `policy.grant` | target repo/project, or parent org for new records |
+
+These are ordinary Core capability strings, not Hub roles. Read authorization
+uses the configured trusted-grant map rather than accepting grant claims from
+query parameters. Existing repository/policy creation still requires its
+`grantRefs` payload. Authenticated actor fields on proposals/comments and
+workflow requests come from the verified session.
 
 ### Trusted grants (sync push/pull)
 
@@ -252,7 +287,7 @@ Proposal records may carry lane-submit fields: `syncRepoId`, `sourceLane`,
   lane tip. Required: `projectId`, `title`, `sourceLane`, `sourceSnapshot`.
   Optional: `syncRepoId`, `targetLane`, `authorPrincipal`, Core refs.
   Idempotent for the same `syncRepoId` + `sourceLane` + `sourceSnapshot` while
-  status is `open` or `draft` (`{ data, reused }`).
+  status is `open` or `draft`, within the same project (`{ data, reused }`).
 - `GET /collaboration/proposal-summary?projectId=&syncRepoId=` — counts by
   status plus open/draft list.
 
@@ -332,3 +367,22 @@ Initial in-memory model factories live in `src/models.js` for:
 
 Organizations, projects, repositories, proposals, review comments, workflow
 runs, and policies carry Core principal/resource/policy references where useful.
+
+### Transport and persistence limits
+
+JSON requests are limited to 16 MiB (including base64 expansion); clients should
+split larger upload batches. Ref publication requires Snapshot roots, Tree
+root links, Snapshot parent links, valid typed children, and supported explicit
+`schemaVersion` values. Legacy versionless test shapes remain supported. Graph
+walks are iterative and capped at 100,000 queued objects / 256 MiB of object
+bytes. Blobs are opaque and are not interpreted as JSON links.
+
+Failed metadata writes leave the in-memory view unchanged; duplicate IDs return
+409 instead of overwriting another record. Corrupt filesystem refs fail closed
+instead of appearing absent. Run one Hub writer per filesystem store: metadata
+caching and filesystem ref updates do not support multiple Hub processes.
+
+The optional Convex mirror uses internal functions and requires a deployment or
+admin key. `convex.publicCounter=false` disables the public aggregate badge until
+Core-scoped subscriptions exist; proposal data remains available through the
+authorized Hub API.

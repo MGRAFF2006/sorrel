@@ -20,7 +20,7 @@ capabilities and limitations.
 | `change`      | `Change` objects, path-level `snapshot_diff`, `apply_change` |
 | `history`     | snapshot-DAG operations: ancestry sets, merge bases (`git merge-base --all` equivalent) |
 | `merge`       | first three-way snapshot merge: entry-level merge against the best common ancestor with first-class conflicts |
-| `stat_cache`  | size+mtime cache that skips re-hashing unchanged files |
+| `stat_cache`  | size+mtime+Unix identity/change-time cache for unchanged files |
 | `transport`   | sync push/pull helpers: object closure, missing-object negotiation, content-verified batch transfer, ancestry check |
 | `lane_stack`  | `Lane`/`Stack` metadata objects for agent-native work coordination |
 | `policy`      | principals, capabilities, grants, `Policy`, deterministic `evaluate_policy` |
@@ -62,19 +62,28 @@ let store = InMemoryObjectStore::new();
 let snapshot = materialize_snapshot(&store, "/path/to/workspace", SnapshotOptions::new("repo_example"))?;
 ```
 
-Two variants matter in practice:
+These variants matter in practice:
 
 - `materialize_snapshot_excluding` skips top-level names such as `.sorrel`, so
   a workspace can snapshot itself without recursing into its own object store.
 - `materialize_snapshot_excluding_with_stat_cache` additionally takes a
-  `StatCache` (size + mtime keyed by path) and skips re-hashing files whose
-  stats are unchanged — this is what the CLI uses for `status`/`change create`.
+  `StatCache` (size, mtime, and Unix device/inode/change-time keyed by path)
+  and skips re-hashing files whose stats are unchanged.
+  Legacy cache entries and platforms without change-time metadata rehash.
+- `materialize_snapshot_filtered_with_stat_cache` accepts a fallible path filter
+  for hosts that implement ignore rules; skipped directories prune descendants.
+  The CLI uses this variant for `status`, `diff`, and `change create`.
 
 `SnapshotOptions::new` uses a deterministic timestamp and system author so
 identical content yields identical snapshot IDs; set `created_at`/`author`
 explicitly for wall-clock attribution. Read back with `read_snapshot_files`
 (into memory) or `restore_snapshot_to_directory` (overwrites files present in
-the snapshot, leaves other files untouched).
+the snapshot, leaves other files untouched). Restore validates the complete
+snapshot graph and existing destination symlink/type hazards before any writes;
+files are replaced atomically rather than truncating existing hardlinks. Hosts
+that modify a workspace concurrently must serialize checkout operations.
+`validate_snapshot`, `validate_snapshot_restore`, and `validate_snapshot_paths`
+expose the same preflight checks for host-managed checkout transactions.
 
 ## Changes and diff
 
@@ -117,6 +126,12 @@ for diverging file edits:
 - clean merges write a snapshot with parents `[ours, theirs]` and a `MergeResult`
   with status `clean`; any conflicts omit the merged snapshot and return a
   conflicted `MergeResult` listing stored conflict ids.
+
+`merge_snapshots_with_tree` additionally returns the complete candidate `Tree`,
+including clean changes when conflicts remain. Callers restoring a conflicted
+merge should use that tree before overlaying conflict markers; restoring only
+conflict paths loses unrelated incoming edits. File/directory collisions return
+`MergeError::FileDirectoryConflict` without producing a clean merged snapshot.
 
 Stored `Conflict` / `MergeResult` JSON follows the protocol object schema:
 conflicts carry `repoId`, `{ "object": "<64-hex>" }` refs for `base` / `ours` /

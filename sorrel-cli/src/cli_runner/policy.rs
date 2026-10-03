@@ -118,6 +118,7 @@ mod tests {
     fn granted_context() -> PolicyContext {
         let mut context = restrictive_context();
         context.grants.push(Grant {
+            effect: crate::cli_policy::GrantEffect::Allow,
             principal: PrincipalId {
                 kind: "agent".to_owned(),
                 id: "agent_mock_cli".to_owned(),

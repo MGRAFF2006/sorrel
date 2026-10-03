@@ -1,8 +1,9 @@
 # Sorrel architecture
 
-Last updated: 2026-09-01
+Last updated: 2026-10-02
 
-This document describes the architecture that exists in `v0.1.0-alpha.2`.
+This document describes the current source tree. The latest published release
+is `v0.1.0-alpha.2`; unreleased source changes are described here too.
 Long-term product research lives in
 [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](../AGENT_NATIVE_VERSION_CONTROL_REPORT.md);
 it is design background, not a statement that every described feature ships.
@@ -82,25 +83,50 @@ A CLI workspace adds mutable references around those immutable objects:
   changes.index     snapshot-to-change lookup
   remotes.json      Hub remotes
   git-map.json      Git SHA ↔ Sorrel snapshot mapping, when used
+  agents/           shared advisory agent records and claims
+  workspaces/       owner links to external agent checkouts
+  tracked.json      explicit ignore exceptions
+  LOCK              OS advisory lock
+  HEAD_TRANSACTION / WORKSPACE_CREATE / CHECKOUT_STATE  operation journals
   MERGE_STATE       only while resolving a conflicted merge
 ```
 
-Mutable files are written atomically. Unknown format versions fail closed.
-There is no general migration framework yet, so alpha workspaces and Hub data
-must be backed up before upgrading.
+Metadata writes use unique temporary files, fsync, and atomic replacement. CLI
+repository operations and SDK access share an OS advisory lock. HEAD/lane writes
+replay `HEAD_TRANSACTION` after interruption; Change metadata is published before
+HEAD. Checkout saves `CHECKOUT_STATE` before modifying files and requires
+`recover --abort` after failure. Workspace creation similarly replays
+`WORKSPACE_CREATE`. These journals recover process interruption; a complete
+checkout is not power-loss atomic or isolated from arbitrary external edits.
+Unknown object/workspace versions fail closed; there is no general workspace or
+Hub migration framework. Back up alpha data before upgrading.
 
 ## Change, lane, and merge flow
 
-`status`, `diff`, and `change create` materialize the working tree while
-excluding `.sorrel/`. A size/mtime stat cache avoids rehashing unchanged files.
-Each lane has an independent head, so parallel work can advance without sharing
-one mutable branch pointer.
+`status`, `diff`, and `change create` share tracked-file selection, including
+nested Git/Sorrel ignore rules and explicit `track add` exceptions. Metadata,
+local dotenv secrets, and common build/dependency output are excluded by default;
+existing tracked files remain tracked. The cache combines size/mtime with Unix
+device/inode/change time; unsupported platforms and legacy entries rehash.
+
+One directory still has one active HEAD. `workspace create` gives each agent an
+independent directory/store and assigned lane, carrying validated snapshot and
+Change history plus agent/task/base metadata. The owner serializes integration
+with the worker lock held, checks identity, ancestry, history and cleanliness,
+then merges the imported tip into its active lane. Worker files remain untouched.
+Path claims are advisory owner-side records, separate from filesystem isolation.
 
 Merging first finds the best common ancestor. A fast-forward only moves the
 active lane. A divergent merge compares base/ours/theirs and either writes a
 two-parent snapshot or persists `Conflict` objects plus a `MergeResult`.
-The CLI leaves marker-annotated working files and `MERGE_STATE` for
+The engine also exposes the complete provisional merge tree while conflicts
+remain. The CLI restores its clean changes before overlaying markers, and leaves
+`MERGE_STATE` for
 `merge --continue` or restores the pre-merge tree with `merge --abort`.
+File/directory collisions fail explicitly rather than dropping a side. Core restoration and CLI checkout validate typed graphs, tree paths, blob
+metadata, and metadata/symlink boundaries before modifying files. Atomic file
+replacement avoids overwriting external hardlinks. Host serialization remains
+necessary for simultaneous filesystem changes.
 
 ## Git compatibility
 
@@ -119,6 +145,10 @@ Hub separates product metadata from VCS transport:
 - Sync objects and refs use a filesystem store with digest verification,
   missing-object negotiation, closure checks, and fast-forward/expected-head
   enforcement.
+- CLI pull downloads and validates a complete snapshot closure without changing
+  HEAD. The command rejects dirty worktrees, in-progress merges, and replacement
+  of recorded history; fresh empty workspaces may adopt unrelated history.
+  It rechecks local state after download, restores files, then advances HEAD.
 - `/capabilities` describes installed modules, auth mode, deployment shape, and
   optional Convex availability. `/session` exposes the resolved Hub session.
 - The shared SolidJS UI calls Hub through a host-injected transport: the
@@ -149,9 +179,18 @@ evaluated against the previous effective authority, so it cannot authorize
 itself. The canonical conformance manifest is vendored into Core, CLI, Hub,
 Runners, and Vault; checksum and behavior tests keep implementations aligned.
 
-Hub development auth accepts an acting-principal header only on loopback or
-under an explicit insecure-demo override. OIDC bearer verification and WorkOS
-adapter seams exist, but production sessions and login are not complete.
+Hub development auth accepts an acting-principal header only with an explicit
+development adapter on loopback or under an insecure-demo override. OIDC/WorkOS
+guarded operations require a verified session and never fall back to that header.
+Verified sessions gate guarded metadata mutations and private sync reads;
+discovery is filtered by trusted grants. Hub enforces matching deny precedence,
+lifecycle and expiry checks, and fails closed on effects/conditions it cannot
+execute. Ref publication validates a typed, bounded snapshot closure; persistence
+failures roll memory state back before readers can observe it. This is still a
+single-writer Hub with a limited policy evaluator: native Core rule/signature
+hydration, sealed WorkOS sessions, and a browser IdP flow remain ahead. Internal
+Convex mirror functions require service credentials; the UI polls Hub unless a
+public counter capability is explicitly advertised.
 
 Secret values are not Sorrel objects. Protocol, CLI, Vault, Runners, Hub, and UI
 carry `SecretRef` handles and policy/audit metadata. The CLI integrates upstream
@@ -171,8 +210,9 @@ environment data; follow/Hub streaming is not implemented.
 
 Slices compute deterministic TS/JS dependency closures for focused context.
 The agent package persists advisory agent/lane registrations and path claims;
-it is coordination, not an enforcement boundary. The JavaScript and Rust SDKs
-are intentionally thin until a stable embedding surface is designed.
+it is coordination, not an enforcement boundary. The Rust SDK shares the CLI workspace/lock/manifest contract and creates detached
+filtered snapshots without moving refs. JavaScript remains a thin Hub client;
+neither SDK claims a stable complete embedding surface.
 
 ## Compatibility and trust rules
 

@@ -13,7 +13,7 @@
  *     objectStorage: 'fs' | 'memory',
  *   },
  *   auth: { mode: 'dev' | 'workos' | 'oidc', session: 'cookie' | 'bearer' | 'none' },
- *   convex: { enabled: boolean, url?: string },
+ *   convex: { enabled: boolean, publicCounter: false, url?: string },
  *   deploy: 'saas' | 'selfhost' | 'dev',
  * }} HubCapabilities
  */
@@ -70,6 +70,7 @@ export function resolveCapabilities(options = {}) {
     },
     convex: {
       enabled: convexEnabled,
+      publicCounter: false,
       ...(convexUrl ? { url: convexUrl } : {}),
     },
     deploy,

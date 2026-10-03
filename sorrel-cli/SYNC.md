@@ -139,8 +139,22 @@ $SORREL pull
 # Pulled origin/HEAD to <snapshot> (N object(s))
 ```
 
-Pull downloads any objects missing locally, then updates `.sorrel/HEAD` to the
-remote snapshot without deleting unrelated local-only objects.
+Pull downloads and validates the remote snapshot closure. It refuses uncommitted
+working-tree changes, in-progress merges, and updates that would replace recorded
+local history. A fresh, empty initialized workspace can adopt the remote history;
+subsequent updates must fast-forward. Divergence needs explicit integration rather
+than a forced pull.
+
+Local HEAD and worktree state are checked again after downloading. Before checkout,
+the CLI validates file and directory paths, metadata boundaries, and existing
+symlinks. It restores files before updating `.sorrel/HEAD` and its lane head.
+Downloaded immutable objects remain available when a pull is refused. Filesystem
+writes and related ref writes are not yet a recoverable transaction, so concurrent
+writers and interrupted checkout remain limitations.
+
+The Rust `sorrel_cli::sync::pull` helper now only downloads and validates objects;
+it does not update HEAD. Embedders must perform their own workspace safety checks
+and checkout before publishing a local head.
 
 ## Example session
 

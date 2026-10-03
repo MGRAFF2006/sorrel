@@ -4,7 +4,10 @@ use std::{
     fs,
     io::{self, Write},
     path::PathBuf,
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
 };
 
 /// Result type used by Sorrel object stores.
@@ -160,8 +163,23 @@ impl FileObjectStore {
         self.objects_dir().join(&hex[..2])
     }
 
-    fn tmp_path(&self, id: &ObjectId) -> PathBuf {
-        self.tmp_dir().join(format!("{id}.tmp"))
+    fn create_tmp(&self, id: &ObjectId) -> ObjectStoreResult<(PathBuf, fs::File)> {
+        static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+        loop {
+            let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let path = self
+                .tmp_dir()
+                .join(format!("{id}.{}.{sequence}.tmp", std::process::id()));
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(file) => return Ok((path, file)),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(ObjectStoreError::io(path, error)),
+            }
+        }
     }
 }
 
@@ -190,36 +208,51 @@ impl ObjectStore for FileObjectStore {
     fn write(&self, bytes: &[u8]) -> ObjectStoreResult<ObjectId> {
         let id = ObjectId::for_bytes(bytes);
         let path = self.object_path(&id);
-        if path.exists() {
-            return Ok(id);
+        match self.read(&id) {
+            Ok(_) => return Ok(id),
+            Err(ObjectStoreError::NotFound(_)) => {}
+            Err(error) => return Err(error),
         }
 
         let shard_dir = self.shard_dir(&id);
         fs::create_dir_all(&shard_dir)
             .map_err(|source| ObjectStoreError::io(&shard_dir, source))?;
+        #[cfg(unix)]
+        fs::File::open(self.objects_dir())
+            .and_then(|dir| dir.sync_all())
+            .map_err(|source| ObjectStoreError::io(self.objects_dir(), source))?;
 
-        let tmp_path = self.tmp_path(&id);
-        {
-            let mut tmp_file = fs::File::create(&tmp_path)
-                .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
+        let (tmp_path, mut tmp_file) = self.create_tmp(&id)?;
+        let result = (|| {
             tmp_file
                 .write_all(bytes)
                 .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
             tmp_file
                 .sync_all()
                 .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
-        }
-
-        match fs::rename(&tmp_path, &path) {
-            Ok(()) => Ok(id),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                let _ = fs::remove_file(&tmp_path);
+            // Publish without replacing an existing immutable object. Writers of
+            // identical bytes may race; every winner is still verified below.
+            match fs::hard_link(&tmp_path, &path) {
+                Ok(()) => {
+                    #[cfg(unix)]
+                    fs::File::open(&shard_dir)
+                        .and_then(|dir| dir.sync_all())
+                        .map_err(|source| ObjectStoreError::io(&shard_dir, source))?;
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(ObjectStoreError::io(&path, error)),
+            }
+            self.read(&id)?;
+            Ok(id)
+        })();
+        drop(tmp_file);
+        let cleanup = fs::remove_file(&tmp_path);
+        match result {
+            Ok(id) => {
+                cleanup.map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
                 Ok(id)
             }
-            Err(error) => {
-                let _ = fs::remove_file(&tmp_path);
-                Err(ObjectStoreError::io(path, error))
-            }
+            Err(error) => Err(error),
         }
     }
 
@@ -326,6 +359,79 @@ mod tests {
             ObjectStoreError::ContentMismatch { expected, actual }
                 if expected == id && actual == ObjectId::for_bytes(b"corrupt")
         ));
+    }
+
+    #[test]
+    fn concurrent_writers_publish_complete_objects_without_shared_temporaries() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(temp_dir.path()).unwrap();
+        let content = vec![42; 128 * 1024];
+        let barrier = std::sync::Barrier::new(12);
+        std::thread::scope(|scope| {
+            for _ in 0..12 {
+                scope.spawn(|| {
+                    barrier.wait();
+                    for _ in 0..8 {
+                        let id = store.write(&content).unwrap();
+                        assert_eq!(store.read(&id).unwrap(), content);
+                    }
+                });
+            }
+        });
+        assert_eq!(count_files(&store.objects_dir()), 1);
+        assert_eq!(count_files(&store.tmp_dir()), 0);
+    }
+
+    #[test]
+    fn object_store_process_writer() {
+        let Some(root) = std::env::var_os("SORREL_TEST_OBJECT_STORE") else {
+            return;
+        };
+        let store = FileObjectStore::new(PathBuf::from(root)).unwrap();
+        for _ in 0..32 {
+            let id = store.write(&vec![42; 128 * 1024]).unwrap();
+            assert_eq!(store.read(&id).unwrap(), vec![42; 128 * 1024]);
+        }
+    }
+
+    #[test]
+    fn process_writers_publish_without_truncating_each_others_temporaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(dir.path()).unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let mut children = Vec::new();
+        for _ in 0..6 {
+            children.push(
+                std::process::Command::new(&exe)
+                    .args([
+                        "--exact",
+                        "store::tests::object_store_process_writer",
+                        "--quiet",
+                    ])
+                    .env("SORREL_TEST_OBJECT_STORE", dir.path())
+                    .stdout(std::process::Stdio::null())
+                    .spawn()
+                    .unwrap(),
+            );
+        }
+        for mut child in children {
+            assert!(child.wait().unwrap().success());
+        }
+        assert_eq!(count_files(&store.objects_dir()), 1);
+        assert_eq!(count_files(&store.tmp_dir()), 0);
+    }
+
+    #[test]
+    fn rewriting_corrupt_object_fails_without_overwriting_it() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(temp_dir.path()).unwrap();
+        let id = store.write(b"original").unwrap();
+        fs::write(store.object_path(&id), b"corrupt").unwrap();
+        assert!(matches!(
+            store.write(b"original"),
+            Err(ObjectStoreError::ContentMismatch { .. })
+        ));
+        assert_eq!(fs::read(store.object_path(&id)).unwrap(), b"corrupt");
     }
 
     fn count_files(path: &Path) -> usize {

@@ -45,7 +45,7 @@ pub struct PullResult {
     pub remote: String,
     /// Ref name read on the remote.
     pub ref_name: String,
-    /// Snapshot id now at local HEAD.
+    /// Downloaded remote snapshot id; the caller owns checkout and HEAD updates.
     pub snapshot: String,
     /// Number of objects downloaded.
     pub downloaded: usize,
@@ -302,7 +302,10 @@ pub fn push(
     })
 }
 
-/// Pulls `ref_name` from `remote` and updates local HEAD to the remote snapshot.
+/// Downloads and validates `ref_name` from `remote` without changing local HEAD.
+///
+/// The caller must check workspace safety, restore the tree, and only then
+/// advance HEAD. Object downloads alone must not discard local history.
 pub fn pull(
     store: &FileObjectStore,
     remote: &Remote,
@@ -349,11 +352,11 @@ pub fn pull(
         downloaded += 1;
     }
 
-    let lane = head.lane;
-    repo::write_head(&Head {
-        lane,
-        snapshot: remote_snapshot.to_hex(),
-    })?;
+    // A server's missing-object response is advisory. Verify that the promised
+    // root really is a snapshot and that its entire closure is present locally.
+    sorrel_core::read_snapshot(store, &remote_snapshot)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+    local_closure(store, &remote_snapshot)?;
 
     Ok(PullResult {
         remote: remote_name.to_owned(),

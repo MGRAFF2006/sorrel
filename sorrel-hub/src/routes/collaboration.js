@@ -6,6 +6,7 @@
  */
 
 import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
+import { assertCoreAccess, canCoreAccess } from '../policy-guard.js';
 import { StoreNotFoundError } from '../store.js';
 
 /**
@@ -36,7 +37,8 @@ export async function handleCollaborationRoute(request, response, context) {
   throw new HttpError(404, 'collaboration route not found', 'not_found');
 }
 
-async function laneSubmit(request, response, { store, session }) {
+async function laneSubmit(request, response, context) {
+  const { store, session } = context;
   const body = await readJsonBody(request);
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -62,9 +64,12 @@ async function laneSubmit(request, response, { store, session }) {
     throw new HttpError(400, 'title is required', 'invalid_request_body');
   }
 
+  assertCoreAccess(context, 'proposal.write', { kind: 'project', id: projectId.trim() });
+
   // Prefer reusing an open/draft proposal for the same lane tip.
   const existing = store
     .listProposals({
+      projectId: projectId.trim(),
       syncRepoId: typeof syncRepoId === 'string' ? syncRepoId : undefined,
       sourceLane: sourceLane.trim(),
     })
@@ -93,7 +98,7 @@ async function laneSubmit(request, response, { store, session }) {
       description: body.description,
       authorPrincipal:
         session?.principal ?? body.authorPrincipal ?? { type: 'user', id: 'local' },
-      authorRef: body.authorRef,
+      authorRef: context.authAdapter.mode === 'dev' ? body.authorRef : undefined,
       sourceLane: sourceLane.trim(),
       targetLane: body.targetLane ?? 'lane_main',
       sourceSnapshot: sourceSnapshot.trim(),
@@ -130,10 +135,11 @@ async function laneSubmit(request, response, { store, session }) {
   );
 }
 
-function proposalSummary(response, { store, url }) {
+function proposalSummary(response, context) {
+  const { store, url } = context;
   const projectId = url.searchParams.get('projectId') ?? undefined;
   const syncRepoId = url.searchParams.get('syncRepoId') ?? undefined;
-  const proposals = store.listProposals({ projectId, syncRepoId });
+  const proposals = store.listProposals({ projectId, syncRepoId }).filter((proposal) => canCoreAccess(context, 'proposal.read', { kind: 'project', id: proposal.projectId }));
 
   const byStatus = {};
   for (const proposal of proposals) {

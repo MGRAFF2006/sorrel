@@ -4,5 +4,5 @@
   "manifestFile": "policy-conformance.json",
   "manifestVersion": "policy_conformance_v0",
   "schemaVersion": "sorrel.protocol.v0",
-  "sha256": "6debd14c694254002ff16c7856f7ee8584f8457685fbb30a67736e466e46d9a5"
+  "sha256": "fe5208679b00d55ae049aa6f80b504e55f1d5d542e30724e60174094e6cf73d6"
 }

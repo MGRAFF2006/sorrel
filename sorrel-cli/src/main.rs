@@ -11,16 +11,18 @@ use cli_policy::{
 use serde_json::{json, Value};
 use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
-    create_change, create_lane, create_stack, git_export, git_import, is_descendant,
-    materialize_snapshot_excluding_with_stat_cache, merge_base, merge_snapshots,
-    parse_object_id_hex, read_conflict, read_snapshot, read_snapshot_files, read_stack,
-    restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree, ChangeOptions,
-    ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
-    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
-    PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
+    create_change, create_lane, create_stack, git_export, git_import, is_descendant, merge_base,
+    merge_snapshots_with_tree, parse_object_id_hex, read_conflict, read_snapshot,
+    read_snapshot_files, read_stack, restore_snapshot_to_directory, snapshot_diff, write_snapshot,
+    write_tree, ChangeOptions, ConflictType, FileObjectStore, GitExportOptions, GitImportOptions,
+    ImportResult, ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef,
+    ObjectStore, PathChangeKind, SnapshotOptions, StackOptions, StatCache, Visibility,
 };
 
-use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
+use sorrel_cli::{
+    agent_cmd, cli_policy, command_error, error_code, hub, linediff, repo, sync, tracking,
+    workspace_cmd, CommandOutput,
+};
 
 use sorrel_cli::workflow_cmd::{self, WorkflowFileArgs, WorkflowRunJobArgs};
 
@@ -47,6 +49,26 @@ struct Cli {
 enum Commands {
     /// Initialize Sorrel metadata for the current repository.
     Init,
+    /// Manage isolated agent working directories and integrate recorded work.
+    Workspace {
+        #[command(subcommand)]
+        command: workspace_cmd::WorkspaceCommand,
+    },
+    /// Register agents and coordinate advisory path claims.
+    Agent {
+        #[command(subcommand)]
+        command: agent_cmd::AgentCommand,
+    },
+    /// Explicitly include ignored files or directories in snapshots.
+    Track {
+        #[command(subcommand)]
+        command: tracking::TrackCommand,
+    },
+    /// Inspect an interrupted checkout, or explicitly restore its previous state.
+    Recover {
+        #[arg(long)]
+        abort: bool,
+    },
     /// Show Sorrel repository status (real dirty detection vs HEAD).
     Status,
     /// Show line-level differences between the working tree and HEAD.
@@ -494,13 +516,38 @@ struct PullArgs {
 }
 
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
-        Ok(()) => ExitCode::SUCCESS,
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
         Err(error) => {
-            eprintln!("sorrel: {error}");
-            ExitCode::FAILURE
+            if error.use_stderr() && std::env::args_os().any(|arg| arg == "--json") {
+                return print_error(&command_error("invalid_input", error.to_string()), true);
+            }
+            let success = !error.use_stderr();
+            let _ = error.print();
+            return if success {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            };
         }
+    };
+    let json_mode = cli.json;
+    match run(cli) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => print_error(&error, json_mode),
     }
+}
+
+fn print_error(error: &io::Error, json_mode: bool) -> ExitCode {
+    if json_mode {
+        let value = json!({"schemaVersion":"sorrel.cli.v1","status":"error","error":{"code":error_code(error),"message":error.to_string()}});
+        if let Err(output_error) = write_json(io::stdout().lock(), &value) {
+            eprintln!("sorrel: {output_error}");
+        }
+    } else {
+        eprintln!("sorrel: {error}");
+    }
+    ExitCode::FAILURE
 }
 
 fn run(cli: Cli) -> io::Result<()> {
@@ -523,7 +570,58 @@ fn run(cli: Cli) -> io::Result<()> {
         };
     }
 
-    let output = execute(cli.command)?;
+    // Read operations also take the lock so they cannot observe split ref writes.
+    // External workflows/secret commands run outside it to avoid child deadlocks.
+    let vcs_command = !matches!(
+        &cli.command,
+        Commands::Secret { .. }
+            | Commands::Env { .. }
+            | Commands::Workflow { .. }
+            | Commands::Run { .. }
+            | Commands::Policy { .. }
+    );
+    let needs_metadata = repo::is_initialized()
+        || matches!(
+            &cli.command,
+            Commands::Init
+                | Commands::Git {
+                    command: GitCommand::Import(_)
+                }
+        );
+    let _lock = if vcs_command && needs_metadata {
+        Some(repo::RepositoryLock::acquire(Path::new("."))?)
+    } else {
+        None
+    };
+    if _lock.is_some() {
+        repo::reject_metadata_symlinks(&repo::manifest_path())?;
+        repo::reject_metadata_symlinks(&repo::merge_state_path())?;
+        repo::recover_head_update()?;
+        workspace_cmd::recover_creation()?;
+        if repo::sorrel_dir().join("CHECKOUT_STATE").exists()
+            && !matches!(&cli.command, Commands::Recover { .. })
+        {
+            return Err(command_error(
+                "recovery_required",
+                "interrupted checkout; inspect `sorrel recover`, then use `sorrel recover --abort`",
+            ));
+        }
+    }
+    let finalize_checkout = !matches!(&cli.command, Commands::Recover { abort: false });
+    let result = execute(cli.command);
+    // Conflicts are a completed operation with durable MERGE_STATE, despite the
+    // nonzero exit code. Other failures retain the checkout recovery record.
+    if _lock.is_some()
+        && finalize_checkout
+        && (result.is_ok()
+            || result
+                .as_ref()
+                .err()
+                .is_some_and(|error| error_code(error) == "merge_conflict"))
+    {
+        clear_checkout_state()?;
+    }
+    let output = result?;
 
     if cli.json {
         write_json(io::stdout().lock(), &output.json)
@@ -536,6 +634,20 @@ fn run(cli: Cli) -> io::Result<()> {
 fn execute(command: Commands) -> io::Result<CommandOutput> {
     match command {
         Commands::Init => init_output(),
+        Commands::Agent { command } => agent_cmd::execute(command),
+        Commands::Track { command } => tracking::execute(command),
+        Commands::Recover { abort } => recover_output(abort),
+        Commands::Workspace { command } => match command {
+            workspace_cmd::WorkspaceCommand::Create(args) => workspace_cmd::create(args),
+            workspace_cmd::WorkspaceCommand::List => workspace_cmd::list(),
+            workspace_cmd::WorkspaceCommand::Integrate { id } => {
+                let integration = workspace_cmd::prepare_integration(&id)?;
+                let mut output = merge_lane_output(&integration.lane)?;
+                output.json["command"] = json!("workspace integrate");
+                output.json["workspace"] = integration.workspace;
+                Ok(output)
+            }
+        },
         Commands::Status => status_output(),
         Commands::Diff(args) => diff_output(args),
         Commands::Log(args) => log_output(args),
@@ -611,6 +723,19 @@ fn init_output() -> io::Result<CommandOutput> {
         });
     }
 
+    if repo::sorrel_dir().join("objects/objects").try_exists()? {
+        return Err(command_error(
+            "invalid_workspace",
+            "legacy SDK object storage requires migration before initialization",
+        ));
+    }
+    if repo::head_path().try_exists()? || repo::changes_index_path().try_exists()? {
+        return Err(command_error(
+            "invalid_workspace",
+            "repository refs exist without a manifest; repair the workspace before initializing it",
+        ));
+    }
+
     fs::create_dir_all(repo::sorrel_dir().join(repo::SLICES_DIR))?;
     fs::create_dir_all(repo::registry_dir(repo::LANES_DIR))?;
     fs::create_dir_all(repo::registry_dir(repo::STACKS_DIR))?;
@@ -631,7 +756,6 @@ fn init_output() -> io::Result<CommandOutput> {
     let head_snapshot = snapshot.id.to_hex();
 
     let manifest = repo::build_manifest(&repo_id, &created_at);
-    repo::write_manifest(&manifest)?;
     // write_head also seeds `.sorrel/heads/<default-lane>`.
     repo::write_head(&repo::Head {
         lane: repo::DEFAULT_LANE_ID.to_owned(),
@@ -647,6 +771,8 @@ fn init_output() -> io::Result<CommandOutput> {
         "createdAt": created_at,
     });
     repo::write_registry_entry(repo::LANES_DIR, repo::DEFAULT_LANE_ID, &default_lane)?;
+    // The manifest is the initialization marker; publish it after all refs.
+    repo::write_manifest(&manifest)?;
 
     Ok(CommandOutput {
         json: json!({
@@ -752,6 +878,12 @@ fn status_output() -> io::Result<CommandOutput> {
 }
 
 fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
+    if repo::merge_in_progress() {
+        return Err(command_error(
+            "merge_in_progress",
+            "finish `sorrel merge --continue` or `sorrel merge --abort` before recording a change",
+        ));
+    }
     let Some(manifest) = repo::load_manifest()? else {
         return Err(io::Error::other(
             "workspace is not initialized; run `sorrel init`",
@@ -782,26 +914,28 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
     let diff = to_io(snapshot_diff(&store, &base_id, &new_snapshot))?;
 
     if diff.is_empty() {
-        return Err(io::Error::other("no changes to record since HEAD"));
+        return Err(command_error(
+            "no_changes",
+            "no changes to record since HEAD",
+        ));
     }
 
     let change = to_io(create_change(&store, base_id, new_snapshot, {
-        let mut options = ChangeOptions::new(Principal::system(), args.message.clone());
+        let mut options =
+            ChangeOptions::new(workspace_cmd::current_principal()?, args.message.clone());
         options.description = args.description.clone();
         options
     }))?;
 
-    // Advance HEAD to the new snapshot on the current lane.
-    repo::write_head(&repo::Head {
-        lane: head.lane,
-        snapshot: new_snapshot.to_hex(),
-    })?;
-
-    // Record snapshot → change so `log` can resolve Change metadata later.
+    // Publish Change metadata before making the snapshot visible through HEAD.
     let change_id = change.id.to_hex();
     repo::append_changes_index(&repo::ChangesIndexEntry {
         snapshot: new_snapshot.to_hex(),
         change: change_id.clone(),
+    })?;
+    repo::write_head(&repo::Head {
+        lane: head.lane,
+        snapshot: new_snapshot.to_hex(),
     })?;
 
     let (changes, total) = diff_json(&change.diff);
@@ -1182,7 +1316,7 @@ fn lane_create_output(args: LaneCreateArgs) -> io::Result<CommandOutput> {
         args.name.clone(),
         base_id,
         base_id,
-        Principal::system(),
+        workspace_cmd::current_principal()?,
         Visibility::Private,
     );
     options.created_at = repo::now_rfc3339();
@@ -1229,7 +1363,7 @@ fn stack_create_output(args: StackCreateArgs) -> io::Result<CommandOutput> {
         args.name.clone(),
         tip,
         tip,
-        Principal::system(),
+        workspace_cmd::current_principal()?,
         Visibility::Private,
     );
     options.created_at = repo::now_rfc3339();
@@ -1406,7 +1540,8 @@ fn lane_switch_output(args: LaneSwitchArgs) -> io::Result<CommandOutput> {
 
     // Refuse to switch with a dirty working tree so we never lose uncommitted edits.
     if worktree_is_dirty(&store, &repo_id, &current_snapshot)? {
-        return Err(io::Error::other(
+        return Err(command_error(
+            "dirty_worktree",
             "working tree has uncommitted changes; commit or discard them before switching lanes",
         ));
     }
@@ -1523,6 +1658,27 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
         args.path.clone()
     };
 
+    // First adoption must check Git's tracked files: Sorrel has no baseline yet.
+    if !args.force && git_path.canonicalize()? == Path::new(".").canonicalize()? {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&git_path)
+            .args(["status", "--porcelain=1", "-z", "--untracked-files=no"])
+            .output()?;
+        if !output.status.success() {
+            return Err(command_error(
+                "git_error",
+                "cannot inspect Git working tree",
+            ));
+        }
+        if !output.stdout.is_empty() {
+            return Err(command_error(
+                "dirty_worktree",
+                "Git has uncommitted tracked changes; commit or discard them before adoption",
+            ));
+        }
+    }
+
     let created_workspace = if !repo::is_initialized() {
         let _ = init_output()?;
         true
@@ -1549,7 +1705,8 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
         if !created_workspace {
             if let Some(base) = head_snapshot_id(&head)? {
                 if worktree_is_dirty(&store, &repo_id, &base)? {
-                    return Err(io::Error::other(
+                    return Err(command_error(
+                        "dirty_worktree",
                         "working tree has uncommitted changes; commit, discard, or pass --force",
                     ));
                 }
@@ -1988,7 +2145,8 @@ fn git_sync_finish_pull(
             None => false,
         };
         if !clean && !force {
-            return Err(io::Error::other(
+            return Err(command_error(
+                "dirty_worktree",
                 "working tree has uncommitted changes; commit or discard them, or pass --force",
             ));
         }
@@ -2009,6 +2167,27 @@ fn git_sync_push(
     tip: ObjectId,
     sha_map: &std::collections::BTreeMap<String, ObjectId>,
 ) -> io::Result<CommandOutput> {
+    if git_checked_out_branch(git_path).as_deref() == Some(branch) {
+        let status = std::process::Command::new("git")
+            .args(["diff", "--cached", "--quiet", "--exit-code"])
+            .current_dir(git_path)
+            .status()?;
+        match status.code() {
+            Some(0) => {}
+            Some(1) => {
+                return Err(command_error(
+                    "dirty_git_index",
+                    "Git has staged changes; commit or unstage them before syncing Sorrel history",
+                ))
+            }
+            _ => {
+                return Err(command_error(
+                    "git_error",
+                    "cannot inspect Git staged changes",
+                ))
+            }
+        }
+    }
     let snapshot_to_git: std::collections::BTreeMap<ObjectId, String> =
         sha_map.iter().map(|(sha, id)| (*id, sha.clone())).collect();
     let mut options = GitExportOptions::new(git_path, tip);
@@ -2026,7 +2205,7 @@ fn git_sync_push(
     // index so `git status` stays clean after the ref moved (worktree already
     // matches the exported content).
     if git_checked_out_branch(git_path).as_deref() == Some(branch) {
-        git_reset_index(git_path, &exported.head_git_sha);
+        git_reset_index(git_path, &exported.head_git_sha)?;
     }
 
     let created = exported.commits.iter().filter(|c| c.created).count();
@@ -2146,7 +2325,7 @@ fn park_git_lane(
         name.clone(),
         *theirs,
         *theirs,
-        Principal::system(),
+        workspace_cmd::current_principal()?,
         Visibility::Private,
     );
     options.created_at = repo::now_rfc3339();
@@ -2253,15 +2432,18 @@ fn git_checked_out_branch(git_path: &Path) -> Option<String> {
     }
 }
 
-/// Best-effort `git reset --mixed <sha>` to refresh a colocated index after the
-/// checked-out branch ref moved (the worktree already matches the new commit).
-fn git_reset_index(git_path: &Path, sha: &str) {
-    let _ = std::process::Command::new("git")
+/// Refresh a colocated index only after its staged state has been checked.
+fn git_reset_index(git_path: &Path, sha: &str) -> io::Result<()> {
+    let status = std::process::Command::new("git")
         .args(["reset", "--quiet", "--mixed", sha])
         .current_dir(git_path)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status();
+        .status()?;
+    if !status.success() {
+        return Err(command_error("git_index_update_failed", "Git branch advanced, but its index could not be refreshed; inspect Git status before retrying"));
+    }
+    Ok(())
 }
 
 fn merge_output(args: MergeArgs) -> io::Result<CommandOutput> {
@@ -2360,7 +2542,7 @@ fn merge_continue_output() -> io::Result<CommandOutput> {
         ));
     }
 
-    let remaining = conflict_marker_paths()?;
+    let remaining = conflict_marker_paths(&store, &state)?;
     if !remaining.is_empty() {
         return Err(io::Error::other(format!(
             "unresolved conflict markers in: {}; remove markers before --continue",
@@ -2386,21 +2568,19 @@ fn merge_continue_output() -> io::Result<CommandOutput> {
         &store,
         ours_id,
         result_snapshot,
-        ChangeOptions::new(Principal::system(), message.clone()),
+        ChangeOptions::new(workspace_cmd::current_principal()?, message.clone()),
     ))?;
 
     let result_hex = result_snapshot.to_hex();
-    repo::write_head(&repo::Head {
-        lane: head.lane,
-        snapshot: result_hex.clone(),
-    })?;
-
     let change_id = change.id.to_hex();
     repo::append_changes_index(&repo::ChangesIndexEntry {
         snapshot: result_hex.clone(),
         change: change_id.clone(),
     })?;
-    repo::clear_merge_state()?;
+    repo::write_head_after_merge(&repo::Head {
+        lane: head.lane,
+        snapshot: result_hex.clone(),
+    })?;
 
     let (changes, total) = diff_json(&change.diff);
     let lane_id = if state.lane.is_empty() {
@@ -2438,39 +2618,31 @@ fn merge_continue_output() -> io::Result<CommandOutput> {
 }
 
 /// Returns sorted worktree paths that still contain Git-style conflict markers.
-fn conflict_marker_paths() -> io::Result<Vec<String>> {
+fn conflict_marker_paths(
+    store: &FileObjectStore,
+    state: &repo::MergeState,
+) -> io::Result<Vec<String>> {
+    let result_id: ObjectId = state.merge_result.parse().map_err(io::Error::other)?;
+    let result = to_io(sorrel_core::read_merge_result(store, &result_id))?;
     let mut paths = Vec::new();
-    fn walk(dir: &Path, out: &mut Vec<String>) -> io::Result<()> {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            let name = entry.file_name();
-            if name == repo::SORREL_DIR || name == ".git" {
-                continue;
+    for id in result.conflicts {
+        let conflict = to_io(read_conflict(store, &id))?;
+        let path = &conflict.path;
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(command_error("invalid_data", "conflict path is a symlink"))
             }
-            if path.is_dir() {
-                walk(&path, out)?;
-                continue;
-            }
-            let Ok(bytes) = fs::read(&path) else {
-                continue;
-            };
-            let Ok(text) = std::str::from_utf8(&bytes) else {
-                continue;
-            };
-            if text.contains("<<<<<<< ours") || text.contains(">>>>>>> theirs") {
-                let relative = path
-                    .strip_prefix(".")
-                    .unwrap_or(path.as_path())
-                    .to_string_lossy()
-                    .trim_start_matches("./")
-                    .to_owned();
-                out.push(relative);
-            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
         }
-        Ok(())
+        let bytes = fs::read(path)?;
+        if std::str::from_utf8(&bytes)
+            .is_ok_and(|text| text.contains("<<<<<<< ours") || text.contains(">>>>>>> theirs"))
+        {
+            paths.push(path.to_string_lossy().into_owned());
+        }
     }
-    walk(Path::new("."), &mut paths)?;
     paths.sort();
     Ok(paths)
 }
@@ -2484,7 +2656,8 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
     repo::ensure_heads_migrated()?;
 
     if repo::merge_in_progress() {
-        return Err(io::Error::other(
+        return Err(command_error(
+            "merge_in_progress",
             "a merge is already in progress; resolve conflicts or run `sorrel merge --abort`",
         ));
     }
@@ -2506,7 +2679,8 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
         head_snapshot_id(&head)?.ok_or_else(|| io::Error::other("HEAD has no base snapshot"))?;
 
     if worktree_is_dirty(&store, &repo_id, &ours_id)? {
-        return Err(io::Error::other(
+        return Err(command_error(
+            "dirty_worktree",
             "working tree has uncommitted changes; commit or discard them before merging",
         ));
     }
@@ -2559,10 +2733,13 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
     }
 
     let message = format!("merge {lane_id}");
-    let mut merge_options =
-        MergeOptions::new(Principal::system(), repo_id.clone(), message.clone());
+    let mut merge_options = MergeOptions::new(
+        workspace_cmd::current_principal()?,
+        repo_id.clone(),
+        message.clone(),
+    );
     merge_options.created_at = repo::now_rfc3339();
-    let merge_result = to_io(merge_snapshots(
+    let (merge_result, merged_tree) = to_io(merge_snapshots_with_tree(
         &store,
         &base_id,
         &ours_id,
@@ -2571,8 +2748,14 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
     ))?;
 
     let Some(result_snapshot) = merge_result.merged_snapshot else {
-        // Conflicted: write marker-annotated content into the worktree for
-        // each conflicted path; do not advance HEAD.
+        // Restore clean changes as well as surviving conflict sides before
+        // overlaying markers. Continuing must retain the complete merge.
+        let provisional = to_io(write_snapshot(
+            &store,
+            merged_tree.id,
+            SnapshotOptions::new(repo_id),
+        ))?;
+        restore_worktree_to_snapshot(&store, &ours_id, &provisional.id)?;
         let paths = write_conflict_markers(&store, &merge_result, &base_id, &ours_id, &theirs_id)?;
         repo::write_merge_state_record(&repo::MergeState {
             merge_result: merge_result.id.to_hex(),
@@ -2584,7 +2767,7 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
         })?;
 
         let listed = paths.join(", ");
-        return Err(io::Error::other(format!(
+        return Err(command_error("merge_conflict", format!(
             "merge conflicts in: {listed}; fix markers then `sorrel merge --continue`, or `sorrel merge --abort`"
         )));
     };
@@ -2596,19 +2779,18 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
         &store,
         ours_id,
         result_snapshot,
-        ChangeOptions::new(Principal::system(), message.clone()),
+        ChangeOptions::new(workspace_cmd::current_principal()?, message.clone()),
     ))?;
 
     let result_hex = result_snapshot.to_hex();
-    repo::write_head(&repo::Head {
-        lane: head.lane,
-        snapshot: result_hex.clone(),
-    })?;
-
     let change_id = change.id.to_hex();
     repo::append_changes_index(&repo::ChangesIndexEntry {
         snapshot: result_hex.clone(),
         change: change_id.clone(),
+    })?;
+    repo::write_head(&repo::Head {
+        lane: head.lane,
+        snapshot: result_hex.clone(),
     })?;
 
     let (changes, total) = diff_json(&change.diff);
@@ -2643,8 +2825,8 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
 /// Writes marker-annotated content into the working tree for every conflicted
 /// path of `merge_result` and returns the sorted list of those paths.
 ///
-/// The working tree equals `ours` when this runs (merges require a clean
-/// tree), so only conflicted paths are touched: content/add-add conflicts get
+/// The working tree already includes clean changes and surviving conflict
+/// sides, so only conflicted paths are touched: content/add-add conflicts get
 /// `merge3` marker output, modify/delete keeps whichever side still has the
 /// file, and binary conflicts keep ours untouched.
 fn write_conflict_markers(
@@ -2723,8 +2905,53 @@ fn restore_worktree_to_snapshot(
     current: &ObjectId,
     target: &ObjectId,
 ) -> io::Result<()> {
+    restore_worktree(store, current, target, false)
+}
+
+fn restore_worktree(
+    store: &FileObjectStore,
+    current: &ObjectId,
+    target: &ObjectId,
+    recovering: bool,
+) -> io::Result<()> {
+    validate_snapshot_checkout(store, current)?;
+    validate_snapshot_checkout(store, target)?;
     let current_files = to_io(read_snapshot_files(store, current))?;
     let target_files = to_io(read_snapshot_files(store, target))?;
+
+    for (path, bytes) in &target_files {
+        if !recovering && !current_files.contains_key(path) && path.exists() {
+            match fs::read(path) {
+                Ok(existing) if existing == *bytes => {}
+                _ if path.is_dir()
+                    && directory_contains_only_removed_files(
+                        path,
+                        &current_files,
+                        &target_files,
+                    )? => {}
+                _ => {
+                    return Err(command_error(
+                        "untracked_collision",
+                        format!("untracked path would be overwritten: {}", path.display()),
+                    ))
+                }
+            }
+        }
+    }
+    let journal = repo::sorrel_dir().join("CHECKOUT_STATE");
+    if !journal.exists() {
+        let before_head =
+            repo::load_head()?.ok_or_else(|| command_error("invalid_data", "missing HEAD"))?;
+        let before_merge = match fs::read(repo::merge_state_path()) {
+            Ok(bytes) => Some(serde_json::from_slice::<Value>(&bytes)?),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+        repo::write_json_atomic(
+            &journal,
+            &json!({"schemaVersion":PROTOCOL_VERSION,"kind":"CheckoutRecovery","current":current.to_hex(),"target":target.to_hex(),"head":{"lane":before_head.lane,"snapshot":before_head.snapshot},"mergeState":before_merge}),
+        )?;
+    }
 
     for path in current_files.keys() {
         if !target_files.contains_key(path) {
@@ -2739,6 +2966,102 @@ fn restore_worktree_to_snapshot(
 
     to_io(restore_snapshot_to_directory(store, target, Path::new(".")))?;
     Ok(())
+}
+
+// A tracked directory may become a file, provided no untracked contents vanish.
+fn directory_contains_only_removed_files(
+    path: &Path,
+    current: &std::collections::BTreeMap<PathBuf, Vec<u8>>,
+    target: &std::collections::BTreeMap<PathBuf, Vec<u8>>,
+) -> io::Result<bool> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let child = entry.path();
+        if entry.file_type()?.is_dir() {
+            if !directory_contains_only_removed_files(&child, current, target)? {
+                return Ok(false);
+            }
+        } else if !current.contains_key(&child) || target.contains_key(&child) {
+            return Ok(false);
+        }
+    }
+    Ok(current.keys().any(|file| file.starts_with(path)))
+}
+
+/// Validate files and directories before checkout mutates the working tree.
+fn validate_snapshot_checkout(store: &FileObjectStore, snapshot: &ObjectId) -> io::Result<()> {
+    to_io(sorrel_core::validate_snapshot_paths(
+        store,
+        snapshot,
+        Path::new("."),
+    ))?;
+    Ok(())
+}
+
+fn clear_checkout_state() -> io::Result<()> {
+    match fs::remove_file(repo::sorrel_dir().join("CHECKOUT_STATE")) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn recover_output(abort: bool) -> io::Result<CommandOutput> {
+    let journal = repo::sorrel_dir().join("CHECKOUT_STATE");
+    repo::reject_metadata_symlinks(&journal)?;
+    let state: Value = match fs::read(&journal) {
+        Ok(bytes) => serde_json::from_slice(&bytes)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(CommandOutput {
+                json: json!({"command":"recover","status":"clean"}),
+                human: "No interrupted checkout".into(),
+            })
+        }
+        Err(error) => return Err(error),
+    };
+    if !abort {
+        return Ok(CommandOutput { json:json!({"command":"recover","status":"pending","recovery":state}), human:"Interrupted checkout; `sorrel recover --abort` restores its previous files and HEAD".into() });
+    }
+    let parse = |field: &str| -> io::Result<ObjectId> {
+        state[field]
+            .as_str()
+            .ok_or_else(|| command_error("invalid_data", "invalid checkout recovery record"))?
+            .parse()
+            .map_err(io::Error::other)
+    };
+    let store = to_io(FileObjectStore::new(repo::object_store_root()))?;
+    let saved_head = repo::Head {
+        lane: state["head"]["lane"]
+            .as_str()
+            .ok_or_else(|| command_error("invalid_data", "invalid recovery HEAD"))?
+            .into(),
+        snapshot: state["head"]["snapshot"]
+            .as_str()
+            .ok_or_else(|| command_error("invalid_data", "invalid recovery HEAD"))?
+            .into(),
+    };
+    let saved_snapshot: ObjectId = saved_head.snapshot.parse().map_err(io::Error::other)?;
+    to_io(sorrel_core::validate_snapshot(&store, &saved_snapshot))?;
+    if saved_head.lane.is_empty()
+        || !saved_head
+            .lane
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-'))
+    {
+        return Err(command_error("invalid_data", "invalid recovery lane"));
+    }
+    restore_worktree(&store, &parse("target")?, &parse("current")?, true)?;
+    repo::write_head(&saved_head)?;
+    if state["mergeState"].is_null() {
+        repo::clear_merge_state()?;
+    } else {
+        repo::write_json_atomic(&repo::merge_state_path(), &state["mergeState"])?;
+    }
+    clear_checkout_state()?;
+    Ok(CommandOutput {
+        json: json!({"command":"recover","status":"aborted"}),
+        human: "Restored the checkout and HEAD saved before interruption".into(),
+    })
 }
 
 /// Removes empty parent directories of `path` up to (but not including) `.`.
@@ -3242,23 +3565,51 @@ fn push_output(args: PushArgs) -> io::Result<CommandOutput> {
 }
 
 fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
-    let store = to_io(FileObjectStore::new(repo::object_store_root()))?;
-    if !repo::is_initialized() {
+    let RepoContext {
+        repo_id,
+        head: before,
+        store,
+    } = open_repo()?;
+    if repo::merge_state_path().is_file() {
         return Err(io::Error::other(
-            "workspace is not initialized; run `sorrel init`",
+            "merge in progress; finish or abort it before pulling",
+        ));
+    }
+    let before_snapshot =
+        head_snapshot_id(&before)?.ok_or_else(|| io::Error::other("HEAD has no base snapshot"))?;
+    if worktree_is_dirty(&store, &repo_id, &before_snapshot)? {
+        return Err(io::Error::other(
+            "working tree has uncommitted changes; record them before pulling",
         ));
     }
 
     let remotes = repo::load_remotes()?;
     let (remote_name, remote) = remotes.resolve(args.remote.as_deref())?;
-    let before = repo::load_head()?.ok_or_else(|| io::Error::other("missing HEAD pointer"))?;
-    let before_snapshot = parse_object_id_hex(&before.snapshot)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
     let result = sync::pull(&store, &remote, &remote_name, &args.r#ref, None)?;
     let after_snapshot = parse_object_id_hex(&result.snapshot)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
+    // Downloads can take long enough for another process to change local work.
+    if repo::load_head()?.as_ref() != Some(&before)
+        || repo::merge_state_path().is_file()
+        || worktree_is_dirty(&store, &repo_id, &before_snapshot)?
+    {
+        return Err(io::Error::other(
+            "local workspace changed during pull; retry after recording your work",
+        ));
+    }
     if before_snapshot != after_snapshot {
+        if !snapshot_is_empty_root(&store, &before_snapshot)?
+            && !to_io(is_descendant(&store, before_snapshot, after_snapshot))?
+        {
+            return Err(io::Error::other(
+                "pull would discard local history; only fast-forward pulls are supported",
+            ));
+        }
         restore_worktree_to_snapshot(&store, &before_snapshot, &after_snapshot)?;
+        repo::write_head(&repo::Head {
+            lane: before.lane,
+            snapshot: after_snapshot.to_hex(),
+        })?;
     }
 
     Ok(CommandOutput {
@@ -3366,6 +3717,7 @@ fn materialize_worktree(
 ) -> io::Result<ObjectId> {
     let mut options = SnapshotOptions::new(repo_id.to_owned());
     options.created_at = repo::now_rfc3339();
+    options.author = workspace_cmd::current_principal()?;
     options.message = message;
     options.parents = parents
         .iter()
@@ -3374,12 +3726,13 @@ fn materialize_worktree(
     // Snapshot the working tree in place, excluding the on-disk object store
     // (`.sorrel/`) and a colocated Git metadata dir (`.git/`) at the root.
     // No copy-to-scratch. The stat cache lets unchanged files skip re-hashing.
-    let snapshot = to_io(materialize_snapshot_excluding_with_stat_cache(
+    let selected = tracking::selection(store)?;
+    let snapshot = to_io(sorrel_core::materialize_snapshot_filtered_with_stat_cache(
         store,
         Path::new("."),
-        [repo::SORREL_DIR, ".git"],
         stat_cache,
         options,
+        |path, directory| Ok(selected.includes(path, directory)),
     ))?;
     Ok(snapshot.id)
 }

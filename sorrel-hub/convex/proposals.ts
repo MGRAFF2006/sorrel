@@ -1,8 +1,8 @@
-import { mutation, query } from './_generated/server';
+import { internalMutation, internalQuery } from './_generated/server';
 import { v } from 'convex/values';
 
-/** Live open-proposals counter — UI subscribes; never polls Hub for this badge. */
-export const countOpen = query({
+/** Service-only aggregate: public subscriptions await Core-scoped authorization. */
+export const countOpen = internalQuery({
   args: {},
   handler: async (ctx) => {
     const open = await ctx.db
@@ -13,7 +13,7 @@ export const countOpen = query({
   },
 });
 
-export const upsert = mutation({
+export const upsert = internalMutation({
   args: {
     hubId: v.string(),
     status: v.string(),
@@ -41,7 +41,7 @@ export const upsert = mutation({
   },
 });
 
-export const remove = mutation({
+export const remove = internalMutation({
   args: { hubId: v.string() },
   handler: async (ctx, args) => {
     const existing = await ctx.db

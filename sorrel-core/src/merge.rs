@@ -23,6 +23,20 @@ use crate::{
 /// Errors returned while merging snapshots.
 #[derive(Debug, thiserror::Error)]
 pub enum MergeError {
+    /// A merged file would occupy the directory required by another file.
+    #[error("file/directory merge conflict between {} and {}", file.display(), descendant.display())]
+    FileDirectoryConflict {
+        /// Path occupied by a file.
+        file: PathBuf,
+        /// File requiring that path to be a directory.
+        descendant: PathBuf,
+    },
+    /// Independently added files disagree on their executable mode.
+    #[error("file mode merge conflict at {}", path.display())]
+    ModeConflict {
+        /// File with incompatible modes.
+        path: PathBuf,
+    },
     /// The underlying object store failed.
     #[error(transparent)]
     Store(#[from] ObjectStoreError),
@@ -88,6 +102,19 @@ pub fn merge_snapshots(
     theirs: &ObjectId,
     options: &MergeOptions,
 ) -> Result<MergeResult, MergeError> {
+    merge_snapshots_with_tree(store, base, ours, theirs, options).map(|(result, _)| result)
+}
+
+/// Merges snapshots and returns the complete working tree, including clean
+/// changes when conflicts remain. Conflicted files retain a surviving side;
+/// callers can overlay markers before asking for manual resolution.
+pub fn merge_snapshots_with_tree(
+    store: &impl ObjectStore,
+    base: &ObjectId,
+    ours: &ObjectId,
+    theirs: &ObjectId,
+    options: &MergeOptions,
+) -> Result<(MergeResult, Tree), MergeError> {
     let base_files = collect_file_entries(store, base)?;
     let our_files = collect_file_entries(store, ours)?;
     let their_files = collect_file_entries(store, theirs)?;
@@ -132,8 +159,8 @@ pub fn merge_snapshots(
         }
     }
 
+    let root_tree = write_merged_tree(store, &merged)?;
     if conflicts.is_empty() {
-        let root_tree = write_merged_tree(store, &merged)?;
         let mut snapshot_options = SnapshotOptions::new(options.repo.clone());
         snapshot_options.parents = vec![
             ObjectRef::new(ObjectKind::Snapshot, *ours),
@@ -154,7 +181,7 @@ pub fn merge_snapshots(
             merged_snapshot: Some(snapshot.id),
             conflicts: Vec::new(),
         };
-        return Ok(write_merge_result(store, &result)?);
+        return Ok((write_merge_result(store, &result)?, root_tree));
     }
 
     let conflict_ids = conflicts
@@ -171,7 +198,7 @@ pub fn merge_snapshots(
         merged_snapshot: None,
         conflicts: conflict_ids,
     };
-    Ok(write_merge_result(store, &result)?)
+    Ok((write_merge_result(store, &result)?, root_tree))
 }
 
 fn file_change_map(
@@ -243,6 +270,24 @@ fn resolve_both_changed(
         return Ok(());
     }
 
+    let merged_mode = match (our_entry, their_entry) {
+        (Some(ours), Some(theirs)) if ours.mode != theirs.mode => {
+            match base_files.get(path).map(|entry| entry.mode) {
+                Some(base_mode) if ours.mode == base_mode => theirs.mode,
+                Some(base_mode) if theirs.mode == base_mode => ours.mode,
+                _ => {
+                    return Err(MergeError::ModeConflict {
+                        path: path.to_path_buf(),
+                    })
+                }
+            }
+        }
+        _ => our_entry
+            .or(their_entry)
+            .map(|entry| entry.mode)
+            .unwrap_or(EntryMode::Normal),
+    };
+
     match (our_kind, their_kind) {
         (PathChangeKind::Deleted, PathChangeKind::Deleted) => {
             merged.remove(path);
@@ -271,6 +316,7 @@ fn resolve_both_changed(
             repo,
             path,
             &[],
+            merged_mode,
             our_entry,
             their_entry,
             sides,
@@ -290,6 +336,7 @@ fn resolve_both_changed(
                 repo,
                 path,
                 &base_bytes,
+                merged_mode,
                 our_entry,
                 their_entry,
                 sides,
@@ -307,6 +354,7 @@ fn merge_file_contents(
     repo: &str,
     path: &Path,
     base_bytes: &[u8],
+    mode: EntryMode,
     our_entry: Option<&FileEntry>,
     their_entry: Option<&FileEntry>,
     sides: ConflictSides,
@@ -332,12 +380,20 @@ fn merge_file_contents(
         merged.remove(path);
     }
 
-    match merge3::merge3(base_bytes, &ours_bytes, &theirs_bytes) {
+    if let Some(entry) = merged.get_mut(path) {
+        entry.mode = mode;
+    }
+    // Content and executable mode are independent dimensions. A mode-only
+    // edit must not force a text merge (or a binary content conflict).
+    let outcome = if ours_bytes == theirs_bytes || theirs_bytes == base_bytes {
+        TextMergeOutcome::Merged(ours_bytes)
+    } else if ours_bytes == base_bytes {
+        TextMergeOutcome::Merged(theirs_bytes)
+    } else {
+        merge3::merge3(base_bytes, &ours_bytes, &theirs_bytes)
+    };
+    match outcome {
         TextMergeOutcome::Merged(bytes) => {
-            let mode = our_entry
-                .or(their_entry)
-                .map(|entry| entry.mode)
-                .unwrap_or(EntryMode::Normal);
             let blob = write_blob(store, &bytes)?;
             merged.insert(
                 path.to_path_buf(),
@@ -417,6 +473,14 @@ fn write_merged_tree(
 ) -> Result<Tree, MergeError> {
     let mut root: BTreeMap<String, Node> = BTreeMap::new();
     for (path, entry) in files {
+        for ancestor in path.ancestors().skip(1) {
+            if files.contains_key(ancestor) {
+                return Err(MergeError::FileDirectoryConflict {
+                    file: ancestor.to_path_buf(),
+                    descendant: path.clone(),
+                });
+            }
+        }
         let components: Vec<String> = path
             .components()
             .filter_map(|component| match component {
@@ -515,6 +579,61 @@ mod tests {
 
     fn options() -> MergeOptions {
         MergeOptions::new(Principal::system(), "repo", "merge")
+    }
+
+    #[test]
+    fn file_directory_collisions_fail_without_discarding_a_side() {
+        let store = InMemoryObjectStore::new();
+        let base = snapshot(&store, &[], &[]);
+        let ours = snapshot(&store, &[("a", b"file\n")], &[&base]);
+        let theirs = snapshot(&store, &[("a/b", b"descendant\n")], &[&base]);
+
+        for (left, right) in [(&ours, &theirs), (&theirs, &ours)] {
+            let error = merge_snapshots(&store, &base.id, &left.id, &right.id, &options())
+                .expect_err("file/directory conflict must not silently discard a file");
+            assert!(matches!(error, MergeError::FileDirectoryConflict { .. }));
+        }
+        assert_eq!(
+            read_snapshot_files(&store, &ours.id).unwrap()[Path::new("a")],
+            b"file\n"
+        );
+        assert_eq!(
+            read_snapshot_files(&store, &theirs.id).unwrap()[Path::new("a/b")],
+            b"descendant\n"
+        );
+    }
+
+    #[test]
+    fn content_and_executable_mode_merge_independently_in_either_direction() {
+        let store = InMemoryObjectStore::new();
+        for (before, after) in [
+            (b"before\n".as_slice(), b"after\n".as_slice()),
+            (b"before\0".as_slice(), b"after!\0".as_slice()),
+        ] {
+            let base = snapshot(&store, &[("script", before)], &[]);
+            let content = snapshot(&store, &[("script", after)], &[&base]);
+            let base_tree = read_tree(&store, &base.root_tree.id).unwrap();
+            let mut mode_entries = base_tree.entries;
+            mode_entries[0].mode = EntryMode::Executable;
+            let mode_tree = write_tree(&store, mode_entries).unwrap();
+            let mut opts = SnapshotOptions::new("repo");
+            opts.parents = vec![ObjectRef::new(ObjectKind::Snapshot, base.id)];
+            let mode_only = write_snapshot(&store, mode_tree.id, opts).unwrap();
+            for (ours, theirs) in [(&content, &mode_only), (&mode_only, &content)] {
+                let result =
+                    merge_snapshots(&store, &base.id, &ours.id, &theirs.id, &options()).unwrap();
+                assert_eq!(result.status, MergeResultStatus::Clean);
+                let snap = read_snapshot(&store, &result.merged_snapshot.unwrap()).unwrap();
+                let tree = read_tree(&store, &snap.root_tree.id).unwrap();
+                assert_eq!(tree.entries[0].mode, EntryMode::Executable);
+                assert_eq!(
+                    read_blob(&store, &tree.entries[0].object.id)
+                        .unwrap()
+                        .content,
+                    after
+                );
+            }
+        }
     }
 
     #[test]

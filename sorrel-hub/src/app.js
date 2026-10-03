@@ -5,6 +5,7 @@ import { resolveCapabilities } from './capabilities.js';
 import { createConvexMirror } from './convex-mirror.js';
 import { PolicyDeniedError, PolicyEvaluationError } from './core-policy.js';
 import { HttpError, sendJson, sendNotFound } from './http.js';
+import { resolveActingPrincipal } from './policy-guard.js';
 import { ModelValidationError } from './models.js';
 import { handleAdminRoute } from './routes/admin.js';
 import { handleCollaborationRoute } from './routes/collaboration.js';
@@ -72,7 +73,10 @@ export function createApp(options = {}) {
           });
         }
 
+        if (authAdapter.mode !== 'dev') resolveActingPrincipal(request, { authAdapter, session });
+
         const routeContext = {
+          request,
           store,
           url,
           trustedGrantsById,

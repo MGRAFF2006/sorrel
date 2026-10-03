@@ -100,7 +100,7 @@ fn hub_repo_dir() -> PathBuf {
 }
 
 #[test]
-fn push_then_pull_round_trip_preserves_snapshot_id() {
+fn pull_downloads_snapshot_without_advancing_head() {
     let hub = LiveHub::start();
 
     let local = TempDir::new().expect("tempdir");
@@ -128,6 +128,7 @@ fn push_then_pull_round_trip_preserves_snapshot_id() {
     repo::add_remote("origin", &remote.url, &remote.repo_id).expect("add remote pull");
 
     let pull_store = FileObjectStore::new(repo::object_store_root()).expect("pull store");
+    let before = repo::load_head().unwrap().unwrap();
     let pull_result =
         sync::pull(&pull_store, &remote, "origin", "HEAD", None).expect("pull succeeds");
 
@@ -135,7 +136,8 @@ fn push_then_pull_round_trip_preserves_snapshot_id() {
     assert!(pull_result.downloaded > 0);
 
     let pulled_head = repo::load_head().expect("head").expect("head exists");
-    assert_eq!(pulled_head.snapshot, head.snapshot);
+    assert_eq!(pulled_head, before);
+    sorrel_core::read_snapshot_files(&pull_store, &snapshot_id).expect("complete downloaded tree");
 }
 
 #[test]
@@ -221,6 +223,165 @@ fn cli_push_pull_restores_working_tree_via_live_hub() {
 
     let content = std::fs::read_to_string(pull_path.join("hello.txt")).expect("pulled file");
     assert_eq!(content, "from-push\n");
+
+    let read_head = |path: &Path| std::fs::read(path.join(".sorrel/HEAD")).unwrap();
+    let before = read_head(pull_path);
+
+    // A cached status result must not hide local edits from pull's safety check.
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .arg("status")
+        .assert()
+        .success();
+    std::fs::write(pull_path.join("hello.txt"), b"local work\n").unwrap();
+    let output = AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .arg("pull")
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    assert!(String::from_utf8_lossy(&output.stderr).contains("uncommitted changes"));
+    assert_eq!(read_head(pull_path), before);
+    assert_eq!(
+        std::fs::read(pull_path.join("hello.txt")).unwrap(),
+        b"local work\n"
+    );
+    std::fs::write(pull_path.join("hello.txt"), b"from-push\n").unwrap();
+
+    std::fs::write(pull_path.join(".sorrel/MERGE_STATE"), b"in progress").unwrap();
+    let output = AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .arg("pull")
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    assert!(String::from_utf8_lossy(&output.stderr).contains("merge in progress"));
+    assert_eq!(read_head(pull_path), before);
+    std::fs::remove_file(pull_path.join(".sorrel/MERGE_STATE")).unwrap();
+
+    // An ordinary descendant must still fast-forward after the safety checks.
+    std::fs::write(push_path.join("hello.txt"), b"incoming change\n").unwrap();
+    for args in [vec!["change", "create", "-m", "incoming"], vec!["push"]] {
+        AssertCommand::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(push_path)
+            .args(args)
+            .assert()
+            .success();
+    }
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .arg("pull")
+        .assert()
+        .success();
+    assert_eq!(read_head(pull_path), read_head(push_path));
+    assert_eq!(
+        std::fs::read(pull_path.join("hello.txt")).unwrap(),
+        b"incoming change\n"
+    );
+
+    // Reserved paths must fail before remote publication or local checkout.
+    let safe_head = read_head(pull_path);
+    let parent = parse_object_id_hex(
+        serde_json::from_slice::<Value>(&safe_head).unwrap()["snapshot"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let store = FileObjectStore::new(push_path.join(".sorrel")).unwrap();
+    let remote = repo::Remote {
+        url: hub.url().to_owned(),
+        repo_id: repo_id.clone(),
+    };
+    for (index, metadata) in [
+        ".sorrel/HEAD",
+        ".git/config",
+        ".GIT/config",
+        ".sorrel./HEAD",
+        ".sorrel/HEAD/x/",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let malicious = TempDir::new().unwrap();
+        let path = malicious.path().join(metadata);
+        if metadata.ends_with('/') {
+            std::fs::create_dir_all(path).unwrap();
+        } else {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"untrusted metadata").unwrap();
+        }
+        let mut options = SnapshotOptions::new(repo_id.clone());
+        options.parents = vec![sorrel_core::ObjectRef::new(
+            sorrel_core::ObjectKind::Snapshot,
+            parent,
+        )];
+        let snapshot = materialize_snapshot_excluding(
+            &store,
+            malicious.path(),
+            std::iter::empty::<&str>(),
+            options,
+        )
+        .unwrap();
+        let remote_ref = format!("unsafe_{index}");
+        let error = sync::push(&store, &remote, "origin", &remote_ref, &snapshot.id, None)
+            .expect_err("reserved paths must not leave the source workspace");
+        let message = error.to_string();
+        let refs = SyncClient::new(&remote).list_refs().unwrap();
+        assert!(!refs.to_string().contains(&remote_ref));
+        let reserved_root = metadata.split('/').next().unwrap();
+        assert!(
+            message.contains("invalid snapshot path") && message.contains(reserved_root),
+            "unsafe metadata path {metadata} must be rejected with its path: {message}"
+        );
+        assert_eq!(read_head(pull_path), safe_head);
+        assert_eq!(
+            std::fs::read(pull_path.join("hello.txt")).unwrap(),
+            b"incoming change\n"
+        );
+    }
+
+    // A clean worktree does not authorize replacing divergent recorded history.
+    std::fs::write(pull_path.join("hello.txt"), b"recorded locally\n").unwrap();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .args(["change", "create", "-m", "local history"])
+        .assert()
+        .success();
+    let local_head = read_head(pull_path);
+    std::fs::write(push_path.join("hello.txt"), b"recorded remotely\n").unwrap();
+    for args in [
+        vec!["change", "create", "-m", "remote history"],
+        vec!["push"],
+    ] {
+        AssertCommand::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(push_path)
+            .args(args)
+            .assert()
+            .success();
+    }
+    let output = AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .arg("pull")
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    assert!(String::from_utf8_lossy(&output.stderr).contains("only fast-forward"));
+    assert_eq!(read_head(pull_path), local_head);
+    assert_eq!(
+        std::fs::read(pull_path.join("hello.txt")).unwrap(),
+        b"recorded locally\n"
+    );
 }
 
 fn init_empty_local_repo(repo_id: &str) {

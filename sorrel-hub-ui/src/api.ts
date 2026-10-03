@@ -17,6 +17,7 @@ export type HubCapabilities = {
   };
   convex: {
     enabled: boolean;
+    publicCounter?: boolean;
     url?: string;
   };
   deploy: 'saas' | 'selfhost' | 'dev';

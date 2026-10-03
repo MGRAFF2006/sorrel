@@ -312,6 +312,7 @@ fn workflow_execution_context() -> PolicyContext {
     let principal =
         PrincipalId::parse(CLI_AGENT_PRINCIPAL).expect("CLI agent principal is well-formed");
     context.grants.push(Grant {
+        effect: crate::cli_policy::GrantEffect::Allow,
         principal,
         capabilities: vec!["workflow.run".to_owned(), "runner.use".to_owned()],
         resources: vec![

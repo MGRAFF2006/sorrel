@@ -2,7 +2,7 @@
 
 # Sorrel status
 
-Last updated: 2026-09-01
+Last updated: 2026-10-02
 
 What works today, what does not, and where to look next. For how to run the
 stack, see [GETTING_STARTED.md](GETTING_STARTED.md). The forward plan is
@@ -16,10 +16,11 @@ colocated bidirectional sync**, a deployable Hub API, and a writable Hub UI
 companion. The public landing site is live. A root **no-mock E2E** (`npm test`)
 wires every active module together. A native mobile Hub companion now covers
 projects, reviews, and repository refs, and native desktop hosts cover Windows,
-macOS, and Linux. Still ahead: production auth, richer agents/SDKs, signed
-desktop distribution, and on-device Core embedding.
+macOS, and Linux. Separate agent workspaces connect local agent identity, lanes,
+review, and integration without a Hub. Still ahead: complete production auth,
+richer embedding, signed desktop distribution, and on-device Core embedding.
 
-The latest coordinated release is
+This page includes unreleased source changes. The latest coordinated release is
 **[`v0.1.0-alpha.2`](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2)**,
 an installable developer preview with downloadable CLI artifacts and hostable
 server images. The Hub is not safe for untrusted network exposure without a
@@ -32,7 +33,9 @@ production AuthAdapter and network controls. See the root
 | --- | --- |
 | **Protocol** | Canonical object schemas, examples, sync-transport spec, policy conformance manifest + checksum drift guards. |
 | **Engine (`sorrel-core`)** | Content-addressed object store, snapshots, changes, path/line-level diff helpers, lanes/stacks, policy/authority spine, sync closure helpers, stat-cache, three-way merge + protocol-aligned conflict/merge-result objects, **incremental `git_import` / `git_export`**. |
-| **CLI (`sorrel-cli`)** | Persistent `.sorrel/` workspace: `init`, `status`, `change create`/`list`, `diff`, `log`, `lane create`/`list`/`switch`/`submit`, `stack create`/`list`/`show`, `merge` / `merge --abort` / **`merge --continue`**, **`git import` / `git export` / `git sync`**, `grant`, `slice create`, `workflow validate`/`run`, **`secret list|sync|check|get|set|run`**, **`env init|ensure|info|shell`**, **`run list|show|logs`**, `remote add`/`list`, `push`, `pull`. |
+| **CLI (`sorrel-cli`)** | Persistent changes, lanes/stacks/merges, Git and Hub sync, isolated workspaces, agent registration/claims, tracking/recovery, grants/slices, workflows, secrets, environment and run logs. See [CLI usage](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/README.md). |
+| **Local agent workflow** | Independent agent directories/stores and assigned lanes; agent-attributed snapshots/changes; validated history integration using merge continue/abort. Owner-side advisory claims report overlaps. |
+| **Safety and tracking** | Cross-process CLI/SDK locks, atomic object/metadata publication, replayable HEAD/workspace journals, explicit interrupted-checkout rollback, typed Core preflight, nested Git/Sorrel ignores, explicit tracking, and Unix change-time cache verification. |
 | **Git bridge** | `sorrel git import`, `git export`, and colocated `git sync`; incremental fast-forwards in either direction, divergence parked on a normal Sorrel lane, `.sorrel/git-map.json` links SHAs ↔ snapshots. See `sorrel-cli/GIT.md`. |
 | **Sync** | CLI ↔ Hub over HTTP sync transport; Hub FS-backed object/ref store; isolated demos can opt into `user:local` bootstrap grants with `SORREL_HUB_BOOTSTRAP_GRANTS=1`. |
 | **Vault** | Secrets schema + local Node backend for tests. **Primary UX:** `sorrel secret *` resolves via upstream SecretSpec (`keyring` / `dotenv` / `env`) under Core grants; workflow jobs can inject authorized `secretRefs` with log redaction. |
@@ -51,10 +54,13 @@ production AuthAdapter and network controls. See the root
 
 | Area | Gap |
 | --- | --- |
+| **Checkout isolation and durability** | Workspaces copy reachable history; no shared object pool yet. Locks serialize Sorrel/SDK operations, not arbitrary filesystem writers. Process-interruption recovery is supported; power-loss atomicity across a checkout is not guaranteed. |
+| **Git fidelity** | Normal/executable modes and full UTF-8 messages are supported; non-UTF-8 messages, symlinks and submodules fail explicitly. Tags, signatures, Git notes, staging, and exact author/committer metadata are not fully represented. |
+| **Hub policy completeness** | Verified-session read/write guards, scoped discovery, restrictive grant precedence/lifecycle checks, rollback and typed closure checks are implemented. Native Core rule/signature hydration and multi-writer Hub persistence remain incomplete. |
 | **Production auth** | AuthAdapter (`dev` / WorkOS / OIDC JWKS), `GET /session`, bind-safety; WorkOS sealed sessions + UI IdP login still ahead. |
 | **Format migrations** | Protocol and object stores are `v0`; unknown versions fail closed, but no general workspace/Hub migration framework is shipped. |
-| **Agents control plane** | Minimal register/claim/active-work surface shipped; no instruction overlays yet. |
-| **SDKs** | Minimal Hub JS client + Rust `Workspace` wrapper shipped; embedding surface (C ABI / N-API / WASM / daemon) not shipped. |
+| **Agents control plane** | Registrations/claims are concurrent records shared by Node and CLI. Claims are advisory owner-side metadata, not enforcement or a hosted agent scheduler. |
+| **SDKs** | Rust SDK shares persistent workspace/lock contracts and creates detached snapshots; it requires caller-supplied ignore filtering. Stable complete embedding (C ABI / N-API / WASM / daemon) is not shipped. |
 | **App embedding** | Desktop and mobile ship as thin Hub companions only; neither embeds Core or operates a local workspace until the stable embedding surface exists. Desktop remote-Hub selection, keychain use, and deep links are not yet shipped. |
 | **Hub secret backend** | Optional hosted / BYO provider binding (Phase 4) not shipped; local keyring/dotenv remain default. |
 | **devenv task mapping** | Prefer devenv when present; full `sorrel.workflow.yml` → devenv tasks shim and remote runners are still thin. |
@@ -87,11 +93,7 @@ dependencies and workspace Cargo commands from the repo root.
 
 ## Next up (from roadmap)
 
-1. Finish production auth (WorkOS sealed sessions + IdP login UI) and richer review UX.
-2. Deepen devenv workflow mapping, run-log follow/Hub streaming, and optional
-   hosted or bring-your-own secret backends.
-3. Define the stable embedding surface, then connect native apps to local
-   workspaces and mature agents and SDKs around it.
-4. Add format migrations before persisted `v0` formats begin evolving rapidly.
-5. Collapse intentional duplicates (`cli_policy` / `cli_runner`) now that
-   SecretSpec injection has landed.
+1. Use the isolated two-agent workflow on real tasks and measure its friction.
+2. Extend Git fidelity only from adoption/exit requirements; maintain existing CI.
+3. Complete Core policy hydration and production login before untrusted hosting.
+4. Add shared storage, performance work, apps or embedding only from measured need.

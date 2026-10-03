@@ -26,7 +26,12 @@ CONVEX_SELF_HOSTED_ADMIN_KEY=<key> \
 npx convex dev --url "$CONVEX_SELF_HOSTED_URL" --admin-key "$CONVEX_SELF_HOSTED_ADMIN_KEY"
 ```
 
-Spike query: `proposals.countOpen` — live open-proposals badge in hub-ui.
+`proposals.upsert`, `proposals.remove`, and `proposals.countOpen` are internal
+functions. The Hub mirror requires `CONVEX_DEPLOY_KEY` or
+`CONVEX_SELF_HOSTED_ADMIN_KEY` as well as a URL; ordinary browser clients cannot
+call these functions. The live browser badge is deferred until subscriptions
+can enforce the same Core scopes as Hub reads (`convex.publicCounter=false`).
+The Hub API remains the source of proposal lists and summaries.
 
 Compose uses `http://convex-backend:3210` for Hub-to-Convex traffic and exposes
 `CONVEX_PUBLIC_URL` (default `http://127.0.0.1:3210`) to browser clients. Set

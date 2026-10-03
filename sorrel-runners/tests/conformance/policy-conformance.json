@@ -191,6 +191,53 @@
       },
       "grants": [],
       "expected": "deny"
+    },
+    {
+      "id": "repo_object_write_explicit_deny",
+      "title": "A matching deny grant cannot authorize repo.object.write",
+      "sourceFixtures": ["examples/grant-repo-object-write.json"],
+      "request": {
+        "principal": { "type": "user", "id": "principal_maintainer" },
+        "capability": "repo.object.write",
+        "resource": { "kind": "repo", "id": "repo_main" }
+      },
+      "grants": [
+        {
+          "id": "grant_repo_object_deny",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "repo.object.write",
+          "resource": { "kind": "repo", "id": "repo_main" },
+          "effect": "deny"
+        }
+      ],
+      "expected": "deny"
+    },
+    {
+      "id": "repo_object_write_deny_overrides_allow",
+      "title": "A deny overrides a matching allow regardless of grant order",
+      "sourceFixtures": ["examples/grant-repo-object-write.json"],
+      "request": {
+        "principal": { "type": "user", "id": "principal_maintainer" },
+        "capability": "repo.object.write",
+        "resource": { "kind": "repo", "id": "repo_main" }
+      },
+      "grants": [
+        {
+          "id": "grant_repo_object_allow",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "repo.object.write",
+          "resource": { "kind": "repo", "id": "repo_main" },
+          "effect": "allow"
+        },
+        {
+          "id": "grant_repo_object_deny",
+          "principal": { "type": "user", "id": "principal_maintainer" },
+          "capability": "repo.object.write",
+          "resource": { "kind": "repo", "id": "repo_main" },
+          "effect": "deny"
+        }
+      ],
+      "expected": "deny"
     }
   ],
   "policyChanges": [

@@ -2,15 +2,9 @@
 //!
 //! The CLI (or another host) loads and saves the cache bytes; this module does
 //! not hardcode `.sorrel/` paths. During tree materialization, each file's
-//! `(size, mtime)` is compared to a cached entry; on a match **and** a live
-//! object in the store, the cached blob id is reused without reading file
-//! bytes from disk.
-//!
-//! # mtime granularity
-//!
-//! Entries use [`std::fs::Metadata::modified`]. On filesystems with
-//! one-second resolution, two edits within the same second that keep the same
-//! size may not be detected (acceptable for v0).
+//! size, mtime, and Unix identity/change-time metadata are checked against a
+//! cached entry. Older cache files and platforms without change-time metadata
+//! conservatively rehash file bytes.
 //!
 //! # CLI integration example
 //!
@@ -104,6 +98,34 @@ pub struct StatCacheEntry {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct StatCache {
     entries: BTreeMap<String, StatCacheEntry>,
+    identities: BTreeMap<String, FileIdentity>,
+}
+
+// Kept outside the public entry struct so existing callers remain compatible.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+struct FileIdentity {
+    device: u64,
+    inode: u64,
+    ctime_secs: i64,
+    ctime_nanos: i64,
+}
+
+impl FileIdentity {
+    #[cfg(unix)]
+    fn from_metadata(metadata: &std::fs::Metadata) -> Option<Self> {
+        use std::os::unix::fs::MetadataExt;
+        Some(Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            ctime_secs: metadata.ctime(),
+            ctime_nanos: metadata.ctime_nsec(),
+        })
+    }
+
+    #[cfg(not(unix))]
+    fn from_metadata(_metadata: &std::fs::Metadata) -> Option<Self> {
+        None
+    }
 }
 
 impl StatCache {
@@ -124,17 +146,41 @@ impl StatCache {
 
     /// Inserts or replaces the cache entry for `path`.
     pub fn insert(&mut self, path: impl Into<String>, entry: StatCacheEntry) {
-        self.entries.insert(path.into(), entry);
+        let path = path.into();
+        self.identities.remove(&path);
+        self.entries.insert(path, entry);
     }
 
     /// Removes the cache entry for `path`, if present.
     pub fn remove(&mut self, path: &str) -> Option<StatCacheEntry> {
+        self.identities.remove(path);
         self.entries.remove(path)
     }
 
     /// Drops entries whose paths were not seen during the latest tree walk.
     pub fn retain(&mut self, paths_seen: &BTreeSet<String>) {
         self.entries.retain(|path, _| paths_seen.contains(path));
+        self.identities.retain(|path, _| paths_seen.contains(path));
+    }
+
+    pub(crate) fn identity_matches(&self, path: &str, metadata: &std::fs::Metadata) -> bool {
+        FileIdentity::from_metadata(metadata)
+            .is_some_and(|identity| self.identities.get(path) == Some(&identity))
+    }
+
+    pub(crate) fn unchanged_metadata(
+        before: &std::fs::Metadata,
+        after: &std::fs::Metadata,
+    ) -> bool {
+        before.len() == after.len()
+            && before.modified().ok() == after.modified().ok()
+            && FileIdentity::from_metadata(before) == FileIdentity::from_metadata(after)
+    }
+
+    pub(crate) fn set_identity(&mut self, path: &str, metadata: &std::fs::Metadata) {
+        if let Some(identity) = FileIdentity::from_metadata(metadata) {
+            self.identities.insert(path.to_owned(), identity);
+        }
     }
 
     /// Deserializes a stat cache from bytes.
@@ -167,12 +213,15 @@ impl StatCache {
 struct StoredStatCache {
     schema_version: String,
     entries: BTreeMap<String, StoredStatCacheEntry>,
+    #[serde(default)]
+    identities: BTreeMap<String, FileIdentity>,
 }
 
 impl StoredStatCache {
     fn from_cache(cache: &StatCache) -> Self {
         Self {
             schema_version: PROTOCOL_VERSION.to_owned(),
+            identities: cache.identities.clone(),
             entries: cache
                 .entries
                 .iter()
@@ -195,7 +244,10 @@ impl StoredStatCache {
             .map(|(path, entry)| entry.into_entry().map(|e| (path, e)))
             .collect::<StatCacheResult<BTreeMap<_, _>>>()?;
 
-        Ok(StatCache { entries })
+        Ok(StatCache {
+            entries,
+            identities: self.identities,
+        })
     }
 }
 
@@ -361,6 +413,46 @@ mod tests {
 
         assert_ne!(first_blob, second_blob);
         assert_ne!(first.id, second.id);
+    }
+
+    #[test]
+    fn same_size_edit_with_restored_mtime_records_new_content() {
+        use std::fs::{File, FileTimes};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.txt");
+        std::fs::write(&path, b"before").unwrap();
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let store = InMemoryObjectStore::new();
+        let mut cache = StatCache::new();
+        let first = materialize_snapshot_excluding_with_stat_cache(
+            &store,
+            dir.path(),
+            std::iter::empty::<&str>(),
+            Some(&mut cache),
+            SnapshotOptions::new("repo"),
+        )
+        .unwrap();
+        // Also exercise metadata identities surviving the CLI's persistence boundary.
+        cache = StatCache::load(&cache.to_bytes().unwrap()).unwrap();
+        std::fs::write(&path, b"after!").unwrap();
+        File::open(&path)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(modified))
+            .unwrap();
+        let second = materialize_snapshot_excluding_with_stat_cache(
+            &store,
+            dir.path(),
+            std::iter::empty::<&str>(),
+            Some(&mut cache),
+            SnapshotOptions::new("repo"),
+        )
+        .unwrap();
+        assert_ne!(first.root_tree, second.root_tree);
+        assert_eq!(
+            crate::read_snapshot_files(&store, &second.id).unwrap()
+                [std::path::Path::new("data.txt")],
+            b"after!"
+        );
     }
 
     #[test]

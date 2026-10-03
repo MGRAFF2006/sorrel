@@ -21,6 +21,7 @@ async function loadManifest() {
 // (action + resource{kind,id}).
 function hubGrant(manifestGrant) {
   return {
+    ...manifestGrant,
     id: manifestGrant.id,
     source: 'core',
     principal: manifestGrant.principal,

@@ -19,7 +19,8 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    read_snapshot, read_tree, EntryType, ObjectId, ObjectStore, ObjectStoreError, SnapshotError,
+    read_snapshot, read_tree, validate_snapshot, EntryType, ObjectId, ObjectKind, ObjectStore,
+    ObjectStoreError, SnapshotError,
 };
 
 /// Errors returned while computing closures or transferring objects.
@@ -41,7 +42,8 @@ pub type TransportResult<T> = Result<T, TransportError>;
 /// The returned set includes the snapshots themselves, all ancestor snapshots,
 /// and every tree and blob reachable from each. Ids are returned sorted for
 /// deterministic output. Objects already known to be present can be excluded
-/// with [`missing_objects`].
+/// with [`missing_objects`]. Every reachable snapshot's tree/blob graph and
+/// declared reference kinds are validated; native validation bounds tree depth.
 pub fn collect_closure<S: ObjectStore>(
     store: &S,
     roots: &[ObjectId],
@@ -54,9 +56,10 @@ pub fn collect_closure<S: ObjectStore>(
         if !visited_snapshots.insert(snapshot_id) {
             continue;
         }
-        // The snapshot object itself.
+        // Validate every ancestor's typed tree/blob graph, not only the selected tip.
+        // Native validation also bounds tree depth before any downstream consumer.
+        validate_snapshot(store, &snapshot_id)?;
         closure.insert(snapshot_id);
-
         let snapshot = read_snapshot(store, &snapshot_id)?;
         // Its content tree closure.
         collect_tree_closure(store, snapshot.root_tree.id, &mut closure)?;
@@ -75,15 +78,33 @@ fn collect_tree_closure<S: ObjectStore>(
     tree_id: ObjectId,
     closure: &mut BTreeSet<ObjectId>,
 ) -> TransportResult<()> {
-    if !closure.insert(tree_id) {
-        return Ok(());
-    }
-    let tree = read_tree(store, &tree_id)?;
-    for entry in tree.entries {
-        match entry.entry_type {
-            EntryType::Directory => collect_tree_closure(store, entry.object.id, closure)?,
-            EntryType::File => {
-                closure.insert(entry.object.id);
+    let mut pending = vec![tree_id];
+    while let Some(id) = pending.pop() {
+        if !closure.insert(id) {
+            continue;
+        }
+        let tree = read_tree(store, &id)?;
+        for entry in tree.entries {
+            let expected_kind = match entry.entry_type {
+                EntryType::Directory => ObjectKind::Tree,
+                EntryType::File => ObjectKind::Blob,
+            };
+            if entry.object.kind != expected_kind {
+                return Err(SnapshotError::InvalidObjectKind {
+                    expected: if expected_kind == ObjectKind::Tree {
+                        "Tree"
+                    } else {
+                        "Blob"
+                    },
+                    actual: format!("{:?}", entry.object.kind),
+                }
+                .into());
+            }
+            match entry.entry_type {
+                EntryType::Directory => pending.push(entry.object.id),
+                EntryType::File => {
+                    closure.insert(entry.object.id);
+                }
             }
         }
     }
@@ -147,10 +168,6 @@ pub fn is_descendant<S: ObjectStore>(
     ancestor: ObjectId,
     descendant: ObjectId,
 ) -> TransportResult<bool> {
-    if ancestor == descendant {
-        return Ok(true);
-    }
-
     let mut queue = vec![descendant];
     let mut visited = BTreeSet::new();
 
@@ -158,14 +175,28 @@ pub fn is_descendant<S: ObjectStore>(
         if !visited.insert(current) {
             continue;
         }
-
         let snapshot = read_snapshot(store, &current)?;
-        for parent in &snapshot.parents {
-            if parent.id == ancestor {
-                return Ok(true);
+        if snapshot.root_tree.kind != ObjectKind::Tree {
+            return Err(SnapshotError::InvalidObjectKind {
+                expected: "Tree",
+                actual: format!("{:?}", snapshot.root_tree.kind),
             }
-            queue.push(parent.id);
+            .into());
         }
+        for parent in &snapshot.parents {
+            if parent.kind != ObjectKind::Snapshot {
+                return Err(SnapshotError::InvalidObjectKind {
+                    expected: "Snapshot",
+                    actual: format!("{:?}", parent.kind),
+                }
+                .into());
+            }
+        }
+        // Equality must still refer to an actual, well-typed Snapshot header.
+        if current == ancestor {
+            return Ok(true);
+        }
+        queue.extend(snapshot.parents.iter().map(|parent| parent.id));
     }
 
     Ok(false)
@@ -308,6 +339,99 @@ mod tests {
         for id in &id_list {
             assert!(round_trip.has(id).unwrap());
             assert_eq!(source.read(id).unwrap(), round_trip.read(id).unwrap());
+        }
+    }
+
+    fn rewrite_json(
+        store: &InMemoryObjectStore,
+        id: ObjectId,
+        mutate: impl FnOnce(&mut serde_json::Value),
+    ) -> ObjectId {
+        let mut value = serde_json::from_slice(&store.read(&id).unwrap()).unwrap();
+        mutate(&mut value);
+        store.write(&serde_json::to_vec(&value).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn closure_rejects_wrong_typed_refs_in_tips_and_ancestor_trees() {
+        let store = InMemoryObjectStore::new();
+        let parent = sample_snapshot(&store);
+        let child = child_snapshot(&store, &parent, "b.txt", b"world\n");
+        let wrong_root = rewrite_json(&store, child.id, |value| {
+            value["rootTree"]["kind"] = serde_json::json!("Blob");
+        });
+        let wrong_parent = rewrite_json(&store, child.id, |value| {
+            value["parents"][0]["kind"] = serde_json::json!("Tree");
+        });
+        let wrong_leaf_tree = rewrite_json(&store, parent.root_tree.id, |value| {
+            value["entries"][0]["object"]["kind"] = serde_json::json!("Tree");
+        });
+        let invalid_ancestor = rewrite_json(&store, parent.id, |value| {
+            value["rootTree"]["id"] = serde_json::json!(wrong_leaf_tree.to_hex());
+        });
+        let valid_tip_bad_ancestor = rewrite_json(&store, child.id, |value| {
+            value["parents"][0]["id"] = serde_json::json!(invalid_ancestor.to_hex());
+        });
+        // The selected tip alone is valid; transport must inspect ancestor trees too.
+        validate_snapshot(&store, &valid_tip_bad_ancestor).unwrap();
+        for id in [wrong_root, wrong_parent, valid_tip_bad_ancestor] {
+            assert!(matches!(
+                collect_closure(&store, &[id]),
+                Err(TransportError::Snapshot(
+                    SnapshotError::InvalidObjectKind { .. }
+                ))
+            ));
+        }
+    }
+
+    #[test]
+    fn closure_rejects_malicious_tree_depth_without_recursive_stack_growth() {
+        use crate::{write_snapshot, write_tree, EntryMode, ObjectRef, TreeEntry};
+        use std::path::PathBuf;
+        let store = InMemoryObjectStore::new();
+        let mut tree = write_tree(&store, Vec::new()).unwrap();
+        // Construct a content-addressed, typed graph deeper than native's 256 limit.
+        // No filesystem recursion or unusually long single filename is involved.
+        for depth in (1..=1_024).rev() {
+            let path: PathBuf = std::iter::repeat_n("d", depth).collect();
+            tree = write_tree(
+                &store,
+                vec![TreeEntry {
+                    name: "d".into(),
+                    path,
+                    entry_type: EntryType::Directory,
+                    object: ObjectRef::new(ObjectKind::Tree, tree.id),
+                    mode: EntryMode::Directory,
+                    size: None,
+                    content_hash: None,
+                }],
+            )
+            .unwrap();
+        }
+        let snapshot = write_snapshot(&store, tree.id, SnapshotOptions::new("repo")).unwrap();
+        assert!(matches!(
+            collect_closure(&store, &[snapshot.id]),
+            Err(TransportError::Snapshot(SnapshotError::InvalidPath { .. }))
+        ));
+    }
+
+    #[test]
+    fn ancestry_rejects_equal_non_snapshots_and_wrong_parent_reference_kinds() {
+        let store = InMemoryObjectStore::new();
+        let root = sample_snapshot(&store);
+        let blob = crate::write_blob(&store, b"not a snapshot").unwrap();
+        assert!(is_descendant(&store, blob.id, blob.id).is_err());
+        let child = child_snapshot(&store, &root, "b.txt", b"child");
+        let wrong_parent = rewrite_json(&store, child.id, |value| {
+            value["parents"][0]["kind"] = serde_json::json!("Tree");
+        });
+        for ancestor in [root.id, wrong_parent] {
+            assert!(matches!(
+                is_descendant(&store, ancestor, wrong_parent),
+                Err(TransportError::Snapshot(
+                    SnapshotError::InvalidObjectKind { .. }
+                ))
+            ));
         }
     }
 

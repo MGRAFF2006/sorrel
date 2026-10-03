@@ -101,5 +101,70 @@ fn git_import_respects_limit() {
     let root = git_dir.path();
     let imported = command_json(root, &["git", "import", "--limit", "1", "--json"]);
     assert_eq!(imported["importedCommits"], 1);
-    assert_eq!(imported["commits"][0]["message"], "update readme");
+    assert_eq!(imported["commits"][0]["message"], "update readme\n");
+}
+
+#[test]
+fn first_colocated_import_refuses_uncommitted_git_edits_and_preserves_them() {
+    let dir = make_git_repo();
+    let root = dir.path();
+    std::fs::write(root.join("readme.txt"), b"uncommitted work\n").unwrap();
+    let output = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .args(["git", "import", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "first import must not overwrite Git edits"
+    );
+    let error: Value = serde_json::from_slice(&output.stdout).expect("structured import failure");
+    assert_eq!(error["status"], "error");
+    assert_eq!(
+        std::fs::read(root.join("readme.txt")).unwrap(),
+        b"uncommitted work\n"
+    );
+    assert!(!root.join(".sorrel/git-map.json").exists());
+}
+
+#[test]
+fn imported_multiline_messages_survive_json_log_and_git_export() {
+    let dir = make_git_repo();
+    let root = dir.path();
+    std::fs::write(root.join("body.txt"), b"body\n").unwrap();
+    git(root, &["add", "body.txt"]);
+    let message = "Subject\n\nDetailed body.\n\nCo-authored-by: Agent <agent@example.com>";
+    git(root, &["commit", "-m", message]);
+    let imported = command_json(root, &["git", "import", "--json"]);
+    let full_message = format!("{message}\n");
+    assert_eq!(
+        imported["commits"].as_array().unwrap().last().unwrap()["message"],
+        full_message
+    );
+    let log = command_json(root, &["log", "--json"]);
+    assert_eq!(log["entries"][0]["message"], full_message);
+    let export = TempDir::new().unwrap();
+    command_json(
+        root,
+        &[
+            "git",
+            "export",
+            export.path().to_str().unwrap(),
+            "--branch",
+            "exported",
+            "--json",
+        ],
+    );
+    let result = StdCommand::new("git")
+        .current_dir(export.path())
+        .args(["log", "-1", "--format=%B", "exported"])
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    // Git's formatting appends one separator newline beyond the message bytes.
+    assert_eq!(
+        String::from_utf8(result.stdout).unwrap(),
+        format!("{full_message}\n")
+    );
 }

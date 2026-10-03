@@ -24,7 +24,7 @@ function isPlainObject(value) {
 }
 
 function principalKey(principal) {
-  return `${principal.type}:${principal.id}`;
+  return `${principal.type ?? principal.kind}:${principal.id}`;
 }
 
 function resourceKey(resource) {
@@ -45,7 +45,7 @@ function resourcesMatch(grantResource, targetResource) {
   if (!targetResource) {
     return false;
   }
-  return resourceKey(grantResource) === resourceKey(targetResource);
+  return grantResource.kind === targetResource.kind && (grantResource.id === '*' || resourceKey(grantResource) === resourceKey(targetResource));
 }
 
 /**
@@ -94,7 +94,7 @@ export function evaluate(request) {
     policyRefs = [],
   } = request;
 
-  if (!isPlainObject(principal) || typeof principal.type !== 'string' || typeof principal.id !== 'string') {
+  if (!isPlainObject(principal) || typeof (principal.type ?? principal.kind) !== 'string' || typeof principal.id !== 'string') {
     throw new PolicyEvaluationError('principal is required for Core evaluation');
   }
 
@@ -102,34 +102,45 @@ export function evaluate(request) {
     throw new PolicyEvaluationError('action is required for Core evaluation');
   }
 
-  const matchingGrant = grants.find(
-    (grant) =>
-      grant.action === action &&
+  const now = request.now ?? Date.now();
+  const matching = grants.filter((grant) => {
+    if (!isPlainObject(grant) || !isPlainObject(grant.principal)) return false;
+    if (grant.status !== undefined && !['active', 'expired', 'revoked'].includes(grant.status)) {
+      throw new PolicyEvaluationError('unsupported trusted grant status');
+    }
+    if (grant.status !== undefined && grant.status !== 'active') return false;
+    if (grant.revokedAt !== undefined) return false;
+    for (const field of ['issuedAt', 'expiresAt']) {
+      if (grant[field] !== undefined && !Number.isFinite(Date.parse(grant[field]))) {
+        throw new PolicyEvaluationError(`invalid trusted grant ${field}`);
+      }
+    }
+    if (grant.issuedAt && Date.parse(grant.issuedAt) > now) return false;
+    if (grant.expiresAt && Date.parse(grant.expiresAt) <= now) return false;
+    // Conditional grants require Core evaluation; this adapter cannot safely interpret them.
+    if (grant.schemaVersion !== undefined && grant.schemaVersion !== 'sorrel.protocol.v0') {
+      throw new PolicyEvaluationError('unsupported trusted grant schema version');
+    }
+    if (grant.conditions && Object.keys(grant.conditions).length && (grant.effect ?? 'allow') === 'allow') return false;
+    const actions = grant.capabilities ?? [grant.action ?? grant.capability];
+    const resources = grant.resources ?? [grant.resource];
+    return actions.some((value) => value === action || value === '*') &&
       principalsMatch(grant.principal, principal) &&
-      resourcesMatch(grant.resource, resource),
-  );
-
-  if (matchingGrant) {
-    return {
-      allowed: true,
-      decision: createDecision('allow', `matched Core grant ${matchingGrant.id}`, {
-        grantId: matchingGrant.id,
-        policyRef,
-        authorityRootRef,
-        policyRefs,
-      }),
-    };
-  }
-
+      resources.some((value) => resourcesMatch(value, resource));
+  }).sort((a, b) => a.id.localeCompare(b.id));
+  const effects = matching.map((grant) => {
+    const effect = grant.effect ?? (grant.schemaVersion ? 'deny' : 'allow');
+    return ['allow', 'deny', 'redact', 'review'].includes(effect) ? effect : 'deny';
+  });
+  const effect = ['deny', 'redact', 'review', 'allow'].find((value) => effects.includes(value));
+  const outcome = effect === 'review' ? 'needs_review' : effect ?? 'deny';
   return {
-    allowed: false,
-    decision: createDecision('deny', 'no matching Core grant for action', {
-      action,
-      principal: principalKey(principal),
-      resource: resourceKey(resource),
-      policyRef,
-      authorityRootRef,
-      policyRefs,
+    allowed: outcome === 'allow',
+    decision: createDecision(outcome, effect ? `matched Core ${effect} grant` : 'no matching Core grant for action', {
+      grantId: matching.find((grant) => (grant.effect ?? 'allow') === effect)?.id,
+      grantIds: matching.map((grant) => grant.id),
+      action, principal: principalKey(principal), resource: resourceKey(resource),
+      policyRef, authorityRootRef, policyRefs,
     }),
   };
 }
@@ -153,7 +164,11 @@ export function evaluateWithTrustedGrants(
   trustedGrantsById,
   policyContext = {},
 ) {
-  const grants = hydrateTrustedGrants(grantRefs, trustedGrantsById);
+  // References select allow authority, but cannot hide a trusted restrictive grant.
+  const selected = hydrateTrustedGrants(grantRefs, trustedGrantsById);
+  const grants = [...new Map([...selected, ...Object.values(trustedGrantsById).filter(
+    (grant) => grant.effect && grant.effect !== 'allow',
+  )].map((grant) => [grant.id, grant])).values()];
   const result = evaluate({
     principal,
     action,
@@ -192,7 +207,7 @@ function createDecision(outcome, reason, metadata = {}) {
  * @typedef {Object} CorePolicyDecision
  * @property {string} id
  * @property {string} source
- * @property {'allow' | 'deny'} outcome
+ * @property {'allow' | 'deny' | 'redact' | 'needs_review'} outcome
  * @property {string} reason
  * @property {Record<string, unknown>} metadata
  */

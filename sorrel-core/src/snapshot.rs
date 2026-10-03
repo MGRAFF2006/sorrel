@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
-    fs, io,
+    fs,
+    io::{self, Write},
     path::{Component, Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     time::UNIX_EPOCH,
 };
 
@@ -453,6 +455,20 @@ where
         .into_iter()
         .map(|name| name.as_ref().to_os_string())
         .collect::<BTreeSet<_>>();
+    write_tree_from_directory_filtered_with_stat_cache(store, root, stat_cache, |path, _is_dir| {
+        Ok(path.components().count() != 1 || !excluded.contains(path.as_os_str()))
+    })
+}
+
+/// Materializes a tree, asking `include` about each workspace-relative path.
+/// Returning false for a directory skips that directory and its descendants.
+/// Filter errors stop snapshotting; ignored entries never enter the object store.
+pub fn write_tree_from_directory_filtered_with_stat_cache(
+    store: &impl ObjectStore,
+    root: impl AsRef<Path>,
+    stat_cache: Option<&mut StatCache>,
+    mut include: impl FnMut(&Path, bool) -> io::Result<bool>,
+) -> SnapshotResult<Tree> {
     match stat_cache {
         Some(cache) => {
             let mut paths_seen = BTreeSet::new();
@@ -460,14 +476,21 @@ where
                 store,
                 root.as_ref(),
                 Path::new(""),
-                &excluded,
+                &mut include,
                 Some(cache),
                 Some(&mut paths_seen),
             )?;
             cache.retain(&paths_seen);
             Ok(tree)
         }
-        None => write_tree_from_dir(store, root.as_ref(), Path::new(""), &excluded, None, None),
+        None => write_tree_from_dir(
+            store,
+            root.as_ref(),
+            Path::new(""),
+            &mut include,
+            None,
+            None,
+        ),
     }
 }
 
@@ -570,6 +593,20 @@ where
     write_snapshot(store, root_tree.id, options)
 }
 
+/// Materializes a snapshot using a caller-provided path inclusion predicate.
+/// See [`write_tree_from_directory_filtered_with_stat_cache`] for filtering semantics.
+pub fn materialize_snapshot_filtered_with_stat_cache(
+    store: &impl ObjectStore,
+    root: impl AsRef<Path>,
+    stat_cache: Option<&mut StatCache>,
+    options: SnapshotOptions,
+    include: impl FnMut(&Path, bool) -> io::Result<bool>,
+) -> SnapshotResult<Snapshot> {
+    let tree =
+        write_tree_from_directory_filtered_with_stat_cache(store, root, stat_cache, include)?;
+    write_snapshot(store, tree.id, options)
+}
+
 /// Reads all files in a snapshot into memory, keyed by relative path.
 pub fn read_snapshot_files(
     store: &impl ObjectStore,
@@ -591,10 +628,198 @@ pub fn restore_snapshot_to_directory(
     target: impl AsRef<Path>,
 ) -> SnapshotResult<()> {
     let target = target.as_ref();
+    validate_snapshot_checkout(store, snapshot_id, target)?;
     fs::create_dir_all(target).map_err(|source| SnapshotError::io(target, source))?;
-
     let snapshot = read_snapshot(store, snapshot_id)?;
     restore_tree(store, &snapshot.root_tree.id, target)
+}
+
+/// Validates a complete snapshot's tree and blob graph before consuming paths.
+/// Parent references are checked for their declared and stored snapshot kinds;
+/// their working trees are not traversed.
+pub fn validate_snapshot(store: &impl ObjectStore, snapshot_id: &ObjectId) -> SnapshotResult<()> {
+    validated_snapshot_entries(store, snapshot_id).map(|_| ())
+}
+
+/// Validates a snapshot and existing checkout paths without changing the target.
+/// Rejects symlink components and file/directory collisions before any writes.
+pub fn validate_snapshot_checkout(
+    store: &impl ObjectStore,
+    snapshot_id: &ObjectId,
+    target: impl AsRef<Path>,
+) -> SnapshotResult<()> {
+    let entries = validated_snapshot_entries(store, snapshot_id)?;
+    let target = target.as_ref();
+    validate_existing_directory(target)?;
+    for entry in entries {
+        let path = target.join(&entry.path);
+        if let Some(parent) = path.parent() {
+            validate_existing_directory(parent)?;
+        }
+        match fs::symlink_metadata(&path) {
+            Ok(metadata)
+                if metadata.file_type().is_symlink()
+                    || (entry.entry_type == EntryType::Directory && !metadata.is_dir())
+                    || (entry.entry_type == EntryType::File && !metadata.is_file()) =>
+            {
+                return Err(SnapshotError::UnsupportedFileType { path });
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(SnapshotError::io(path, error)),
+        }
+    }
+    Ok(())
+}
+
+/// Alias describing the strict destination preflight used by restoration.
+pub fn validate_snapshot_restore(
+    store: &impl ObjectStore,
+    snapshot_id: &ObjectId,
+    target: impl AsRef<Path>,
+) -> SnapshotResult<()> {
+    validate_snapshot_checkout(store, snapshot_id, target)
+}
+
+/// Validates graph and destination symlink components while permitting ordinary
+/// file/directory blockers a host intends to remove as part of a tracked checkout.
+/// Hosts must check for untracked files before removing such blockers.
+pub fn validate_snapshot_paths(
+    store: &impl ObjectStore,
+    snapshot_id: &ObjectId,
+    target: impl AsRef<Path>,
+) -> SnapshotResult<()> {
+    let entries = validated_snapshot_entries(store, snapshot_id)?;
+    for path in std::iter::once(target.as_ref().to_path_buf()).chain(
+        entries
+            .into_iter()
+            .map(|entry| target.as_ref().join(entry.path)),
+    ) {
+        for ancestor in path.ancestors() {
+            if ancestor.as_os_str().is_empty() {
+                continue;
+            }
+            match fs::symlink_metadata(ancestor) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    return Err(SnapshotError::UnsupportedFileType {
+                        path: ancestor.to_path_buf(),
+                    });
+                }
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                    ) => {}
+                Err(error) => return Err(SnapshotError::io(ancestor, error)),
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_existing_directory(path: &Path) -> SnapshotResult<()> {
+    for ancestor in path.ancestors() {
+        if ancestor.as_os_str().is_empty() {
+            continue;
+        }
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
+                return Err(SnapshotError::UnsupportedFileType {
+                    path: ancestor.to_path_buf(),
+                });
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(SnapshotError::io(ancestor, error)),
+        }
+    }
+    Ok(())
+}
+
+fn require_ref_kind(reference: ObjectRef, expected: ObjectKind) -> SnapshotResult<()> {
+    if reference.kind != expected {
+        return Err(SnapshotError::InvalidObjectKind {
+            expected: expected.as_protocol_kind(),
+            actual: reference.kind.as_protocol_kind().to_owned(),
+        });
+    }
+    Ok(())
+}
+
+fn invalid_tree_path(path: &Path) -> SnapshotError {
+    SnapshotError::InvalidPath {
+        path: path.to_path_buf(),
+    }
+}
+
+fn validated_snapshot_entries(
+    store: &impl ObjectStore,
+    snapshot_id: &ObjectId,
+) -> SnapshotResult<Vec<TreeEntry>> {
+    let snapshot = read_snapshot(store, snapshot_id)?;
+    require_ref_kind(snapshot.root_tree, ObjectKind::Tree)?;
+    for parent in &snapshot.parents {
+        require_ref_kind(*parent, ObjectKind::Snapshot)?;
+        read_snapshot(store, &parent.id)?;
+    }
+    let mut pending = vec![(snapshot.root_tree.id, PathBuf::new())];
+    let mut entries = Vec::new();
+    while let Some((id, prefix)) = pending.pop() {
+        // A bound also protects recursive downstream consumers against a
+        // maliciously deep but otherwise content-addressed tree graph.
+        if prefix.components().count() > 256 {
+            return Err(invalid_tree_path(&prefix));
+        }
+        let tree = read_tree(store, &id)?;
+        let mut names = BTreeSet::new();
+        for entry in tree.entries {
+            let name = &entry.name;
+            let portable = name.trim_end_matches(['.', ' ']);
+            let reserved = prefix.as_os_str().is_empty()
+                && (portable.eq_ignore_ascii_case(".git")
+                    || portable.eq_ignore_ascii_case(".sorrel"));
+            if name.is_empty()
+                || name == "."
+                || name == ".."
+                || name.contains(['/', '\\', ':', '\0'])
+                || reserved
+                || entry.path != prefix.join(name)
+                || !names.insert(name.clone())
+            {
+                return Err(invalid_tree_path(&entry.path));
+            }
+            validate_relative_path(&entry.path)?;
+            match entry.entry_type {
+                EntryType::Directory => {
+                    require_ref_kind(entry.object, ObjectKind::Tree)?;
+                    if entry.mode != EntryMode::Directory
+                        || entry.size.is_some()
+                        || entry.content_hash.is_some()
+                    {
+                        return Err(invalid_tree_path(&entry.path));
+                    }
+                    pending.push((entry.object.id, entry.path.clone()));
+                }
+                EntryType::File => {
+                    require_ref_kind(entry.object, ObjectKind::Blob)?;
+                    if entry.mode == EntryMode::Directory {
+                        return Err(invalid_tree_path(&entry.path));
+                    }
+                    let blob = read_blob(store, &entry.object.id)?;
+                    if entry.size.is_some_and(|size| size != blob.size())
+                        || entry
+                            .content_hash
+                            .is_some_and(|hash| hash != blob.content_hash)
+                    {
+                        return Err(invalid_tree_path(&entry.path));
+                    }
+                }
+            }
+            entries.push(entry);
+        }
+    }
+    Ok(entries)
 }
 
 fn write_file_blob(
@@ -606,6 +831,8 @@ fn write_file_blob(
     mtime_secs: u64,
     mtime_nanos: u32,
 ) -> SnapshotResult<Blob> {
+    let before =
+        fs::metadata(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
     let content = fs::read(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
     let blob = write_blob(store, &content)?;
     cache.insert(
@@ -617,6 +844,19 @@ fn write_file_blob(
             object_id: blob.id,
         },
     );
+    let metadata =
+        fs::metadata(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
+    if !StatCache::unchanged_metadata(&before, &metadata) {
+        cache.remove(protocol_path);
+        return Err(SnapshotError::io(
+            child_path,
+            io::Error::new(
+                io::ErrorKind::Interrupted,
+                "file changed while snapshotting; retry",
+            ),
+        ));
+    }
+    cache.set_identity(protocol_path, &metadata);
     Ok(blob)
 }
 
@@ -644,12 +884,11 @@ fn write_tree_from_dir(
     store: &impl ObjectStore,
     root: &Path,
     relative_dir: &Path,
-    excluded_root_names: &BTreeSet<std::ffi::OsString>,
+    include: &mut dyn FnMut(&Path, bool) -> io::Result<bool>,
     mut stat_cache: Option<&mut StatCache>,
     mut paths_seen: Option<&mut BTreeSet<String>>,
 ) -> SnapshotResult<Tree> {
     let directory = root.join(relative_dir);
-    let is_root = relative_dir.as_os_str().is_empty();
     let mut children = fs::read_dir(&directory)
         .map_err(|source| SnapshotError::io(&directory, source))?
         .collect::<Result<Vec<_>, _>>()
@@ -660,10 +899,6 @@ fn write_tree_from_dir(
     let mut entries = Vec::with_capacity(children.len());
     for child in children {
         let child_path = child.path();
-        // Skip excluded names only at the working-tree root.
-        if is_root && excluded_root_names.contains(&child.file_name()) {
-            continue;
-        }
         let name = file_name_to_string(&child.file_name(), &child_path)?;
         let relative_path = relative_dir.join(&name);
         validate_relative_path(&relative_path)?;
@@ -671,13 +906,18 @@ fn write_tree_from_dir(
         let file_type = child
             .file_type()
             .map_err(|source| SnapshotError::io(&child_path, source))?;
+        if !include(&relative_path, file_type.is_dir())
+            .map_err(|source| SnapshotError::io(&child_path, source))?
+        {
+            continue;
+        }
 
         if file_type.is_dir() {
             let child_tree = write_tree_from_dir(
                 store,
                 root,
                 &relative_path,
-                excluded_root_names,
+                include,
                 stat_cache.as_deref_mut(),
                 paths_seen.as_deref_mut(),
             )?;
@@ -703,7 +943,8 @@ fn write_tree_from_dir(
 
             let blob = if let Some(cache) = stat_cache.as_deref_mut() {
                 if let Some(entry) = cache.get(&protocol_path) {
-                    if entry.size == file_size
+                    if cache.identity_matches(&protocol_path, &metadata)
+                        && entry.size == file_size
                         && entry.mtime_secs == mtime_secs
                         && entry.mtime_nanos == mtime_nanos
                         && store.has(&entry.object_id)?
@@ -785,9 +1026,7 @@ fn restore_tree(store: &impl ObjectStore, tree_id: &ObjectId, target: &Path) -> 
                 }
 
                 let blob = read_blob(store, &entry.object.id)?;
-                fs::write(&output_path, blob.content)
-                    .map_err(|source| SnapshotError::io(&output_path, source))?;
-                set_file_mode(&output_path, entry.mode)?;
+                replace_file(&output_path, &blob.content, entry.mode)?;
             }
             EntryType::Directory => {
                 fs::create_dir_all(&output_path)
@@ -798,6 +1037,39 @@ fn restore_tree(store: &impl ObjectStore, tree_id: &ObjectId, target: &Path) -> 
     }
 
     Ok(())
+}
+
+fn replace_file(path: &Path, bytes: &[u8], mode: EntryMode) -> SnapshotResult<()> {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let parent = path.parent().ok_or_else(|| invalid_tree_path(path))?;
+    let (temporary, mut file) = loop {
+        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let temporary = parent.join(format!(
+            ".sorrel-checkout.{}.{sequence}.tmp",
+            std::process::id()
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+        {
+            Ok(file) => break (temporary, file),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(SnapshotError::io(temporary, error)),
+        }
+    };
+    let result = (|| {
+        file.write_all(bytes)
+            .map_err(|source| SnapshotError::io(&temporary, source))?;
+        file.sync_all()
+            .map_err(|source| SnapshotError::io(&temporary, source))?;
+        set_file_mode(&temporary, mode)?;
+        fs::rename(&temporary, path).map_err(|source| SnapshotError::io(path, source))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn sort_entries(entries: &mut [TreeEntry]) {
@@ -857,6 +1129,13 @@ fn path_to_protocol_string(path: &Path) -> String {
 }
 
 fn parse_protocol_path(path: &str) -> SnapshotResult<PathBuf> {
+    if path.is_empty()
+        || path.split('/').any(|part| {
+            part.is_empty() || part == "." || part == ".." || part.contains(['\\', ':', '\0'])
+        })
+    {
+        return Err(invalid_tree_path(Path::new(path)));
+    }
     let path = PathBuf::from(path);
     validate_relative_path(&path)?;
     Ok(path)
@@ -1157,6 +1436,142 @@ impl StoredPrincipal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn single_file_entry(store: &impl ObjectStore, name: &str, content: &[u8]) -> TreeEntry {
+        let blob = write_blob(store, content).unwrap();
+        TreeEntry {
+            name: name.to_owned(),
+            path: PathBuf::from(name),
+            entry_type: EntryType::File,
+            object: ObjectRef::new(ObjectKind::Blob, blob.id),
+            mode: EntryMode::Normal,
+            size: Some(blob.size()),
+            content_hash: Some(blob.content_hash),
+        }
+    }
+
+    #[test]
+    fn filtered_snapshot_omits_nested_paths_and_propagates_filter_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("nested")).unwrap();
+        fs::write(dir.path().join("nested/private.env"), b"secret").unwrap();
+        fs::write(dir.path().join("nested/code.txt"), b"code").unwrap();
+        let store = crate::InMemoryObjectStore::new();
+        let snap = materialize_snapshot_filtered_with_stat_cache(
+            &store,
+            dir.path(),
+            None,
+            SnapshotOptions::new("repo"),
+            |path, _| Ok(path.extension() != Some(OsStr::new("env"))),
+        )
+        .unwrap();
+        let files = read_snapshot_files(&store, &snap.id).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files.contains_key(Path::new("nested/code.txt")));
+        assert!(!store
+            .has(&ObjectId::for_bytes(&blob_bytes(b"secret")))
+            .unwrap());
+        let error = materialize_snapshot_filtered_with_stat_cache(
+            &store,
+            dir.path(),
+            None,
+            SnapshotOptions::new("repo"),
+            |_, _| {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "cannot read ignore rules",
+                ))
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, SnapshotError::Io { .. }));
+    }
+
+    #[test]
+    fn invalid_late_entry_is_rejected_before_restore_mutates_anything() {
+        let store = crate::InMemoryObjectStore::new();
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.txt"), b"existing").unwrap();
+        let first = single_file_entry(&store, "a.txt", b"replacement");
+        let mut late = single_file_entry(&store, "z.txt", b"invalid");
+        late.path = PathBuf::from("other.txt");
+        let tree = write_tree(&store, vec![first, late]).unwrap();
+        let snap = write_snapshot(&store, tree.id, SnapshotOptions::new("repo")).unwrap();
+        assert!(restore_snapshot_to_directory(&store, &snap.id, dir.path()).is_err());
+        assert_eq!(fs::read(dir.path().join("a.txt")).unwrap(), b"existing");
+        assert!(!dir.path().join("other.txt").exists());
+    }
+
+    #[test]
+    fn validator_rejects_duplicate_names_typed_refs_and_reserved_empty_directories() {
+        let store = crate::InMemoryObjectStore::new();
+        let entry = single_file_entry(&store, "file.txt", b"x");
+        let empty = write_tree(&store, vec![]).unwrap();
+        let mut wrong_kind = entry.clone();
+        wrong_kind.object.kind = ObjectKind::Tree;
+        let mut wrong_mode = entry.clone();
+        wrong_mode.mode = EntryMode::Directory;
+        let mut wrong_size = entry.clone();
+        wrong_size.size = Some(20);
+        let reserved = TreeEntry {
+            name: ".GiT ".into(),
+            path: PathBuf::from(".GiT "),
+            entry_type: EntryType::Directory,
+            object: ObjectRef::new(ObjectKind::Tree, empty.id),
+            mode: EntryMode::Directory,
+            size: None,
+            content_hash: None,
+        };
+        for entries in [
+            vec![entry.clone(), entry],
+            vec![wrong_kind],
+            vec![wrong_mode],
+            vec![wrong_size],
+            vec![reserved],
+        ] {
+            let tree = write_tree(&store, entries).unwrap();
+            let snap = write_snapshot(&store, tree.id, SnapshotOptions::new("repo")).unwrap();
+            assert!(validate_snapshot(&store, &snap.id).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restore_rejects_symlink_parents_and_does_not_truncate_hardlinks() {
+        use std::os::unix::fs::symlink;
+        let store = crate::InMemoryObjectStore::new();
+        let source = tempfile::tempdir().unwrap();
+        fs::create_dir(source.path().join("nested")).unwrap();
+        fs::write(source.path().join("nested/file.txt"), b"snapshot").unwrap();
+        let snap =
+            materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo")).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("file.txt"), b"private").unwrap();
+        symlink(outside.path(), target.path().join("nested")).unwrap();
+        assert!(restore_snapshot_to_directory(&store, &snap.id, target.path()).is_err());
+        assert_eq!(
+            fs::read(outside.path().join("file.txt")).unwrap(),
+            b"private"
+        );
+        fs::remove_file(target.path().join("nested")).unwrap();
+        fs::create_dir(target.path().join("nested")).unwrap();
+        fs::hard_link(
+            outside.path().join("file.txt"),
+            target.path().join("nested/file.txt"),
+        )
+        .unwrap();
+        restore_snapshot_to_directory(&store, &snap.id, target.path()).unwrap();
+        assert_eq!(
+            fs::read(outside.path().join("file.txt")).unwrap(),
+            b"private"
+        );
+        assert_eq!(
+            fs::read(target.path().join("nested/file.txt")).unwrap(),
+            b"snapshot"
+        );
+    }
+
     use crate::InMemoryObjectStore;
 
     #[test]

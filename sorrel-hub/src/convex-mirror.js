@@ -4,7 +4,7 @@
  * VCS objects/refs stay on the sync object store. This client only mirrors
  * proposal status so the Solid UI can subscribe to `proposals.countOpen`.
  *
- * Enabled when CONVEX_URL is set. Failures are logged and swallowed so Hub
+ * Enabled when CONVEX_URL and a deployment/admin key are set. Failures are logged and swallowed so Hub
  * remains available without Convex.
  */
 
@@ -15,7 +15,7 @@ export function createConvexMirror(env = process.env) {
   const url = env.CONVEX_URL || env.CONVEX_SELF_HOSTED_URL || '';
   const adminKey = env.CONVEX_DEPLOY_KEY || env.CONVEX_SELF_HOSTED_ADMIN_KEY || '';
 
-  if (!url) {
+  if (!url || !adminKey) {
     return {
       enabled: false,
       async upsertProposal() {},

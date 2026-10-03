@@ -36,10 +36,69 @@ vendored `sorrel-protocol` conformance manifest.
 - Workflow validation and policy-gated local job execution from
   `sorrel.workflow.yml`.
 
-Every command accepts the global `--json` flag and emits structured JSON.
+Every command accepts the global `--json` flag. Failures return a nonzero exit
+code and a JSON object on stdout with `schemaVersion: "sorrel.cli.v1"`,
+`status: "error"`, and `error: { code, message }`; human failures use stderr.
 Repository state is real and persisted under `.sorrel/`; commands do not return
 fabricated domain data. Empty changes are rejected. See [`DEMO.md`](DEMO.md)
 for an end-to-end local walkthrough.
+
+### Parallel agents in an existing Git repository
+
+Run commands from the checkout root. Import recorded Git history, then create
+separate directories for agents:
+
+```bash
+sorrel git import .
+sorrel workspace create ../sorrel-agent-one --agent one --task "Fix parser"
+sorrel workspace create ../sorrel-agent-two --agent two --task "Add parser docs"
+sorrel workspace list --json
+sorrel agent claim one src/parser.rs
+sorrel agent active --json
+```
+
+Each worker has an independent object store, HEAD, and agent-owned lane, based
+on the owner's recorded snapshot. Inside each directory, use `status`, `diff`,
+and `change create -m "..."` as usual. Changes in one directory cannot change
+another checkout. Claims are advisory and live in the owner checkout; they
+report overlapping paths without enforcing a filesystem lock.
+
+Review and integrate recorded work from the owner checkout:
+
+```bash
+sorrel workspace integrate one
+sorrel workspace integrate two
+# On conflict: resolve files, then sorrel merge --continue; or sorrel merge --abort.
+sorrel agent release one src/parser.rs
+sorrel git export ../sorrel-result.git --branch main
+```
+
+Integration refuses unrecorded worker edits and a dirty owner checkout. It
+copies validated history into the assigned owner lane and performs the normal
+merge, preserving both worker directories. Conflicted merges retain clean
+incoming changes during continue/abort. A lane switch by itself still uses the
+current directory; use `workspace create` for parallel editing. Workers must
+return to their assigned lane before integration. Workspaces currently copy
+reachable objects, so creation cost grows with history.
+
+### Tracking and recovery
+
+Snapshots honor nested `.gitignore` and `.sorrelignore` rules. Existing tracked
+files stay tracked. `.git`, `.sorrel`, `node_modules`, `target`, `dist`, `.env`,
+and `.env.*` are excluded by default; `.env.example`, `.env.sample`, and
+`.env.template` can be included. `sorrel track add <path>...` explicitly includes
+ignored files or directories; metadata remains reserved. Ignored local files
+are preserved by checkout and never silently overwritten by incoming files.
+
+Repository commands use an OS advisory lock and unique atomic metadata writes.
+HEAD/lane publication and workspace creation have replayable journals. An
+interrupted checkout blocks normal VCS commands until it is inspected with
+`sorrel recover` and rolled back with `sorrel recover --abort`. Ordinary merge
+conflicts use `MERGE_STATE` and `merge --continue` / `merge --abort` instead.
+Core restore preflight rejects invalid graphs, metadata aliases, symlink paths,
+and unsupported entry modes before mutation. These guarantees cover cooperating
+processes and process interruption; arbitrary concurrent filesystem edits and
+power-loss atomicity across a full checkout are outside the current contract.
 
 ### On-disk layout
 
@@ -58,6 +117,12 @@ A workspace lives in a `.sorrel/` directory next to the working tree:
   HEAD            current lane + head snapshot pointer (atomically written)
   changes.index   snapshot-to-change index
   remotes.json    configured Hub remotes
+  tracked.json    explicit ignore exceptions
+  agents/         advisory registrations and claims
+  workspaces/     owner links to independent agent checkouts
+  LOCK            cross-process repository lock
+  CHECKOUT_STATE  present only during checkout/recovery
+  HEAD_TRANSACTION / WORKSPACE_CREATE  interrupted-publication journals
 ```
 
 `manifest.json`:
@@ -152,7 +217,7 @@ sorrel status --json
   "repoId": "repo_a834b552a41b9e09",
   "sorrelDir": ".sorrel",
   "initialized": true,
-  "status": "ready",
+  "status": "clean",
   "currentLane": { "kind": "Lane", "id": "lane_main" },
   "headSnapshot": {
     "kind": "Snapshot",

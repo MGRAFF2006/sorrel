@@ -41,8 +41,12 @@ Flags:
 | `--force` | Allow dirty worktree or overwrite existing `git-map.json` |
 | `--json` | Structured output |
 
-Refuse without `--force` when the working tree is dirty relative to HEAD, or when
-`.sorrel/git-map.json` already exists.
+A first colocated import refuses staged or unstaged tracked Git edits before
+initializing Sorrel. Existing workspaces also refuse a dirty tree relative to
+Sorrel HEAD or an existing `.sorrel/git-map.json` unless `--force` is passed.
+Untracked collisions remain protected. Import checks out the selected ref;
+ignore rules apply to subsequent recording, while files imported from Git stay
+tracked.
 
 ## Export
 
@@ -105,8 +109,9 @@ Notes:
   history, and a fresh (empty) Sorrel workspace adopts the Git history.
 - Pulling refuses to overwrite uncommitted working-tree changes unless
   `--force` is passed.
-- In a colocated checkout the Git index is refreshed after a push so
-  `git status` stays clean.
+- In a colocated checkout, pushes refuse staged Git changes before moving the
+  branch, then refresh the index so `git status` stays clean. A failed index
+  refresh is reported explicitly; inspect Git status before retrying.
 
 Flags:
 
@@ -127,6 +132,12 @@ git -C ./out.git log --oneline
 
 ## Notes
 
-- Symlinks and submodule gitlinks are rejected on import
+- Supported normal/executable modes and full UTF-8 commit messages survive
+  import/export. Non-UTF-8 messages, symlinks, and submodule gitlinks are rejected.
+- Author/committer identity and timestamps are represented through Sorrel metadata;
+  exports do not promise original commit bytes or SHAs for newly written snapshots.
+  Tags, Git notes, signatures, hooks, and index staging are not Sorrel objects.
+- The bridge does not replace existing Git CI; exported branches are ordinary Git.
+- Run a two-agent example from [README.md](README.md#parallel-agents-in-an-existing-git-repository).
 - Merge commits are imported/exported; Change base uses the first parent on import
 - Mapping under `.sorrel/git-map.json` links Git SHAs ↔ Sorrel snapshot ids
