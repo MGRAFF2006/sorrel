@@ -10,6 +10,7 @@
 pub mod agent_cmd;
 pub mod cli_policy;
 pub mod cli_runner;
+pub mod diff_view;
 pub mod env_cmd;
 pub mod hub;
 pub mod linediff;

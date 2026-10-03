@@ -36,7 +36,7 @@ impl ObjectId {
     /// Returns the lowercase hexadecimal representation of this object ID.
     #[must_use]
     pub fn to_hex(self) -> String {
-        self.0.iter().map(|byte| format!("{byte:02x}")).collect()
+        blake3::Hash::from_bytes(self.0).to_hex().to_string()
     }
 }
 
@@ -59,7 +59,7 @@ impl fmt::Debug for ObjectId {
 
 impl fmt::Display for ObjectId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.to_hex())
+        formatter.write_str(blake3::Hash::from_bytes(self.0).to_hex().as_str())
     }
 }
 
@@ -71,6 +71,15 @@ impl FromStr for ObjectId {
             return Err(ObjectIdParseError::InvalidLength {
                 actual: hex.len(),
                 expected: OBJECT_ID_HEX_LEN,
+            });
+        }
+
+        // Restrict input to hexadecimal ASCII before UTF-8 pair slicing and
+        // integer parsing, which would otherwise accept a leading '+' sign.
+        if let Some((index, character)) = hex.char_indices().find(|(_, c)| !c.is_ascii_hexdigit()) {
+            return Err(ObjectIdParseError::InvalidHex {
+                index,
+                value: character.to_string(),
             });
         }
 
@@ -106,7 +115,7 @@ pub enum ObjectIdParseError {
     InvalidHex {
         /// Byte index where invalid hex started.
         index: usize,
-        /// Two-character slice that could not be decoded.
+        /// Invalid hexadecimal pair or non-ASCII character.
         value: String,
     },
 }
@@ -146,5 +155,52 @@ mod tests {
                 expected: OBJECT_ID_HEX_LEN
             }
         );
+    }
+
+    #[test]
+    fn object_id_parse_rejects_unicode_at_utf8_boundaries_without_panicking() {
+        for prefix_len in [0, 1, 31, 61] {
+            let hex = format!("{}€{}", "0".repeat(prefix_len), "0".repeat(61 - prefix_len));
+            assert_eq!(hex.len(), OBJECT_ID_HEX_LEN);
+            assert_eq!(
+                hex.parse::<ObjectId>().unwrap_err(),
+                ObjectIdParseError::InvalidHex {
+                    index: prefix_len,
+                    value: "€".into(),
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn object_id_hex_encoder_preserves_all_bytes_and_uppercase_parsing() {
+        for start in (0..=224).step_by(32) {
+            let bytes = std::array::from_fn(|index| (start + index) as u8);
+            let id = ObjectId::from_bytes(bytes);
+            let expected: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+            assert_eq!(id.to_hex(), expected);
+            assert_eq!(id.to_string(), expected);
+            assert_eq!(expected.to_uppercase().parse::<ObjectId>().unwrap(), id);
+        }
+        assert_eq!(
+            format!("{}xy", "0".repeat(62))
+                .parse::<ObjectId>()
+                .unwrap_err(),
+            ObjectIdParseError::InvalidHex {
+                index: 62,
+                value: "x".into()
+            }
+        );
+    }
+
+    #[test]
+    fn object_id_parse_rejects_signs_and_whitespace() {
+        for invalid in ["+0", "-0", " 0", "0 ", "\t0", "0\n"] {
+            let hex = format!("{}{invalid}", "0".repeat(62));
+            assert!(matches!(
+                hex.parse::<ObjectId>(),
+                Err(ObjectIdParseError::InvalidHex { .. })
+            ));
+        }
     }
 }

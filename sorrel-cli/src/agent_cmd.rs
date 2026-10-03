@@ -457,14 +457,33 @@ pub fn execute(command: AgentCommand) -> io::Result<CommandOutput> {
                 ),
             })
         }
-        AgentCommand::Active => Ok(CommandOutput {
-            human: format!(
+        AgentCommand::Active => {
+            let workspaces = crate::workspace_cmd::overview()?;
+            let mut human = format!(
                 "{} agents, {} claims, {} overlapping paths",
                 agents.len(),
                 active["claims"].as_array().map_or(0, Vec::len),
                 active["overlaps"].as_array().map_or(0, Vec::len)
-            ),
-            json: active,
-        }),
+            );
+            for workspace in &workspaces {
+                human.push_str(&format!(
+                    "\n{}: {} ({} pending){}",
+                    workspace["id"].as_str().unwrap_or("?"),
+                    workspace["status"].as_str().unwrap_or("?"),
+                    workspace["pendingSnapshots"]
+                        .as_u64()
+                        .map_or_else(|| "?".to_owned(), |n| n.to_string()),
+                    workspace["task"]
+                        .as_str()
+                        .map_or_else(String::new, |task| format!(" — {task}"))
+                ));
+            }
+            let mut active = active;
+            active["workspaces"] = json!(workspaces);
+            Ok(CommandOutput {
+                human,
+                json: active,
+            })
+        }
     }
 }

@@ -20,8 +20,8 @@ use sorrel_core::{
 };
 
 use sorrel_cli::{
-    agent_cmd, cli_policy, command_error, error_code, hub, linediff, repo, sync, tracking,
-    workspace_cmd, CommandOutput,
+    agent_cmd, cli_policy, command_error, error_code, hub, repo, sync, tracking, workspace_cmd,
+    CommandOutput,
 };
 
 use sorrel_cli::workflow_cmd::{self, WorkflowFileArgs, WorkflowRunJobArgs};
@@ -640,8 +640,42 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
         Commands::Workspace { command } => match command {
             workspace_cmd::WorkspaceCommand::Create(args) => workspace_cmd::create(args),
             workspace_cmd::WorkspaceCommand::List => workspace_cmd::list(),
-            workspace_cmd::WorkspaceCommand::Integrate { id } => {
-                let integration = workspace_cmd::prepare_integration(&id)?;
+            workspace_cmd::WorkspaceCommand::Review { id } => {
+                let review = workspace_cmd::review(&id)?;
+                let rendered =
+                    sorrel_cli::diff_view::render(&review.store, &review.base, &review.tip)?;
+                let mut human = format!(
+                    "Workspace {id}: {}, {} pending snapshots",
+                    review.overview["status"].as_str().unwrap_or("?"),
+                    review.overview["pendingSnapshots"]
+                );
+                for commit in &review.commits {
+                    let snapshot = commit["snapshot"]["id"].as_str().unwrap_or("?");
+                    let message = commit["message"]
+                        .as_str()
+                        .unwrap_or("")
+                        .lines()
+                        .next()
+                        .unwrap_or("");
+                    let author = commit["author"]["id"].as_str().unwrap_or("?");
+                    human.push_str(&format!(
+                        "\n{}  {author}  {message}",
+                        &snapshot[..snapshot.len().min(12)]
+                    ));
+                }
+                human.push_str(&format!("\n{}", rendered.human));
+                Ok(CommandOutput {
+                    json: json!({
+                        "command":"workspace review", "workspace":review.overview,
+                        "baseSnapshot":{"kind":"Snapshot","id":review.base.to_hex()},
+                        "headSnapshot":{"kind":"Snapshot","id":review.tip.to_hex()},
+                        "commits":review.commits, "files":rendered.files,
+                    }),
+                    human,
+                })
+            }
+            workspace_cmd::WorkspaceCommand::Integrate { id, snapshot } => {
+                let integration = workspace_cmd::prepare_integration(&id, snapshot.as_deref())?;
                 let mut output = merge_lane_output(&integration.lane)?;
                 output.json["command"] = json!("workspace integrate");
                 output.json["workspace"] = integration.workspace;
@@ -989,7 +1023,6 @@ fn open_repo() -> io::Result<RepoContext> {
 }
 
 fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
-    let context = 3usize;
     let RepoContext {
         repo_id,
         head,
@@ -997,83 +1030,17 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
     } = open_repo()?;
     let base_id =
         head_snapshot_id(&head)?.ok_or_else(|| io::Error::other("HEAD has no base snapshot"))?;
-
-    // Snapshot the current working tree (minus `.sorrel/`) and diff vs HEAD.
-    // Diff is a read-only view and does not persist the stat cache.
+    // Diff does not publish HEAD or persist the working-tree stat cache.
     let current = materialize_worktree(&store, &repo_id, None, &[], None)?;
-    let diff = to_io(snapshot_diff(&store, &base_id, &current))?;
-
-    let base_files = to_io(read_snapshot_files(&store, &base_id))?;
-    let current_files = to_io(read_snapshot_files(&store, &current))?;
-
-    let mut files_json = Vec::new();
-    let mut human = String::new();
-    for change in &diff.changes {
-        let path = change.path.clone();
-        let path_str = path.to_string_lossy().into_owned();
-        let kind = match change.kind {
-            PathChangeKind::Added => "added",
-            PathChangeKind::Modified => "modified",
-            PathChangeKind::Deleted => "deleted",
-        };
-
-        let old_bytes = base_files.get(&path).map(Vec::as_slice).unwrap_or(&[]);
-        let new_bytes = current_files.get(&path).map(Vec::as_slice).unwrap_or(&[]);
-
-        let (file_json, file_human) = match (
-            std::str::from_utf8(old_bytes),
-            std::str::from_utf8(new_bytes),
-        ) {
-            (Ok(old_text), Ok(new_text)) => {
-                let hunks = linediff::hunks(old_text, new_text, context);
-                let rendered = linediff::render_unified(&hunks);
-                let hunks_json: Vec<Value> = hunks
-                    .iter()
-                    .map(|hunk| {
-                        json!({
-                            "oldStart": hunk.old_start,
-                            "oldLen": hunk.old_len,
-                            "newStart": hunk.new_start,
-                            "newLen": hunk.new_len,
-                            "lines": hunk.lines.iter().map(|line| json!({
-                                "kind": match line.kind {
-                                    linediff::LineKind::Context => "context",
-                                    linediff::LineKind::Added => "added",
-                                    linediff::LineKind::Removed => "removed",
-                                },
-                                "text": line.text,
-                            })).collect::<Vec<_>>()
-                        })
-                    })
-                    .collect();
-                (
-                    json!({ "path": path_str, "kind": kind, "binary": false, "hunks": hunks_json }),
-                    format!("diff --sorrel {path_str} ({kind})\n{rendered}"),
-                )
-            }
-            _ => (
-                json!({ "path": path_str, "kind": kind, "binary": true, "hunks": [] }),
-                format!("diff --sorrel {path_str} ({kind})\nBinary file changed\n"),
-            ),
-        };
-
-        files_json.push(file_json);
-        human.push_str(&file_human);
-    }
-
-    if files_json.is_empty() {
-        human = "No changes against HEAD".to_owned();
-    }
-
+    let rendered = sorrel_cli::diff_view::render(&store, &base_id, &current)?;
+    let human = if rendered.files.is_empty() {
+        "No changes against HEAD".to_owned()
+    } else {
+        rendered.human
+    };
     Ok(CommandOutput {
-        json: json!({
-            "command": "diff",
-            "mocked": false,
-            "repoId": repo_id,
-            "baseSnapshot": { "kind": "Snapshot", "id": base_id.to_hex() },
-            "files": files_json
-        }),
-        human: human.trim_end().to_owned(),
+        json: json!({"command":"diff","mocked":false,"repoId":repo_id,"baseSnapshot":{"kind":"Snapshot","id":base_id.to_hex()},"files":rendered.files}),
+        human,
     })
 }
 
@@ -1852,6 +1819,7 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
     let mut options = GitExportOptions::new(&git_path, tip);
     options.branch = args.branch;
     options.snapshot_to_git = snapshot_to_git;
+    options.checkout_existing_worktree = !git_is_colocated(&git_path)?;
 
     let exported = to_io(git_export(&store, options))?;
     let created = exported.commits.iter().filter(|c| c.created).count();
@@ -2193,6 +2161,8 @@ fn git_sync_push(
     let mut options = GitExportOptions::new(git_path, tip);
     options.branch = branch.to_owned();
     options.snapshot_to_git = snapshot_to_git;
+    let colocated = git_is_colocated(git_path)?;
+    options.checkout_existing_worktree = !colocated;
     let exported = to_io(git_export(store, options))?;
 
     let mut merged = sha_map.clone();
@@ -2204,7 +2174,7 @@ fn git_sync_push(
     // Colocated checkouts keep the synced branch checked out; refresh the Git
     // index so `git status` stays clean after the ref moved (worktree already
     // matches the exported content).
-    if git_checked_out_branch(git_path).as_deref() == Some(branch) {
+    if colocated && git_checked_out_branch(git_path).as_deref() == Some(branch) {
         git_reset_index(git_path, &exported.head_git_sha)?;
     }
 
@@ -2414,6 +2384,29 @@ fn git_branch_tip(git_path: &Path, branch: &str) -> Option<String> {
     }
 }
 
+/// Compare working roots, including aliases such as `.git` and subdirectories.
+fn git_is_colocated(git_path: &Path) -> io::Result<bool> {
+    let root = std::env::current_dir()?.canonicalize()?;
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(git_path)
+        .output();
+    if let Ok(output) = output {
+        if output.status.success() {
+            let path = String::from_utf8(output.stdout)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+            return Ok(Path::new(path.trim_end_matches(['\r', '\n'])).canonicalize()? == root);
+        }
+    }
+    // Git refuses --show-toplevel inside its metadata directory.
+    Ok(
+        match (git_path.canonicalize(), root.join(".git").canonicalize()) {
+            (Ok(path), Ok(metadata)) => path == metadata,
+            _ => false,
+        },
+    )
+}
+
 /// Returns the branch checked out at `git_path`, if HEAD is a symbolic ref.
 fn git_checked_out_branch(git_path: &Path) -> Option<String> {
     let output = std::process::Command::new("git")
@@ -2486,9 +2479,43 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
     let head_snapshot =
         head_snapshot_id(&head)?.ok_or_else(|| io::Error::other("HEAD has no base snapshot"))?;
 
-    // Conflicted merges leave marker-annotated files in the worktree but do not
-    // advance HEAD. Restore HEAD's snapshot and drop MERGE_STATE.
-    let dirty_snapshot = materialize_worktree(&store, &repo_id, None, &[], None)?;
+    let state = repo::load_merge_state_record()?
+        .ok_or_else(|| command_error("invalid_data", "missing merge state"))?;
+    let merge_id = to_io(parse_object_id_hex(&state.merge_result))?;
+    let merge = to_io(sorrel_core::read_merge_result(&store, &merge_id))?;
+    if merge.ours_snapshot != head_snapshot {
+        return Err(command_error(
+            "invalid_data",
+            "HEAD changed during the conflicted merge",
+        ));
+    }
+    // Only paths belonging to the merge may be removed during rollback. New
+    // unrelated files created while resolving conflicts must survive an abort.
+    let mut footprint = to_io(sorrel_core::read_snapshot_file_paths(
+        &store,
+        &head_snapshot,
+    ))?;
+    footprint.extend(to_io(sorrel_core::read_snapshot_file_paths(
+        &store,
+        &merge.theirs_snapshot,
+    ))?);
+    let mut options = SnapshotOptions::new(repo_id.clone());
+    options.created_at = repo::now_rfc3339();
+    options.author = workspace_cmd::current_principal()?;
+    let dirty_snapshot = to_io(sorrel_core::materialize_snapshot_filtered_with_stat_cache(
+        &store,
+        Path::new("."),
+        None,
+        options,
+        |path, directory| {
+            Ok(if directory {
+                footprint.iter().any(|file| file.starts_with(path))
+            } else {
+                footprint.contains(path)
+            })
+        },
+    ))?
+    .id;
     restore_worktree_to_snapshot(&store, &dirty_snapshot, &head_snapshot)?;
     repo::clear_merge_state()?;
 

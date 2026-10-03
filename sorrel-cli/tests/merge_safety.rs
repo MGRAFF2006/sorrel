@@ -23,7 +23,9 @@ fn conflicted_merge() -> (TempDir, String) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     run(root, &["init"]);
+    std::fs::create_dir(root.join("notes")).unwrap();
     for (name, bytes) in [
+        ("notes/tracked.txt", "baseline notes\n"),
         ("conflict.txt", "base\n"),
         ("modified.txt", "base\n"),
         ("deleted.txt", "base\n"),
@@ -89,7 +91,17 @@ fn conflicted_merge_retains_all_clean_changes_when_continued() {
 fn abort_restores_clean_changes_and_conflict_to_ours() {
     let (dir, _) = conflicted_merge();
     let root = dir.path();
+    std::fs::write(root.join("scratch.txt"), "unrelated new work\n").unwrap();
+    std::fs::write(root.join("notes/resolution.txt"), "keep these notes\n").unwrap();
     run(root, &["merge", "--abort"]);
+    assert_eq!(
+        std::fs::read_to_string(root.join("scratch.txt")).unwrap(),
+        "unrelated new work\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("notes/resolution.txt")).unwrap(),
+        "keep these notes\n"
+    );
     assert!(!root.join("added.txt").exists());
     assert_eq!(
         std::fs::read_to_string(root.join("modified.txt")).unwrap(),
@@ -107,5 +119,5 @@ fn abort_restores_clean_changes_and_conflict_to_ours() {
         std::fs::read_to_string(root.join("disjoint.txt")).unwrap(),
         "FIRST\nsecond\nthird\nfourth\n"
     );
-    assert_eq!(run(root, &["status"])["worktree"]["dirty"], false);
+    assert_eq!(run(root, &["status"])["worktree"]["dirty"], true);
 }

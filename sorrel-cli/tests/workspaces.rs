@@ -406,3 +406,180 @@ fn nonroot_change_cannot_use_unrelated_empty_baseline() {
     fs::write(index_path, format!("{}\n", lines.join("\n"))).unwrap();
     fail(&root, &["workspace", "integrate", "first"], "invalid_data");
 }
+
+fn metadata_refs(root: &Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
+    let mut paths = vec![
+        root.join(".sorrel/HEAD"),
+        root.join(".sorrel/changes.index"),
+    ];
+    paths.extend(
+        fs::read_dir(root.join(".sorrel/heads"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path()),
+    );
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let bytes = fs::read(&path).unwrap();
+            (path, bytes)
+        })
+        .collect()
+}
+
+fn listed(root: &Path, id: &str) -> Value {
+    run(root, &["workspace", "list"])["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["id"] == id)
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn review_shows_recorded_work_while_dirty_without_publishing_refs() {
+    let (_dir, root, first, _) = prepare();
+    fs::write(first.join("a.txt"), "RECORDED\n").unwrap();
+    fs::remove_file(first.join("b.txt")).unwrap();
+    fs::write(first.join("new.txt"), "added\n").unwrap();
+    fs::write(first.join("binary.dat"), [0, 1, 2, 3]).unwrap();
+    run(&first, &["change", "create", "-m", "Reviewable work"]);
+    fs::write(first.join("a.txt"), "UNRECORDED\n").unwrap();
+    let owner_before = metadata_refs(&root);
+    let worker_before = metadata_refs(&first);
+    let review = run(&root, &["workspace", "review", "first"]);
+    assert_eq!(review["workspace"]["dirty"], true);
+    assert_eq!(review["workspace"]["status"], "dirty");
+    assert_eq!(review["workspace"]["pendingSnapshots"], 1);
+    assert_eq!(review["commits"][0]["message"], "Reviewable work");
+    let files = review["files"].as_array().unwrap();
+    assert_eq!(files.len(), 4);
+    assert_eq!(
+        files
+            .iter()
+            .find(|file| file["path"] == "binary.dat")
+            .unwrap()["binary"],
+        true
+    );
+    assert_eq!(
+        files.iter().find(|file| file["path"] == "b.txt").unwrap()["kind"],
+        "deleted"
+    );
+    assert_eq!(
+        files.iter().find(|file| file["path"] == "new.txt").unwrap()["kind"],
+        "added"
+    );
+    let rendered = review["files"].to_string();
+    assert!(rendered.contains("RECORDED"));
+    assert!(!rendered.contains("UNRECORDED"));
+    assert_eq!(metadata_refs(&root), owner_before);
+    assert_eq!(metadata_refs(&first), worker_before);
+    assert_eq!(
+        fs::read_to_string(first.join("a.txt")).unwrap(),
+        "UNRECORDED\n"
+    );
+}
+
+#[test]
+fn reviewed_snapshot_pin_rejects_new_work_without_importing_refs_or_indexes() {
+    let (_dir, root, first, _) = prepare();
+    fs::write(first.join("a.txt"), "first\n").unwrap();
+    run(&first, &["change", "create", "-m", "First reviewed"]);
+    let reviewed = run(&root, &["workspace", "review", "first"])["headSnapshot"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    fs::write(first.join("a.txt"), "second\n").unwrap();
+    run(&first, &["change", "create", "-m", "After review"]);
+    let worker_head: Value =
+        serde_json::from_slice(&fs::read(first.join(".sorrel/HEAD")).unwrap()).unwrap();
+    let unreviewed_tip: ObjectId = worker_head["snapshot"].as_str().unwrap().parse().unwrap();
+    let owner_store = FileObjectStore::new(root.join(".sorrel")).unwrap();
+    assert!(!owner_store.has(&unreviewed_tip).unwrap());
+    let before = metadata_refs(&root);
+    fail(
+        &root,
+        &["workspace", "integrate", "first", "--snapshot", &reviewed],
+        "review_stale",
+    );
+    assert!(!owner_store.has(&unreviewed_tip).unwrap());
+    assert_eq!(metadata_refs(&root), before);
+    assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "base a\n");
+    let current = run(&root, &["workspace", "review", "first"])["headSnapshot"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    run(
+        &root,
+        &["workspace", "integrate", "first", "--snapshot", &current],
+    );
+    let row = listed(&root, "first");
+    assert_eq!(row["pendingSnapshots"], 0);
+    assert_eq!(row["integrated"], true);
+    assert_eq!(row["status"], "integrated");
+}
+
+#[test]
+fn overview_reports_dirty_switched_missing_and_recovering_workers_truthfully() {
+    let (dir, root, first, second) = prepare();
+    assert_eq!(listed(&root, "first")["pendingSnapshots"], 0);
+    fs::write(first.join("a.txt"), "dirty\n").unwrap();
+    assert_eq!(listed(&root, "first")["status"], "dirty");
+    run(&first, &["change", "create", "-m", "Ready"]);
+    assert_eq!(listed(&root, "first")["status"], "ready");
+    let lane = run(&first, &["lane", "create", "--name", "scratch"])["object"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    run(&first, &["lane", "switch", &lane]);
+    let switched = listed(&root, "first");
+    assert_eq!(switched["status"], "switched");
+    assert_eq!(switched["readyToIntegrate"], false);
+    fs::write(first.join(".sorrel/CHECKOUT_STATE"), "{}").unwrap();
+    assert_eq!(listed(&root, "first")["status"], "recovering");
+    fs::rename(&second, dir.path().join("second-moved")).unwrap();
+    let overview = run(&root, &["workspace", "list"]);
+    assert_eq!(overview["workspaces"].as_array().unwrap().len(), 2);
+    assert_eq!(listed(&root, "second")["status"], "missing");
+    assert!(!second.exists());
+}
+
+#[test]
+fn conflicted_import_is_not_reported_as_accepted_into_owner_head() {
+    let (_dir, root, first, second) = prepare();
+    fs::write(first.join("a.txt"), "first\n").unwrap();
+    run(&first, &["change", "create", "-m", "First"]);
+    fs::write(second.join("a.txt"), "second\n").unwrap();
+    run(&second, &["change", "create", "-m", "Second"]);
+    run(&root, &["workspace", "integrate", "first"]);
+    fail(
+        &root,
+        &["workspace", "integrate", "second"],
+        "merge_conflict",
+    );
+    let row = listed(&root, "second");
+    assert_eq!(row["integrated"], false);
+    assert_eq!(row["pendingSnapshots"], 1);
+    assert_eq!(row["status"], "ready");
+    run(&root, &["merge", "--abort"]);
+    assert_eq!(listed(&root, "second")["integrated"], false);
+}
+
+#[test]
+fn corrupt_worker_does_not_hide_other_work_and_review_fails_closed() {
+    let (_dir, root, first, _) = prepare();
+    fs::write(first.join(".sorrel/HEAD"), "{").unwrap();
+    let overview = run(&root, &["workspace", "list"]);
+    assert_eq!(overview["workspaces"].as_array().unwrap().len(), 2);
+    assert_eq!(listed(&root, "first")["status"], "invalid");
+    assert_eq!(listed(&root, "second")["integrated"], true);
+    let before = metadata_refs(&root);
+    Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(&root)
+        .args(["workspace", "review", "first", "--json"])
+        .assert()
+        .failure();
+    assert_eq!(metadata_refs(&root), before);
+}

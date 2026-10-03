@@ -607,6 +607,35 @@ pub fn materialize_snapshot_filtered_with_stat_cache(
     write_snapshot(store, tree.id, options)
 }
 
+/// Reads file and directory entries, sorted by path, using only metadata.
+///
+/// Validates stored snapshot/tree envelopes, immediate parent snapshot headers,
+/// entry names and hierarchy, reference kinds, modes, duplicate names, reserved
+/// repository paths, and depth. Blob existence, envelopes, content digests,
+/// sizes, and content hashes are deliberately not checked. Use
+/// [`validate_snapshot`] before trusting payloads for checkout or transfer.
+pub fn read_snapshot_entries(
+    store: &impl ObjectStore,
+    snapshot_id: &ObjectId,
+) -> SnapshotResult<Vec<TreeEntry>> {
+    let mut entries = validated_snapshot_entries(store, snapshot_id, false)?;
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(entries)
+}
+
+/// Lists file paths without reading blobs. See [`read_snapshot_entries`] for
+/// metadata validation and the payload integrity checks deliberately deferred.
+pub fn read_snapshot_file_paths(
+    store: &impl ObjectStore,
+    snapshot_id: &ObjectId,
+) -> SnapshotResult<BTreeSet<PathBuf>> {
+    Ok(validated_snapshot_entries(store, snapshot_id, false)?
+        .into_iter()
+        .filter(|entry| entry.entry_type == EntryType::File)
+        .map(|entry| entry.path)
+        .collect())
+}
+
 /// Reads all files in a snapshot into memory, keyed by relative path.
 pub fn read_snapshot_files(
     store: &impl ObjectStore,
@@ -638,7 +667,7 @@ pub fn restore_snapshot_to_directory(
 /// Parent references are checked for their declared and stored snapshot kinds;
 /// their working trees are not traversed.
 pub fn validate_snapshot(store: &impl ObjectStore, snapshot_id: &ObjectId) -> SnapshotResult<()> {
-    validated_snapshot_entries(store, snapshot_id).map(|_| ())
+    validated_snapshot_entries(store, snapshot_id, true).map(|_| ())
 }
 
 /// Validates a snapshot and existing checkout paths without changing the target.
@@ -648,7 +677,7 @@ pub fn validate_snapshot_checkout(
     snapshot_id: &ObjectId,
     target: impl AsRef<Path>,
 ) -> SnapshotResult<()> {
-    let entries = validated_snapshot_entries(store, snapshot_id)?;
+    let entries = validated_snapshot_entries(store, snapshot_id, true)?;
     let target = target.as_ref();
     validate_existing_directory(target)?;
     for entry in entries {
@@ -689,7 +718,7 @@ pub fn validate_snapshot_paths(
     snapshot_id: &ObjectId,
     target: impl AsRef<Path>,
 ) -> SnapshotResult<()> {
-    let entries = validated_snapshot_entries(store, snapshot_id)?;
+    let entries = validated_snapshot_entries(store, snapshot_id, true)?;
     for path in std::iter::once(target.as_ref().to_path_buf()).chain(
         entries
             .into_iter()
@@ -756,12 +785,17 @@ fn invalid_tree_path(path: &Path) -> SnapshotError {
 fn validated_snapshot_entries(
     store: &impl ObjectStore,
     snapshot_id: &ObjectId,
+    verify_blob_content: bool,
 ) -> SnapshotResult<Vec<TreeEntry>> {
     let snapshot = read_snapshot(store, snapshot_id)?;
     require_ref_kind(snapshot.root_tree, ObjectKind::Tree)?;
     for parent in &snapshot.parents {
         require_ref_kind(*parent, ObjectKind::Snapshot)?;
-        read_snapshot(store, &parent.id)?;
+        let parent_snapshot = read_snapshot(store, &parent.id)?;
+        require_ref_kind(parent_snapshot.root_tree, ObjectKind::Tree)?;
+        for ancestor in parent_snapshot.parents {
+            require_ref_kind(ancestor, ObjectKind::Snapshot)?;
+        }
     }
     let mut pending = vec![(snapshot.root_tree.id, PathBuf::new())];
     let mut entries = Vec::new();
@@ -806,13 +840,15 @@ fn validated_snapshot_entries(
                     if entry.mode == EntryMode::Directory {
                         return Err(invalid_tree_path(&entry.path));
                     }
-                    let blob = read_blob(store, &entry.object.id)?;
-                    if entry.size.is_some_and(|size| size != blob.size())
-                        || entry
-                            .content_hash
-                            .is_some_and(|hash| hash != blob.content_hash)
-                    {
-                        return Err(invalid_tree_path(&entry.path));
+                    if verify_blob_content {
+                        let blob = read_blob(store, &entry.object.id)?;
+                        if entry.size.is_some_and(|size| size != blob.size())
+                            || entry
+                                .content_hash
+                                .is_some_and(|hash| hash != blob.content_hash)
+                        {
+                            return Err(invalid_tree_path(&entry.path));
+                        }
                     }
                 }
             }
@@ -942,25 +978,25 @@ fn write_tree_from_dir(
             let file_size = metadata.len();
 
             let blob = if let Some(cache) = stat_cache.as_deref_mut() {
-                if let Some(entry) = cache.get(&protocol_path) {
-                    if cache.identity_matches(&protocol_path, &metadata)
-                        && entry.size == file_size
-                        && entry.mtime_secs == mtime_secs
-                        && entry.mtime_nanos == mtime_nanos
-                        && store.has(&entry.object_id)?
+                let cached_blob = match cache.get(&protocol_path) {
+                    Some(entry)
+                        if cache.identity_matches(&protocol_path, &metadata)
+                            && entry.size == file_size
+                            && entry.mtime_secs == mtime_secs
+                            && entry.mtime_nanos == mtime_nanos =>
                     {
-                        read_blob(store, &entry.object_id)?
-                    } else {
-                        write_file_blob(
-                            store,
-                            cache,
-                            &protocol_path,
-                            &child_path,
-                            file_size,
-                            mtime_secs,
-                            mtime_nanos,
-                        )?
+                        // A verified read establishes existence as well as
+                        // integrity. Only absence permits rebuilding the blob.
+                        match read_blob(store, &entry.object_id) {
+                            Ok(blob) => Some(blob),
+                            Err(SnapshotError::ObjectStore(ObjectStoreError::NotFound(_))) => None,
+                            Err(error) => return Err(error),
+                        }
                     }
+                    _ => None,
+                };
+                if let Some(blob) = cached_blob {
+                    blob
                 } else {
                     write_file_blob(
                         store,
@@ -1447,6 +1483,235 @@ mod tests {
             mode: EntryMode::Normal,
             size: Some(blob.size()),
             content_hash: Some(blob.content_hash),
+        }
+    }
+
+    #[test]
+    fn metadata_path_listing_does_not_read_blobs_but_full_validation_still_does() {
+        struct CountingStore {
+            inner: crate::InMemoryObjectStore,
+            blob: ObjectId,
+            reads: std::sync::atomic::AtomicUsize,
+        }
+        impl ObjectStore for CountingStore {
+            fn read(&self, id: &ObjectId) -> crate::ObjectStoreResult<Vec<u8>> {
+                if *id == self.blob {
+                    self.reads.fetch_add(1, Ordering::Relaxed);
+                }
+                self.inner.read(id)
+            }
+            fn write(&self, bytes: &[u8]) -> crate::ObjectStoreResult<ObjectId> {
+                self.inner.write(bytes)
+            }
+            fn has(&self, id: &ObjectId) -> crate::ObjectStoreResult<bool> {
+                self.inner.has(id)
+            }
+        }
+        let inner = crate::InMemoryObjectStore::new();
+        let entry = single_file_entry(&inner, "large.bin", &vec![7; 1024 * 1024]);
+        let store = CountingStore {
+            inner,
+            blob: entry.object.id,
+            reads: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let tree = write_tree(&store, vec![entry.clone()]).unwrap();
+        let snapshot = write_snapshot(&store, tree.id, SnapshotOptions::new("repo")).unwrap();
+        assert_eq!(
+            read_snapshot_entries(&store, &snapshot.id).unwrap(),
+            vec![entry]
+        );
+        assert_eq!(
+            read_snapshot_file_paths(&store, &snapshot.id).unwrap(),
+            BTreeSet::from([PathBuf::from("large.bin")])
+        );
+        assert_eq!(store.reads.load(Ordering::Relaxed), 0);
+        validate_snapshot(&store, &snapshot.id).unwrap();
+        assert_eq!(store.reads.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn metadata_listing_rejects_unsafe_trees_and_defers_payload_integrity() {
+        let store = crate::InMemoryObjectStore::new();
+        let entry = single_file_entry(&store, "file.txt", b"content");
+        let mut wrong_kind = entry.clone();
+        wrong_kind.object.kind = ObjectKind::Tree;
+        let mut wrong_mode = entry.clone();
+        wrong_mode.mode = EntryMode::Directory;
+        let mut wrong_path = entry.clone();
+        wrong_path.name = "other.txt".into();
+        let mut metadata = entry.clone();
+        metadata.name = ".git".into();
+        metadata.path = PathBuf::from(".git");
+        for entries in [
+            vec![entry.clone(), entry.clone()],
+            vec![wrong_kind],
+            vec![wrong_mode],
+            vec![wrong_path],
+            vec![metadata],
+        ] {
+            let tree = write_tree(&store, entries).unwrap();
+            let snapshot = write_snapshot(&store, tree.id, SnapshotOptions::new("repo")).unwrap();
+            assert!(read_snapshot_file_paths(&store, &snapshot.id).is_err());
+        }
+        let mut missing = entry;
+        missing.object.id = ObjectId::for_bytes(b"missing payload");
+        let tree = write_tree(&store, vec![missing]).unwrap();
+        let snapshot = write_snapshot(&store, tree.id, SnapshotOptions::new("repo")).unwrap();
+        assert_eq!(
+            read_snapshot_file_paths(&store, &snapshot.id).unwrap(),
+            BTreeSet::from([PathBuf::from("file.txt")])
+        );
+        assert!(validate_snapshot(&store, &snapshot.id).is_err());
+    }
+
+    #[test]
+    fn metadata_entries_include_directories_and_preserve_executable_modes() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("nested")).unwrap();
+        fs::write(dir.path().join("nested/z.txt"), b"z").unwrap();
+        fs::write(dir.path().join("a.sh"), b"a").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(dir.path().join("a.sh"), fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        let store = crate::InMemoryObjectStore::new();
+        let snapshot =
+            materialize_snapshot(&store, dir.path(), SnapshotOptions::new("repo")).unwrap();
+        let entries = read_snapshot_entries(&store, &snapshot.id).unwrap();
+        assert_eq!(
+            entries
+                .iter()
+                .map(|entry| entry.path.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                PathBuf::from("a.sh"),
+                PathBuf::from("nested"),
+                PathBuf::from("nested/z.txt")
+            ]
+        );
+        assert_eq!(entries[1].entry_type, EntryType::Directory);
+        assert_eq!(entries[1].mode, EntryMode::Directory);
+        #[cfg(unix)]
+        assert_eq!(entries[0].mode, EntryMode::Executable);
+        assert_eq!(
+            read_snapshot_file_paths(&store, &snapshot.id).unwrap(),
+            BTreeSet::from([PathBuf::from("a.sh"), PathBuf::from("nested/z.txt")])
+        );
+    }
+
+    #[test]
+    fn metadata_entries_validate_snapshot_and_immediate_parent_reference_kinds() {
+        let store = crate::InMemoryObjectStore::new();
+        let tree = write_tree(&store, Vec::new()).unwrap();
+        let options = SnapshotOptions::new("repo");
+        let malformed =
+            StoredSnapshot::from_options(&options, ObjectRef::new(ObjectKind::Blob, tree.id));
+        let malformed_id = store
+            .write(&serde_json::to_vec(&malformed).unwrap())
+            .unwrap();
+        assert!(read_snapshot_entries(&store, &malformed_id).is_err());
+
+        let mut child_options = options.clone();
+        child_options.parents = vec![ObjectRef::new(ObjectKind::Snapshot, malformed_id)];
+        let child = write_snapshot(&store, tree.id, child_options).unwrap();
+        assert!(read_snapshot_entries(&store, &child.id).is_err());
+
+        // Parent trees are outside this deliberately shallow metadata traversal.
+        let absent_tree = ObjectId::for_bytes(b"absent parent tree");
+        let parent = write_snapshot(&store, absent_tree, options.clone()).unwrap();
+        let mut child_options = options;
+        child_options.parents = vec![ObjectRef::new(ObjectKind::Snapshot, parent.id)];
+        let child = write_snapshot(&store, tree.id, child_options).unwrap();
+        assert!(read_snapshot_entries(&store, &child.id).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn warm_cache_reads_once_without_has_and_rebuilds_only_missing_blobs() {
+        struct CountingStore {
+            inner: crate::InMemoryObjectStore,
+            blob: ObjectId,
+            reads: std::sync::atomic::AtomicUsize,
+            writes: std::sync::atomic::AtomicUsize,
+            has_calls: std::sync::atomic::AtomicUsize,
+            failure: std::sync::atomic::AtomicUsize,
+        }
+        impl ObjectStore for CountingStore {
+            fn read(&self, id: &ObjectId) -> crate::ObjectStoreResult<Vec<u8>> {
+                if *id == self.blob {
+                    self.reads.fetch_add(1, Ordering::Relaxed);
+                    match self.failure.load(Ordering::Relaxed) {
+                        1 => return Err(ObjectStoreError::NotFound(*id)),
+                        2 => {
+                            return Err(ObjectStoreError::ContentMismatch {
+                                expected: *id,
+                                actual: ObjectId::for_bytes(b"corrupt"),
+                            })
+                        }
+                        3 => {
+                            return Err(ObjectStoreError::Io {
+                                path: PathBuf::from("blob"),
+                                source: io::Error::new(
+                                    io::ErrorKind::PermissionDenied,
+                                    "refuse read",
+                                ),
+                            })
+                        }
+                        4 => return Ok(b"invalid envelope".to_vec()),
+                        _ => {}
+                    }
+                }
+                self.inner.read(id)
+            }
+            fn write(&self, bytes: &[u8]) -> crate::ObjectStoreResult<ObjectId> {
+                if ObjectId::for_bytes(bytes) == self.blob {
+                    self.writes.fetch_add(1, Ordering::Relaxed);
+                }
+                self.inner.write(bytes)
+            }
+            fn has(&self, id: &ObjectId) -> crate::ObjectStoreResult<bool> {
+                self.has_calls.fetch_add(1, Ordering::Relaxed);
+                self.inner.has(id)
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("file.txt"), b"content").unwrap();
+        let inner = crate::InMemoryObjectStore::new();
+        let blob = write_blob(&inner, b"content").unwrap().id;
+        let store = CountingStore {
+            inner,
+            blob,
+            reads: std::sync::atomic::AtomicUsize::new(0),
+            writes: std::sync::atomic::AtomicUsize::new(0),
+            has_calls: std::sync::atomic::AtomicUsize::new(0),
+            failure: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let mut cache = StatCache::new();
+        write_tree_from_directory_with_stat_cache(&store, dir.path(), Some(&mut cache)).unwrap();
+        store.writes.store(0, Ordering::Relaxed);
+        write_tree_from_directory_with_stat_cache(&store, dir.path(), Some(&mut cache)).unwrap();
+        assert_eq!(store.reads.load(Ordering::Relaxed), 1);
+        assert_eq!(store.writes.load(Ordering::Relaxed), 0);
+        assert_eq!(store.has_calls.load(Ordering::Relaxed), 0);
+
+        store.failure.store(1, Ordering::Relaxed);
+        write_tree_from_directory_with_stat_cache(&store, dir.path(), Some(&mut cache)).unwrap();
+        assert_eq!(store.writes.load(Ordering::Relaxed), 1);
+        assert_eq!(store.has_calls.load(Ordering::Relaxed), 0);
+
+        for failure in [2, 3, 4] {
+            store.failure.store(failure, Ordering::Relaxed);
+            store.writes.store(0, Ordering::Relaxed);
+            assert!(write_tree_from_directory_with_stat_cache(
+                &store,
+                dir.path(),
+                Some(&mut cache)
+            )
+            .is_err());
+            assert_eq!(store.writes.load(Ordering::Relaxed), 0);
+            assert_eq!(store.has_calls.load(Ordering::Relaxed), 0);
         }
     }
 

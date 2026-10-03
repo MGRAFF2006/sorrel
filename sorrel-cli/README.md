@@ -66,17 +66,28 @@ report overlapping paths without enforcing a filesystem lock.
 Review and integrate recorded work from the owner checkout:
 
 ```bash
-sorrel workspace integrate one
+sorrel workspace review one
+sorrel workspace review one --json
+# Pin integration to the headSnapshot.id you reviewed:
+sorrel workspace integrate one --snapshot <reviewed-snapshot-id>
 sorrel workspace integrate two
 # On conflict: resolve files, then sorrel merge --continue; or sorrel merge --abort.
 sorrel agent release one src/parser.rs
 sorrel git export ../sorrel-result.git --branch main
 ```
 
+`workspace review` shows recorded commits and file diffs from the worker's base,
+including executable modes and binary changes. Unrecorded edits stay outside the
+review. `workspace list` and `agent active` show readiness, pending snapshots,
+and missing or invalid workers. Readiness describes the worker; the owner must
+also have a clean checkout without a pending merge. A snapshot pin refuses integration if recorded
+work changed after review.
+
 Integration refuses unrecorded worker edits and a dirty owner checkout. It
 copies validated history into the assigned owner lane and performs the normal
 merge, preserving both worker directories. Conflicted merges retain clean
-incoming changes during continue/abort. A lane switch by itself still uses the
+incoming changes during continue/abort; abort preserves unrelated new files
+created while resolving conflicts. A lane switch by itself still uses the
 current directory; use `workspace create` for parallel editing. Workers must
 return to their assigned lane before integration. Workspaces currently copy
 reachable objects, so creation cost grows with history.

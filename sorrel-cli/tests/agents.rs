@@ -102,12 +102,15 @@ fn legacy_migration_is_shared_and_preserves_existing_records() {
     let backup: Value =
         serde_json::from_slice(&fs::read(state_dir.join("state.migrated.json")).unwrap()).unwrap();
     assert_eq!(backup, legacy);
+    assert_eq!(cli["workspaces"], json!([]));
+    let mut cli_registry = cli;
+    cli_registry.as_object_mut().unwrap().remove("workspaces");
     assert_eq!(
         node(
             root,
             "console.log(JSON.stringify(await plane.activeWork()));"
         ),
-        cli
+        cli_registry
     );
     run(root, &["agent", "release", "existing", "src/file"]);
     assert_eq!(run(root, &["agent", "active"])["claims"], json!([]));
@@ -172,5 +175,39 @@ fn independent_cli_processes_preserve_all_agent_records() {
             .unwrap()
             .len(),
         6
+    );
+}
+
+#[test]
+fn active_work_includes_live_worker_readiness_without_changing_registry_contract() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("owner");
+    let worker = dir.path().join("worker");
+    fs::create_dir(&root).unwrap();
+    run(&root, &["init"]);
+    run(
+        &root,
+        &[
+            "workspace",
+            "create",
+            worker.to_str().unwrap(),
+            "--agent",
+            "worker",
+        ],
+    );
+    fs::write(worker.join("work.txt"), "recorded\n").unwrap();
+    run(&worker, &["change", "create", "-m", "Ready work"]);
+    let active = run(&root, &["agent", "active"]);
+    assert_eq!(active["agents"][0]["id"], "worker");
+    assert_eq!(active["workspaces"][0]["status"], "ready");
+    assert_eq!(active["workspaces"][0]["pendingSnapshots"], 1);
+    assert_eq!(active["workspaces"][0]["readyToIntegrate"], true);
+    fs::write(worker.join("work.txt"), "unrecorded\n").unwrap();
+    let dirty = run(&root, &["agent", "active"]);
+    assert_eq!(dirty["workspaces"][0]["status"], "dirty");
+    assert_eq!(dirty["workspaces"][0]["readyToIntegrate"], false);
+    assert_eq!(
+        dirty["workspaces"][0]["blockers"],
+        json!(["dirty_worktree"])
     );
 }

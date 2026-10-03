@@ -3,7 +3,7 @@
 use crate::{repo, CommandOutput};
 use clap::Subcommand;
 use serde_json::json;
-use sorrel_core::{read_snapshot_files, FileObjectStore, ObjectId};
+use sorrel_core::{read_snapshot_file_paths, FileObjectStore, ObjectId};
 use std::collections::BTreeSet;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -117,10 +117,7 @@ pub fn selection_at(
     snapshot: Option<&ObjectId>,
 ) -> io::Result<Selection> {
     let tracked = match snapshot {
-        Some(id) => read_snapshot_files(store, id)
-            .map_err(io::Error::other)?
-            .into_keys()
-            .collect(),
+        Some(id) => read_snapshot_file_paths(store, id).map_err(io::Error::other)?,
         None => BTreeSet::new(),
     };
     let explicit = explicit_paths_at(root)?;

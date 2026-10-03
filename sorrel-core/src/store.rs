@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     fs,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
@@ -134,10 +134,27 @@ pub struct FileObjectStore {
 impl FileObjectStore {
     /// Opens or creates a filesystem object store rooted at `root`.
     pub fn new(root: impl Into<PathBuf>) -> ObjectStoreResult<Self> {
-        let root = root.into();
+        let requested_root = root.into();
+        let absolute = std::path::absolute(&requested_root)
+            .map_err(|source| ObjectStoreError::io(&requested_root, source))?;
+        // The caller may choose a parent alias, but the store root itself must
+        // remain a real directory. Keep the resolved parent for later operations.
+        let root = match (absolute.parent(), absolute.file_name()) {
+            (Some(parent), Some(name)) => {
+                fs::create_dir_all(parent)
+                    .map_err(|source| ObjectStoreError::io(parent, source))?;
+                fs::canonicalize(parent)
+                    .map_err(|source| ObjectStoreError::io(parent, source))?
+                    .join(name)
+            }
+            _ => fs::canonicalize(&absolute)
+                .map_err(|source| ObjectStoreError::io(&absolute, source))?,
+        };
         let objects_dir = root.join("objects");
         let tmp_dir = root.join("tmp");
 
+        reject_symlinks(&objects_dir)?;
+        reject_symlinks(&tmp_dir)?;
         fs::create_dir_all(&objects_dir)
             .map_err(|source| ObjectStoreError::io(&objects_dir, source))?;
         fs::create_dir_all(&tmp_dir).map_err(|source| ObjectStoreError::io(&tmp_dir, source))?;
@@ -165,6 +182,7 @@ impl FileObjectStore {
 
     fn create_tmp(&self, id: &ObjectId) -> ObjectStoreResult<(PathBuf, fs::File)> {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+        reject_symlinks(&self.tmp_dir())?;
         loop {
             let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let path = self
@@ -183,9 +201,32 @@ impl FileObjectStore {
     }
 }
 
+// Check existing components before following paths. This deliberately does not
+// provide race-proof protection against concurrent directory replacement.
+fn reject_symlinks(path: &Path) -> ObjectStoreResult<()> {
+    for ancestor in path.ancestors().filter(|path| !path.as_os_str().is_empty()) {
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(ObjectStoreError::io(
+                    ancestor,
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "object store contains a symlink",
+                    ),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(ObjectStoreError::io(ancestor, error)),
+        }
+    }
+    Ok(())
+}
+
 impl ObjectStore for FileObjectStore {
     fn read(&self, id: &ObjectId) -> ObjectStoreResult<Vec<u8>> {
         let path = self.object_path(id);
+        reject_symlinks(&path)?;
         let bytes = match fs::read(&path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -258,6 +299,7 @@ impl ObjectStore for FileObjectStore {
 
     fn has(&self, id: &ObjectId) -> ObjectStoreResult<bool> {
         let path = self.object_path(id);
+        reject_symlinks(&path)?;
         match fs::metadata(&path) {
             Ok(metadata) => Ok(metadata.is_file()),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
@@ -432,6 +474,109 @@ mod tests {
             Err(ObjectStoreError::ContentMismatch { .. })
         ));
         assert_eq!(fs::read(store.object_path(&id)).unwrap(), b"corrupt");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opening_store_refuses_symlink_directories_without_external_writes() {
+        use std::os::unix::fs::symlink;
+        for location in ["root", "objects", "tmp"] {
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path().join("store");
+            let outside = directory.path().join("outside");
+            fs::create_dir(&outside).unwrap();
+            fs::write(outside.join("keep"), b"preserve").unwrap();
+            let link = if location == "root" {
+                root.clone()
+            } else {
+                fs::create_dir(&root).unwrap();
+                root.join(location)
+            };
+            symlink(&outside, &link).unwrap();
+            assert!(FileObjectStore::new(&root).is_err(), "{location}");
+            assert_eq!(fs::read(outside.join("keep")).unwrap(), b"preserve");
+            assert_eq!(fs::read_dir(&outside).unwrap().count(), 1, "{location}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn store_allows_parent_alias_and_keeps_the_resolved_location() {
+        use std::os::unix::fs::symlink;
+        let directory = tempfile::tempdir().unwrap();
+        let parent = directory.path().join("parent");
+        let alias = directory.path().join("alias");
+        fs::create_dir(&parent).unwrap();
+        symlink(&parent, &alias).unwrap();
+        let store = FileObjectStore::new(alias.join("nested/store")).unwrap();
+        let id = store.write(b"first object").unwrap();
+        assert_eq!(store.read(&id).unwrap(), b"first object");
+        fs::remove_file(&alias).unwrap();
+        let alternate = directory.path().join("alternate");
+        fs::create_dir(&alternate).unwrap();
+        symlink(&alternate, &alias).unwrap();
+        assert_eq!(store.read(&id).unwrap(), b"first object");
+        assert!(store.write(b"second object").is_ok());
+        assert_eq!(fs::read_dir(&alternate).unwrap().count(), 0);
+        // Replacing the resolved parent itself is still rejected.
+        let original_parent = directory.path().join("original-parent");
+        fs::rename(&parent, &original_parent).unwrap();
+        symlink(&original_parent, &parent).unwrap();
+        assert!(store.read(&id).is_err());
+        assert!(store.write(b"third object").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opened_store_refuses_symlink_objects_shards_and_object_files() {
+        use std::os::unix::fs::symlink;
+        for location in ["root", "objects", "shard", "object"] {
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path().join("store");
+            let store = FileObjectStore::new(&root).unwrap();
+            let id = store.write(b"existing object").unwrap();
+            let link = match location {
+                "root" => root,
+                "objects" => store.objects_dir(),
+                "shard" => store.shard_dir(&id),
+                _ => store.object_path(&id),
+            };
+            let outside = directory.path().join("outside");
+            fs::rename(&link, &outside).unwrap();
+            symlink(&outside, &link).unwrap();
+            assert!(store.read(&id).is_err(), "{location}");
+            assert!(store.has(&id).is_err(), "{location}");
+            assert!(store.write(b"existing object").is_err(), "{location}");
+            if location != "object" {
+                let content = (0..10_000)
+                    .map(|number| format!("new object {number}"))
+                    .find(|content| {
+                        store.shard_dir(&ObjectId::for_bytes(content.as_bytes()))
+                            == store.shard_dir(&id)
+                    })
+                    .unwrap();
+                assert!(store.write(content.as_bytes()).is_err(), "{location}");
+            }
+            if outside.is_file() {
+                assert_eq!(fs::read(&outside).unwrap(), b"existing object");
+            } else {
+                assert_eq!(count_files(&outside), 1, "{location}");
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn opened_store_refuses_replaced_temporary_directory() {
+        use std::os::unix::fs::symlink;
+        let directory = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(directory.path().join("store")).unwrap();
+        let outside = directory.path().join("outside");
+        fs::rename(store.tmp_dir(), &outside).unwrap();
+        symlink(&outside, store.tmp_dir()).unwrap();
+        assert!(store.write(b"new object").is_err());
+        assert_eq!(count_files(&outside), 0);
+        assert!(!store.has(&ObjectId::for_bytes(b"new object")).unwrap());
     }
 
     fn count_files(path: &Path) -> usize {

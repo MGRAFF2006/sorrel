@@ -69,6 +69,9 @@ pub struct GitExportOptions {
     pub snapshot_to_git: BTreeMap<ObjectId, String>,
     /// When true, create the destination repo with `git init` if missing.
     pub init_if_missing: bool,
+    /// Safely update an existing destination checkout when exporting its active
+    /// branch. Defaults to false for hosts whose source is the same worktree.
+    pub checkout_existing_worktree: bool,
 }
 
 impl GitExportOptions {
@@ -81,6 +84,7 @@ impl GitExportOptions {
             tip_snapshot,
             snapshot_to_git: BTreeMap::new(),
             init_if_missing: true,
+            checkout_existing_worktree: false,
         }
     }
 }
@@ -191,7 +195,12 @@ pub fn git_export(
             detail: "tip snapshot missing from export map".to_owned(),
         })?;
 
-    update_branch(&repo, &options.branch, &head_git_sha)?;
+    update_branch(
+        &repo,
+        &options.branch,
+        &head_git_sha,
+        options.checkout_existing_worktree,
+    )?;
 
     Ok(ExportResult {
         commits,
@@ -218,7 +227,12 @@ fn open_or_init_repository(
     }
 }
 
-fn update_branch(repo: &git2::Repository, branch: &str, tip_sha: &str) -> GitExportResult<()> {
+fn update_branch(
+    repo: &git2::Repository,
+    branch: &str,
+    tip_sha: &str,
+    checkout_existing_worktree: bool,
+) -> GitExportResult<()> {
     let oid = git2::Oid::from_str(tip_sha)?;
     let commit = repo.find_commit(oid)?;
     let refname = format!("refs/heads/{branch}");
@@ -232,6 +246,35 @@ fn update_branch(repo: &git2::Repository, branch: &str, tip_sha: &str) -> GitExp
     };
     if !git2::Reference::is_valid_name(&refname) {
         return Err(git2::Error::from_str("invalid export branch name").into());
+    }
+    let previous_tip = match repo.find_reference(&refname) {
+        Ok(reference) => Some(
+            reference
+                .target()
+                .ok_or_else(|| git2::Error::from_str("export branch is not a direct reference"))?,
+        ),
+        Err(error) if error.code() == git2::ErrorCode::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    if checkout_existing_worktree
+        && !head_was_unborn
+        && !repo.is_bare()
+        && repo.head()?.name()? == refname.as_str()
+    {
+        let mut status_options = git2::StatusOptions::new();
+        status_options
+            .include_untracked(false)
+            .include_ignored(false)
+            .update_index(false);
+        if !repo.statuses(Some(&mut status_options))?.is_empty() {
+            return Err(git2::Error::from_str(
+                "Git destination has uncommitted tracked changes; commit or discard them before export",
+            )
+            .into());
+        }
+        let mut checkout = git2::build::CheckoutBuilder::new();
+        checkout.safe().overwrite_ignored(false);
+        repo.checkout_tree(commit.as_object(), Some(&mut checkout))?;
     }
     if head_was_unborn && !repo.is_bare() {
         let index = repo.index()?;
@@ -261,14 +304,13 @@ fn update_branch(repo: &git2::Repository, branch: &str, tip_sha: &str) -> GitExp
         index.read_tree(&tree)?;
         index.write()?;
     }
-    match repo.find_reference(&refname) {
-        Ok(mut reference) => {
-            reference.set_target(oid, "sorrel git export")?;
+    match previous_tip {
+        Some(previous) => {
+            repo.reference_matching(&refname, oid, true, previous, "sorrel git export")?;
         }
-        Err(error) if error.code() == git2::ErrorCode::NotFound => {
-            repo.reference(&refname, oid, true, "sorrel git export")?;
+        None => {
+            repo.reference(&refname, oid, false, "sorrel git export")?;
         }
-        Err(error) => return Err(error.into()),
     }
     if head_was_unborn {
         repo.set_head(&refname)?;
@@ -586,6 +628,161 @@ mod tests {
         opts.message = Some("second".into());
         opts.created_at = "2024-01-02T00:00:00Z".into();
         write_snapshot(store, tree2.id, opts).unwrap().id
+    }
+
+    fn checkout_history(store: &InMemoryObjectStore) -> (ObjectId, ObjectId) {
+        let source = TempDir::new().unwrap();
+        for (name, content) in [
+            ("a.txt", "one\n"),
+            ("removed.txt", "removed\n"),
+            ("script", "echo hi\n"),
+        ] {
+            std::fs::write(source.path().join(name), content).unwrap();
+        }
+        let first =
+            crate::materialize_snapshot(store, source.path(), SnapshotOptions::new("repo_export"))
+                .unwrap();
+        std::fs::write(source.path().join("a.txt"), "two\n").unwrap();
+        std::fs::remove_file(source.path().join("removed.txt")).unwrap();
+        std::fs::write(source.path().join("added.txt"), "added\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                source.path().join("script"),
+                std::fs::Permissions::from_mode(0o755),
+            )
+            .unwrap();
+        }
+        let mut options = SnapshotOptions::new("repo_export");
+        options.parents = vec![crate::ObjectRef::new(ObjectKind::Snapshot, first.id)];
+        let second = crate::materialize_snapshot(store, source.path(), options).unwrap();
+        (first.id, second.id)
+    }
+
+    #[test]
+    fn existing_checkout_export_updates_files_index_deletions_and_modes() {
+        let store = InMemoryObjectStore::new();
+        let (first, second) = checkout_history(&store);
+        let destination = TempDir::new().unwrap();
+        git_export(&store, GitExportOptions::new(destination.path(), first)).unwrap();
+        std::fs::write(destination.path().join("untracked.txt"), "keep\n").unwrap();
+        let mut options = GitExportOptions::new(destination.path(), second);
+        options.checkout_existing_worktree = true;
+        let exported = git_export(&store, options).unwrap();
+        assert_eq!(
+            std::fs::read(destination.path().join("a.txt")).unwrap(),
+            b"two\n"
+        );
+        assert_eq!(
+            std::fs::read(destination.path().join("added.txt")).unwrap(),
+            b"added\n"
+        );
+        assert!(!destination.path().join("removed.txt").exists());
+        assert_eq!(
+            std::fs::read(destination.path().join("untracked.txt")).unwrap(),
+            b"keep\n"
+        );
+        let repo = git2::Repository::open(destination.path()).unwrap();
+        assert_eq!(
+            repo.head().unwrap().target().unwrap().to_string(),
+            exported.head_git_sha
+        );
+        let mut options = git2::StatusOptions::new();
+        options.include_untracked(false);
+        assert!(repo.statuses(Some(&mut options)).unwrap().is_empty());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_ne!(
+                std::fs::metadata(destination.path().join("script"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o111,
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn existing_checkout_export_refuses_dirty_staged_and_untracked_collisions() {
+        let store = InMemoryObjectStore::new();
+        let (first, second) = checkout_history(&store);
+        for scenario in ["dirty", "staged", "untracked", "ignored"] {
+            let destination = TempDir::new().unwrap();
+            git_export(&store, GitExportOptions::new(destination.path(), first)).unwrap();
+            let repo = git2::Repository::open(destination.path()).unwrap();
+            let initial_tip = repo.head().unwrap().target();
+            let changed = if matches!(scenario, "dirty" | "staged") {
+                "a.txt"
+            } else {
+                "added.txt"
+            };
+            std::fs::write(destination.path().join(changed), "valuable local work\n").unwrap();
+            if scenario == "staged" {
+                let mut index = repo.index().unwrap();
+                index.add_path(std::path::Path::new(changed)).unwrap();
+                index.write().unwrap();
+            }
+            if scenario == "ignored" {
+                std::fs::write(repo.path().join("info/exclude"), "added.txt\n").unwrap();
+            }
+            let original_index = std::fs::read(repo.path().join("index")).unwrap();
+            let mut options = GitExportOptions::new(destination.path(), second);
+            options.checkout_existing_worktree = true;
+            assert!(git_export(&store, options).is_err(), "{scenario}");
+            assert_eq!(repo.head().unwrap().target(), initial_tip, "{scenario}");
+            assert_eq!(
+                std::fs::read(repo.path().join("index")).unwrap(),
+                original_index,
+                "{scenario}"
+            );
+            assert_eq!(
+                std::fs::read(destination.path().join(changed)).unwrap(),
+                b"valuable local work\n",
+                "{scenario}"
+            );
+            assert!(
+                destination.path().join("removed.txt").exists(),
+                "{scenario}"
+            );
+            if changed != "a.txt" {
+                assert_eq!(
+                    std::fs::read(destination.path().join("a.txt")).unwrap(),
+                    b"one\n",
+                    "{scenario}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn existing_checkout_option_leaves_other_active_branches_alone() {
+        let store = InMemoryObjectStore::new();
+        let (first, second) = checkout_history(&store);
+        let destination = TempDir::new().unwrap();
+        git_export(&store, GitExportOptions::new(destination.path(), first)).unwrap();
+        git(destination.path(), &["checkout", "-b", "other"]);
+        std::fs::write(
+            destination.path().join("a.txt"),
+            "local other-branch work\n",
+        )
+        .unwrap();
+        let repo = git2::Repository::open(destination.path()).unwrap();
+        let original_index = std::fs::read(repo.path().join("index")).unwrap();
+        let mut options = GitExportOptions::new(destination.path(), second);
+        options.checkout_existing_worktree = true;
+        git_export(&store, options).unwrap();
+        assert_eq!(repo.head().unwrap().name().unwrap(), "refs/heads/other");
+        assert_eq!(
+            std::fs::read(destination.path().join("a.txt")).unwrap(),
+            b"local other-branch work\n"
+        );
+        assert_eq!(
+            std::fs::read(repo.path().join("index")).unwrap(),
+            original_index
+        );
     }
 
     #[test]

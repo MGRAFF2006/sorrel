@@ -1,6 +1,6 @@
 # Sorrel status
 
-Last updated: 2026-10-02
+Last updated: 2026-10-03
 
 What works today, what does not, and where to look next. For how to run the
 stack, see [GETTING_STARTED.md](GETTING_STARTED.md). The forward plan is
@@ -32,9 +32,9 @@ production AuthAdapter and network controls. See the root
 | **Protocol** | Canonical object schemas, examples, sync-transport spec, policy conformance manifest + checksum drift guards. |
 | **Engine (`sorrel-core`)** | Content-addressed object store, snapshots, changes, path/line-level diff helpers, lanes/stacks, policy/authority spine, sync closure helpers, stat-cache, three-way merge + protocol-aligned conflict/merge-result objects, **incremental `git_import` / `git_export`**. |
 | **CLI (`sorrel-cli`)** | Persistent changes, lanes/stacks/merges, Git and Hub sync, isolated workspaces, agent registration/claims, tracking/recovery, grants/slices, workflows, secrets, environment and run logs. See [CLI usage](../sorrel-cli/README.md). |
-| **Local agent workflow** | Independent agent directories/stores and assigned lanes; agent-attributed snapshots/changes; validated history integration using merge continue/abort. Owner-side advisory claims report overlaps. |
+| **Local agent workflow** | Independent agent directories/stores and assigned lanes; agent-attributed snapshots/changes; recorded commits/file review with optional snapshot-pinned integration, truthful readiness and pending work, and validated history integration using merge continue/abort. Owner-side advisory claims report overlaps. |
 | **Safety and tracking** | Cross-process CLI/SDK locks, atomic object/metadata publication, replayable HEAD/workspace journals, explicit interrupted-checkout rollback, typed Core preflight, nested Git/Sorrel ignores, explicit tracking, and Unix change-time cache verification. |
-| **Git bridge** | `sorrel git import`, `git export`, and colocated `git sync`; incremental fast-forwards in either direction, divergence parked on a normal Sorrel lane, `.sorrel/git-map.json` links SHAs ↔ snapshots. See `sorrel-cli/GIT.md`. |
+| **Git bridge** | `sorrel git import`, `git export`, and colocated/external `git sync`; external active checkouts advance their files/index together and refuse local collisions; incremental fast-forwards in either direction, divergence parked on a normal Sorrel lane, `.sorrel/git-map.json` links SHAs ↔ snapshots. See `sorrel-cli/GIT.md`. |
 | **Sync** | CLI ↔ Hub over HTTP sync transport; Hub FS-backed object/ref store; isolated demos can opt into `user:local` bootstrap grants with `SORREL_HUB_BOOTSTRAP_GRANTS=1`. |
 | **Vault** | Secrets schema + local Node backend for tests. **Primary UX:** `sorrel secret *` resolves via upstream SecretSpec (`keyring` / `dotenv` / `env`) under Core grants; workflow jobs can inject authorized `secretRefs` with log redaction. |
 | **Runners** | Local + container runners (ContainerRunner tested), `sorrel.workflow.yml` → `JobBundle` parser, Core policy gate + log redaction. CLI prefers devenv when present (`backend: devenv`), else `local-fallback`. Structured logs under `.sorrel/runs/`. |

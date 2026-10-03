@@ -1,7 +1,7 @@
-# Git bridge — import, export, and colocated sync
+# Git bridge — import, export, and sync
 
 Move history between a normal Git repository and a Sorrel workspace, and keep
-a colocated mirror in sync with `sorrel git sync`.
+colocated or external mirrors in sync with `sorrel git sync`.
 
 ## Prerequisites
 
@@ -73,7 +73,7 @@ Flags:
 | `--force` | Overwrite an existing branch when no map is present |
 | `--json` | Structured output |
 
-## Colocated sync
+## Bidirectional sync
 
 Once a mapping exists (created by `git import` or `git export`), `sorrel git
 sync` keeps the two histories aligned in either direction:
@@ -109,6 +109,10 @@ Notes:
   history, and a fresh (empty) Sorrel workspace adopts the Git history.
 - Pulling refuses to overwrite uncommitted working-tree changes unless
   `--force` is passed.
+- In an external mirror, exports and pushes update the active branch's files
+  and index together. Tracked edits, staged changes, and incoming paths that
+  collide with untracked or ignored files are refused before moving the branch.
+  Unrelated untracked files and other checked-out branches are preserved.
 - In a colocated checkout, pushes refuse staged Git changes before moving the
   branch, then refresh the index so `git status` stays clean. A failed index
   refresh is reported explicitly; inspect Git status before retrying.

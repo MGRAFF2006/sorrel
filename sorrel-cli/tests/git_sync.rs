@@ -292,3 +292,112 @@ fn sync_refuses_staged_git_index_when_pushing_native_history() {
         b"recorded in Sorrel\n"
     );
 }
+
+#[test]
+fn external_sync_updates_worktree_index_and_preserves_untracked_files() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    sorrel_json(root, &["init", "--json"]);
+    std::fs::write(root.join("a.txt"), "one\n").unwrap();
+    std::fs::write(root.join("deleted.txt"), "remove me\n").unwrap();
+    sorrel_json(root, &["change", "create", "-m", "first", "--json"]);
+    let mirror_dir = TempDir::new().unwrap();
+    let mirror = mirror_dir.path().join("mirror");
+    sorrel_json(root, &["git", "export", mirror.to_str().unwrap(), "--json"]);
+    std::fs::write(mirror.join("scratch.txt"), "untracked notes\n").unwrap();
+    std::fs::write(root.join("a.txt"), "two\n").unwrap();
+    std::fs::remove_file(root.join("deleted.txt")).unwrap();
+    sorrel_json(root, &["change", "create", "-m", "second", "--json"]);
+    // A metadata-directory alias must still be recognized as an external mirror.
+    let mirror_git = mirror.join(".git");
+    let pushed = sorrel_json(
+        root,
+        &["git", "sync", mirror_git.to_str().unwrap(), "--json"],
+    );
+    assert_eq!(pushed["status"], "pushed");
+    assert_eq!(
+        std::fs::read_to_string(mirror.join("a.txt")).unwrap(),
+        "two\n"
+    );
+    assert!(!mirror.join("deleted.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(mirror.join("scratch.txt")).unwrap(),
+        "untracked notes\n"
+    );
+    assert_eq!(
+        git_stdout(&mirror, &["status", "--porcelain"]),
+        "?? scratch.txt\n"
+    );
+    assert_eq!(
+        sorrel_json(root, &["git", "sync", mirror.to_str().unwrap(), "--json"])["status"],
+        "up-to-date"
+    );
+
+    std::fs::write(root.join("a.txt"), "three\n").unwrap();
+    sorrel_json(root, &["change", "create", "-m", "third", "--json"]);
+    sorrel_json(root, &["git", "export", mirror.to_str().unwrap(), "--json"]);
+    assert_eq!(
+        std::fs::read_to_string(mirror.join("a.txt")).unwrap(),
+        "three\n"
+    );
+    assert_eq!(
+        git_stdout(&mirror, &["status", "--porcelain"]),
+        "?? scratch.txt\n"
+    );
+}
+
+#[test]
+fn external_sync_refuses_dirty_checkout_without_advancing_either_head() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    sorrel_json(root, &["init", "--json"]);
+    std::fs::write(root.join("a.txt"), "one\n").unwrap();
+    sorrel_json(root, &["change", "create", "-m", "first", "--json"]);
+    let mirror_dir = TempDir::new().unwrap();
+    let mirror = mirror_dir.path().join("mirror");
+    sorrel_json(root, &["git", "export", mirror.to_str().unwrap(), "--json"]);
+    std::fs::write(root.join("a.txt"), "two\n").unwrap();
+    sorrel_json(root, &["change", "create", "-m", "second", "--json"]);
+    std::fs::write(mirror.join("a.txt"), "unfinished mirror edit\n").unwrap();
+    let branch_before = git_stdout(&mirror, &["rev-parse", "HEAD"]);
+    let index_before = std::fs::read(mirror.join(".git/index")).unwrap();
+    let owner_before = std::fs::read(root.join(".sorrel/HEAD")).unwrap();
+    Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .args(["git", "sync", mirror.to_str().unwrap(), "--json"])
+        .assert()
+        .failure();
+    assert_eq!(git_stdout(&mirror, &["rev-parse", "HEAD"]), branch_before);
+    assert_eq!(
+        std::fs::read(mirror.join(".git/index")).unwrap(),
+        index_before
+    );
+    assert_eq!(
+        std::fs::read(root.join(".sorrel/HEAD")).unwrap(),
+        owner_before
+    );
+    assert_eq!(
+        std::fs::read_to_string(mirror.join("a.txt")).unwrap(),
+        "unfinished mirror edit\n"
+    );
+}
+
+#[test]
+fn colocated_metadata_alias_sync_keeps_native_work_and_refreshes_git_index() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    colocated_workspace(root);
+    std::fs::write(root.join("a.txt"), "two\n").unwrap();
+    sorrel_json(root, &["change", "create", "-m", "second", "--json"]);
+    assert_eq!(
+        sorrel_json(root, &["git", "sync", ".git", "--json"])["status"],
+        "pushed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).unwrap(),
+        "two\n"
+    );
+    assert!(git_stdout(root, &["diff", "--name-only"]).is_empty());
+    assert!(git_stdout(root, &["diff", "--cached", "--name-only"]).is_empty());
+}

@@ -30,3 +30,21 @@ On the reference machine recorded in `BASELINE.json`:
 - CLI `log` over 1,000 changes is at the roadmap target (49.403 ms vs 50 ms).
 - Warm CLI `status` over 10,000 files is above the roadmap target
   (231.814 ms vs 100 ms) and is the first measured optimization priority.
+
+## Foundation follow-up (2026-10-03)
+
+A same-machine debug comparison on the laptop (Ryzen AI 7 350, Btrfs) used
+five alternating warm-status samples per executable. The foundation binary
+was compared with recorded-review, filesystem-safety, and tracked-path changes:
+
+| Workload | Before median | After median | Blob opens before → after |
+| --- | --- | --- | --- |
+| 10,000 unique small files (298,890 payload bytes) | 1,863 ms | 1,814 ms | 20,000 → 10,000 |
+| Same tree plus four 4 MiB files | 1,877 ms | 1,792 ms | 20,008 → 10,004 |
+
+Blob bytes read halved in both workloads. Metadata-only tracked-path selection
+and one verified cache read remove redundant I/O; cached corruption and symlink
+checks remain enabled. New filesystem checks also add cost. Sample variation
+was substantial, so these timings do not establish a large latency improvement
+or attainment of the release-mode target. Do not compare these debug timings
+with the release baseline above.

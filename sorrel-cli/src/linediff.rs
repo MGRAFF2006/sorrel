@@ -1,9 +1,8 @@
 //! Minimal, dependency-free line-level diff for the prototype `diff` command.
 //!
-//! Computes a longest-common-subsequence (LCS) over lines and emits unified
-//! diff hunks. This is intentionally simple (quadratic in the number of lines)
-//! and adequate for typical source files in the prototype; a faster Myers
-//! implementation can replace it later without changing the output shape.
+//! Trims unchanged edges before a bounded longest-common-subsequence (LCS).
+//! Large changed regions fall back to a complete replacement instead of an
+//! unbounded quadratic allocation.
 
 /// A single line in a hunk, tagged by its origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,8 +58,41 @@ fn split_lines(text: &str) -> Vec<String> {
 
 /// Builds an LCS-based edit script between `old` and `new` line vectors.
 fn edit_script(old: &[String], new: &[String]) -> Vec<Edit> {
+    let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(new[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut edits: Vec<_> = old[..prefix].iter().cloned().map(Edit::Equal).collect();
+    edits.extend(changed_script(
+        &old[prefix..old.len() - suffix],
+        &new[prefix..new.len() - suffix],
+    ));
+    edits.extend(old[old.len() - suffix..].iter().cloned().map(Edit::Equal));
+    edits
+}
+
+fn changed_script(old: &[String], new: &[String]) -> Vec<Edit> {
     let n = old.len();
     let m = new.len();
+    // ponytail: bounded LCS; replace a large changed region as a whole. Myers
+    // can improve large patches when compactness justifies another algorithm.
+    const MAX_CELLS: usize = 1_000_000;
+    if n == 0
+        || m == 0
+        || n.checked_add(1)
+            .and_then(|n| m.checked_add(1).and_then(|m| n.checked_mul(m)))
+            .is_none_or(|cells| cells > MAX_CELLS)
+    {
+        return old
+            .iter()
+            .cloned()
+            .map(Edit::Delete)
+            .chain(new.iter().cloned().map(Edit::Insert))
+            .collect();
+    }
 
     // lcs[i][j] = length of LCS of old[i..] and new[j..].
     let mut lcs = vec![vec![0usize; m + 1]; n + 1];
@@ -255,5 +287,39 @@ mod tests {
         assert!(rendered.contains("-b"));
         assert!(rendered.contains("+c"));
         assert!(rendered.contains(" a"));
+    }
+}
+
+#[cfg(test)]
+mod bounded_tests {
+    use super::*;
+
+    #[test]
+    fn large_unchanged_edges_still_produce_a_compact_edit() {
+        let mut old: Vec<_> = (0..20_000).map(|n| format!("line {n}\n")).collect();
+        let original = old.concat();
+        old[10_000] = "replacement\n".to_owned();
+        let hunks = hunks(&original, &old.concat(), 3);
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].lines.len(), 8);
+        assert_eq!(hunks[0].old_start, 9_998);
+    }
+
+    #[test]
+    fn oversized_changed_region_replacement_preserves_every_line() {
+        let old = (0..2_000).map(|n| format!("old {n}\n")).collect::<String>();
+        let new = (0..2_000).map(|n| format!("new {n}\n")).collect::<String>();
+        let hunks = hunks(&old, &new, 3);
+        assert_eq!(hunks.len(), 1);
+        assert_eq!(hunks[0].old_len, 2_000);
+        assert_eq!(hunks[0].new_len, 2_000);
+        assert!(hunks[0]
+            .lines
+            .iter()
+            .any(|line| line.kind == LineKind::Removed && line.text == "old 1999"));
+        assert!(hunks[0]
+            .lines
+            .iter()
+            .any(|line| line.kind == LineKind::Added && line.text == "new 1999"));
     }
 }

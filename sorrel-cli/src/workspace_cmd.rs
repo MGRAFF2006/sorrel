@@ -16,8 +16,15 @@ pub enum WorkspaceCommand {
     Create(CreateArgs),
     /// List workspaces with their current local heads.
     List,
+    /// Inspect recorded agent work without importing or integrating it.
+    Review { id: String },
     /// Bring an agent workspace's recorded work into the active lane.
-    Integrate { id: String },
+    Integrate {
+        id: String,
+        /// Require the worker tip to match a previously reviewed snapshot.
+        #[arg(long)]
+        snapshot: Option<String>,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -498,57 +505,106 @@ pub fn create(args: CreateArgs) -> io::Result<CommandOutput> {
     })
 }
 
-pub fn list() -> io::Result<CommandOutput> {
-    let mut workspaces = repo::list_registry_entries("workspaces")?;
-    for workspace in &mut workspaces {
-        let path = workspace["path"]
-            .as_str()
-            .ok_or_else(|| command_error("invalid_data", "workspace missing path"))?;
-        match read_json(&Path::new(path).join(".sorrel/HEAD")) {
-            Ok(head) => {
-                workspace["headSnapshot"] = head["snapshot"].clone();
-                workspace["status"] = json!("available");
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                workspace["status"] = json!("missing")
-            }
-            Err(error) => return Err(error),
-        }
-    }
-    let human = workspaces
-        .iter()
-        .map(|workspace| {
-            format!(
-                "{}  {}  {}",
-                workspace["id"].as_str().unwrap_or("?"),
-                workspace["path"].as_str().unwrap_or("?"),
-                workspace["status"].as_str().unwrap_or("?")
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    Ok(CommandOutput {
-        json: json!({"command":"workspace list", "workspaces":workspaces}),
-        human,
+struct OwnerState {
+    repo_id: String,
+    ancestors: BTreeSet<ObjectId>,
+    history: BTreeMap<ObjectId, ObjectId>,
+}
+
+fn owner_state() -> io::Result<OwnerState> {
+    let manifest = repo::load_manifest()?
+        .ok_or_else(|| command_error("uninitialized", "run `sorrel init` first"))?;
+    let repo_id = manifest["repoId"]
+        .as_str()
+        .ok_or_else(|| command_error("invalid_data", "manifest missing repoId"))?
+        .to_owned();
+    let head =
+        repo::load_head()?.ok_or_else(|| command_error("invalid_data", "missing owner HEAD"))?;
+    let tip: ObjectId = head.snapshot.parse().map_err(store_error)?;
+    let store = FileObjectStore::new(repo::object_store_root()).map_err(store_error)?;
+    sorrel_core::validate_snapshot(&store, &tip).map_err(store_error)?;
+    let ancestors = sorrel_core::collect_ancestors(&store, tip).map_err(store_error)?;
+    let history = history_index(&repo::changes_index_path())?;
+    // A corrupt owner history must not be presented as an empty work queue.
+    history_objects(&store, &history, &ancestors)?;
+    Ok(OwnerState {
+        repo_id,
+        ancestors,
+        history,
     })
 }
 
-pub struct Integration {
-    pub lane: String,
+fn validate_workspace(workspace: &Value) -> io::Result<()> {
+    let id = workspace["id"]
+        .as_str()
+        .ok_or_else(|| command_error("invalid_data", "workspace missing id"))?;
+    agent_cmd::valid_id(id)?;
+    if workspace["schemaVersion"].as_str() != Some(repo::PROTOCOL_VERSION)
+        || workspace["kind"].as_str() != Some("AgentWorkspace")
+        || workspace["agentId"].as_str() != Some(id)
+        || workspace["owner"].as_str() != fs::canonicalize(".")?.to_str()
+        || !workspace["path"].as_str().is_some_and(|path| {
+            Path::new(path).is_absolute()
+                && !Path::new(path).components().any(|component| {
+                    matches!(
+                        component,
+                        std::path::Component::ParentDir | std::path::Component::CurDir
+                    )
+                })
+        })
+    {
+        return Err(command_error(
+            "invalid_workspace",
+            "workspace record does not match its owner",
+        ));
+    }
+    let owner = fs::canonicalize(".")?;
+    if workspace["path"]
+        .as_str()
+        .is_some_and(|path| Path::new(path).starts_with(&owner))
+    {
+        return Err(command_error(
+            "invalid_workspace",
+            "worker path must stay outside its owner checkout",
+        ));
+    }
+    object_id(workspace, "lane")?;
+    object_id(workspace, "baseSnapshot")?;
+    Ok(())
+}
+
+/// A stable view of recorded work. The lock lives through diff rendering or import.
+pub struct Review {
+    pub store: FileObjectStore,
+    pub base: ObjectId,
+    pub tip: ObjectId,
     pub workspace: Value,
+    pub overview: Value,
+    pub commits: Vec<Value>,
+    reachable: BTreeSet<ObjectId>,
+    history: BTreeMap<ObjectId, ObjectId>,
+    change_objects: BTreeSet<ObjectId>,
     _worker_lock: repo::RepositoryLock,
 }
 
-pub fn prepare_integration(id: &str) -> io::Result<Integration> {
-    let workspace = read_json(&record_path(id)?)?;
+fn inspect(workspace: Value, owner: &OwnerState) -> io::Result<Review> {
+    validate_workspace(&workspace)?;
     let path = PathBuf::from(
         workspace["path"]
             .as_str()
             .ok_or_else(|| command_error("invalid_data", "workspace missing path"))?,
     );
-    // Lock acquisition creates metadata for init. Integration must inspect the
-    // existing checkout first so a moved worker cannot leave a phantom repo.
+    if let Ok(canonical) = fs::canonicalize(&path) {
+        if canonical != path || canonical.starts_with(fs::canonicalize(".")?) {
+            return Err(command_error(
+                "invalid_workspace",
+                "worker path changed or aliases the owner checkout",
+            ));
+        }
+    }
     let metadata = path.join(".sorrel");
+    // Lock acquisition creates metadata for init. Inspect the existing checkout
+    // first so missing or moved workers do not leave phantom repositories.
     for directory in [&path, &metadata] {
         match fs::symlink_metadata(directory) {
             Ok(metadata) if metadata.file_type().is_dir() => {}
@@ -559,129 +615,308 @@ pub fn prepare_integration(id: &str) -> io::Result<Integration> {
                 ))
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Err(command_error(
-                    "invalid_workspace",
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
                     "worker directory is missing or moved",
                 ));
             }
             Err(error) => return Err(error),
         }
     }
-    read_json(&path.join(".sorrel/workspace.json"))?;
+    read_json(&metadata.join("workspace.json"))?;
     let worker_lock = repo::RepositoryLock::acquire(&path)?;
-    let link = read_json(&path.join(".sorrel/workspace.json"))?;
-    if link != workspace || workspace["owner"].as_str() != fs::canonicalize(".")?.to_str() {
+    if read_json(&metadata.join("workspace.json"))? != workspace {
         return Err(command_error(
             "invalid_workspace",
-            "workspace owner or link does not match",
+            "workspace link does not match owner record",
         ));
     }
-    let worker_manifest = read_json(&path.join(".sorrel/manifest.json"))?;
-    let manifest = repo::load_manifest()?
-        .ok_or_else(|| command_error("uninitialized", "run `sorrel init` first"))?;
-    if worker_manifest["repoId"] != manifest["repoId"] {
+    let manifest = read_json(&metadata.join("manifest.json"))?;
+    if manifest["repoId"].as_str() != Some(owner.repo_id.as_str()) {
         return Err(command_error(
             "invalid_workspace",
             "workspace repository does not match",
         ));
     }
-    if path.join(".sorrel/MERGE_STATE").exists()
-        || path.join(".sorrel/CHECKOUT_STATE").exists()
-        || path.join(".sorrel/HEAD_TRANSACTION").exists()
-    {
-        return Err(command_error(
-            "recovery_required",
-            "finish or recover the agent workspace before integration",
-        ));
-    }
-    let worker_head = read_json(&path.join(".sorrel/HEAD"))?;
-    let lane = workspace["lane"]
+    let head = read_json(&metadata.join("HEAD"))?;
+    let active_lane = head["lane"]
         .as_str()
-        .ok_or_else(|| command_error("invalid_data", "workspace missing lane"))?
-        .to_owned();
-    if worker_head["lane"].as_str() != Some(lane.as_str()) {
-        return Err(command_error(
-            "invalid_workspace",
-            "agent workspace changed its assigned lane",
-        ));
-    }
-    let snapshot: ObjectId = worker_head["snapshot"]
+        .ok_or_else(|| command_error("invalid_data", "worker HEAD missing lane"))?;
+    let assigned_lane = workspace["lane"]
         .as_str()
-        .ok_or_else(|| command_error("invalid_data", "workspace missing head"))?
-        .parse()
-        .map_err(store_error)?;
-    let worker_store = FileObjectStore::new(path.join(".sorrel")).map_err(store_error)?;
-    sorrel_core::validate_snapshot(&worker_store, &snapshot).map_err(store_error)?;
-    if sorrel_core::read_snapshot(&worker_store, &snapshot)
+        .ok_or_else(|| command_error("invalid_data", "workspace missing lane"))?;
+    let switched = active_lane != assigned_lane;
+    let tip = object_id(&head, "snapshot")?;
+    let base = object_id(&workspace, "baseSnapshot")?;
+    let store = FileObjectStore::new(&metadata).map_err(store_error)?;
+    sorrel_core::validate_snapshot(&store, &tip).map_err(store_error)?;
+    if sorrel_core::read_snapshot(&store, &tip)
         .map_err(store_error)?
         .repo
-        != manifest["repoId"].as_str().unwrap_or_default()
+        != owner.repo_id
     {
         return Err(command_error(
             "invalid_workspace",
             "worker snapshot belongs to another repository",
         ));
     }
-    let base = object_id(&workspace, "baseSnapshot")?;
-    let reachable = sorrel_core::collect_ancestors(&worker_store, snapshot).map_err(store_error)?;
+    let reachable = sorrel_core::collect_ancestors(&store, tip).map_err(store_error)?;
     if !reachable.contains(&base) {
         return Err(command_error(
             "invalid_workspace",
             "agent tip is not descended from its recorded base",
         ));
     }
-    let selection = tracking::selection_at(&worker_store, &path, Some(&snapshot))?;
-    let working = sorrel_core::materialize_snapshot_filtered_with_stat_cache(
-        &worker_store,
-        &path,
-        None,
-        sorrel_core::SnapshotOptions::new(manifest["repoId"].as_str().unwrap_or_default()),
-        |path, directory| Ok(selection.includes(path, directory)),
-    )
-    .map_err(store_error)?;
-    if !sorrel_core::snapshot_diff(&worker_store, &snapshot, &working.id)
-        .map_err(store_error)?
-        .changes
-        .is_empty()
-    {
-        return Err(command_error(
-            "dirty_worktree",
-            "agent workspace has unrecorded edits; record them before integration",
-        ));
-    }
-    let worker_history = history_index(&path.join(".sorrel/changes.index"))?;
-    let change_objects = history_objects(&worker_store, &worker_history, &reachable)?;
-    let mut owner_history = history_index(&repo::changes_index_path())?;
-    for (result, change) in &worker_history {
-        if !reachable.contains(result) {
-            continue;
-        }
-        if owner_history
-            .get(result)
-            .is_some_and(|known| known != change)
+    let history = history_index(&metadata.join("changes.index"))?;
+    let change_objects = history_objects(&store, &history, &reachable)?;
+    for (snapshot, change) in &history {
+        if reachable.contains(snapshot)
+            && owner
+                .history
+                .get(snapshot)
+                .is_some_and(|known| known != change)
         {
             return Err(command_error(
                 "invalid_data",
                 "worker history would replace an owner Change mapping",
             ));
         }
-        owner_history.insert(*result, *change);
+    }
+    let recovering = [
+        "MERGE_STATE",
+        "CHECKOUT_STATE",
+        "HEAD_TRANSACTION",
+        "WORKSPACE_CREATE",
+    ]
+    .iter()
+    .any(|name| metadata.join(name).exists());
+    let selection = tracking::selection_at(&store, &path, Some(&tip))?;
+    let working = sorrel_core::materialize_snapshot_filtered_with_stat_cache(
+        &store,
+        &path,
+        None,
+        sorrel_core::SnapshotOptions::new(&owner.repo_id),
+        |path, directory| Ok(selection.includes(path, directory)),
+    )
+    .map_err(store_error)?;
+    let dirty = !sorrel_core::snapshot_diff(&store, &tip, &working.id)
+        .map_err(store_error)?
+        .changes
+        .is_empty();
+    let pending = reachable.difference(&owner.ancestors).count();
+    let integrated = owner.ancestors.contains(&tip);
+    let mut blockers = Vec::new();
+    if recovering {
+        blockers.push("recovery_required");
+    }
+    if switched {
+        blockers.push("assigned_lane_changed");
+    }
+    if dirty {
+        blockers.push("dirty_worktree");
+    }
+    let status = if recovering {
+        "recovering"
+    } else if switched {
+        "switched"
+    } else if dirty {
+        "dirty"
+    } else if integrated {
+        "integrated"
+    } else {
+        "ready"
+    };
+    let mut overview = workspace.clone();
+    overview["headSnapshot"] = json!(tip.to_hex());
+    overview["activeLane"] = json!(active_lane);
+    overview["dirty"] = json!(dirty);
+    overview["recovering"] = json!(recovering);
+    overview["pendingSnapshots"] = json!(pending);
+    overview["integrated"] = json!(integrated);
+    overview["status"] = json!(status);
+    overview["blockers"] = json!(blockers);
+    overview["readyToIntegrate"] = json!(blockers.is_empty() && pending > 0);
+
+    let original = sorrel_core::collect_ancestors(&store, base).map_err(store_error)?;
+    // Parents precede children, including both sides of worker merges.
+    let mut queue = vec![(tip, false)];
+    let mut visited = BTreeSet::new();
+    let mut commits = Vec::new();
+    while let Some((id, expanded)) = queue.pop() {
+        if original.contains(&id) {
+            continue;
+        }
+        let snapshot = sorrel_core::read_snapshot(&store, &id).map_err(store_error)?;
+        if !expanded {
+            if !visited.insert(id) {
+                continue;
+            }
+            queue.push((id, true));
+            for parent in snapshot.parents.iter().rev() {
+                queue.push((parent.id, false));
+            }
+            continue;
+        }
+        let change = history
+            .get(&id)
+            .map(|change| sorrel_core::read_change(&store, change).map_err(store_error))
+            .transpose()?;
+        let author = change
+            .as_ref()
+            .map(|change| &change.author)
+            .unwrap_or(&snapshot.author);
+        let message = change
+            .as_ref()
+            .map(|change| change.message.clone())
+            .or(snapshot.message);
+        commits.push(json!({
+            "snapshot":{"kind":"Snapshot","id":id.to_hex()},
+            "change":change.as_ref().map(|change| json!({"kind":"Change","id":change.id.to_hex()})),
+            "author":{"type":author.principal_type,"id":author.id,"displayName":author.display_name},
+            "message":message,"createdAt":snapshot.created_at,
+            "pending":!owner.ancestors.contains(&id),
+        }));
+    }
+    Ok(Review {
+        store,
+        base,
+        tip,
+        workspace,
+        overview,
+        commits,
+        reachable,
+        history,
+        change_objects,
+        _worker_lock: worker_lock,
+    })
+}
+
+pub fn review(id: &str) -> io::Result<Review> {
+    let owner = owner_state()?;
+    inspect(read_json(&record_path(id)?)?, &owner)
+}
+
+/// Keep unavailable or malformed worker rows visible without hiding other work.
+/// Errors in owner metadata still fail the entire view.
+pub fn overview() -> io::Result<Vec<Value>> {
+    let owner = owner_state()?;
+    let workspaces = repo::list_registry_entries("workspaces")?;
+    let mut rows = Vec::new();
+    for workspace in workspaces {
+        validate_workspace(&workspace)?;
+        match inspect(workspace.clone(), &owner) {
+            Ok(review) => rows.push(review.overview),
+            Err(error) => {
+                let mut row = workspace;
+                row["status"] = json!(if error.kind() == io::ErrorKind::NotFound {
+                    "missing"
+                } else {
+                    "invalid"
+                });
+                row["readyToIntegrate"] = json!(false);
+                row["error"] =
+                    json!({"code":crate::error_code(&error),"message":error.to_string()});
+                rows.push(row);
+            }
+        }
+    }
+    Ok(rows)
+}
+
+pub fn list() -> io::Result<CommandOutput> {
+    let workspaces = overview()?;
+    let human = workspaces
+        .iter()
+        .map(|workspace| {
+            format!(
+                "{}  {}  pending={}  {}{}",
+                workspace["id"].as_str().unwrap_or("?"),
+                workspace["status"].as_str().unwrap_or("?"),
+                workspace["pendingSnapshots"]
+                    .as_u64()
+                    .map_or_else(|| "?".to_owned(), |n| n.to_string()),
+                workspace["path"].as_str().unwrap_or("?"),
+                workspace["task"]
+                    .as_str()
+                    .map_or_else(String::new, |task| format!("  {task}")),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(CommandOutput {
+        json: json!({"command":"workspace list","workspaces":workspaces}),
+        human,
+    })
+}
+
+pub struct Integration {
+    pub lane: String,
+    pub workspace: Value,
+    _worker_lock: repo::RepositoryLock,
+}
+
+pub fn prepare_integration(id: &str, expected: Option<&str>) -> io::Result<Integration> {
+    let review = review(id).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            command_error("invalid_workspace", error.to_string())
+        } else {
+            error
+        }
+    })?;
+    if let Some(expected) = expected {
+        let expected: ObjectId = expected.parse().map_err(|_| {
+            command_error(
+                "invalid_input",
+                "reviewed snapshot must be a valid object id",
+            )
+        })?;
+        if expected != review.tip {
+            return Err(command_error("review_stale", "worker recorded new work since review; review the current snapshot before integrating"));
+        }
+    }
+    if review.overview["recovering"] == true {
+        return Err(command_error(
+            "recovery_required",
+            "finish or recover the agent workspace before integration",
+        ));
+    }
+    if review.overview["activeLane"] != review.workspace["lane"] {
+        return Err(command_error(
+            "invalid_workspace",
+            "agent workspace changed its assigned lane",
+        ));
+    }
+    if review.overview["dirty"] == true {
+        return Err(command_error(
+            "dirty_worktree",
+            "agent workspace has unrecorded edits; record them before integration",
+        ));
+    }
+    let mut owner_history = history_index(&repo::changes_index_path())?;
+    for (result, change) in &review.history {
+        if review.reachable.contains(result) {
+            owner_history.insert(*result, *change);
+        }
     }
     let store = FileObjectStore::new(repo::object_store_root()).map_err(store_error)?;
-    for id in sorrel_core::collect_closure(&worker_store, &[snapshot])
+    for id in sorrel_core::collect_closure(&review.store, &[review.tip])
         .map_err(store_error)?
         .into_iter()
-        .chain(change_objects)
+        .chain(review.change_objects)
     {
         store
-            .write(&worker_store.read(&id).map_err(store_error)?)
+            .write(&review.store.read(&id).map_err(store_error)?)
             .map_err(store_error)?;
     }
     repo::write_bytes_atomic(&repo::changes_index_path(), &index_bytes(&owner_history)?)?;
-    repo::write_lane_head(&lane, &snapshot.to_hex())?;
+    let lane = review.workspace["lane"]
+        .as_str()
+        .ok_or_else(|| command_error("invalid_data", "workspace missing lane"))?
+        .to_owned();
+    repo::write_lane_head(&lane, &review.tip.to_hex())?;
     Ok(Integration {
         lane,
-        workspace,
-        _worker_lock: worker_lock,
+        workspace: review.workspace,
+        _worker_lock: review._worker_lock,
     })
 }
