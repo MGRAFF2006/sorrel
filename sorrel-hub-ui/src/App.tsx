@@ -6,6 +6,7 @@ import {
   fetchSession,
   setPrincipalProvider,
   unwrapList,
+  useApiConnection,
   type HubCapabilities,
   type HubSessionInfo,
 } from './api.ts';
@@ -167,7 +168,7 @@ function ProjectLayout(props: RouteSectionProps) {
 export function HubApp(props: HubAppOptions) {
   const [capabilities] = createResource(fetchCapabilities);
   const [hubSession, { refetch: refetchSession }] = createResource(fetchSession);
-  const [apiOk, setApiOk] = createSignal<boolean | null>(null);
+  const apiOk = useApiConnection();
   const actingPrincipal = useActingPrincipal();
 
   onMount(() => setPrincipalProvider(() => actingPrincipal()));
@@ -186,10 +187,9 @@ export function HubApp(props: HubAppOptions) {
     void (async () => {
       try {
         await apiGet('/healthz');
-        setApiOk(true);
         void refetchSession();
       } catch {
-        setApiOk(false);
+        // apiRequest records the failed connection for the shell.
       }
     })();
   });

@@ -1,12 +1,14 @@
 import { useParams, useSearchParams } from '@solidjs/router';
 import { createEffect, createMemo, createResource, createSignal, For, Show } from 'solid-js';
 import { apiGet, apiPatch, apiPost, unwrapList } from '../api.ts';
+import { createAction } from '../action.ts';
 import { getActingPrincipal } from '../session.ts';
 import {
   EmptyState,
   ErrorText,
   FormStatus,
   Loading,
+  Modal,
   PageHeader,
   RefList,
   StatusPill,
@@ -55,6 +57,7 @@ export function ReviewsView() {
   const [formStatus, setFormStatus] = createSignal('');
   const [formError, setFormError] = createSignal(false);
   const [creating, setCreating] = createSignal(false);
+  const mutation = createAction();
   const [filter, setFilter] = createSignal('');
 
   createEffect(() => {
@@ -114,24 +117,31 @@ export function ReviewsView() {
     (comments() ?? []).filter((c) => c.proposalId === selectedProposalId());
 
   async function patchProposalStatus(id: string, status: string) {
-    await apiPatch(`/admin/proposals/${encodeURIComponent(id)}`, { status });
-    setReloadToken((n) => n + 1);
+    await mutation.run(async () => {
+      await apiPatch(`/admin/proposals/${encodeURIComponent(id)}`, { status });
+      setReloadToken((n) => n + 1);
+    });
   }
 
   async function resolveComment(id: string) {
-    await apiPatch(`/admin/review-comments/${encodeURIComponent(id)}`, { state: 'resolved' });
-    setReloadToken((n) => n + 1);
+    await mutation.run(async () => {
+      await apiPatch(`/admin/review-comments/${encodeURIComponent(id)}`, { state: 'resolved' });
+      setReloadToken((n) => n + 1);
+    });
   }
 
   async function patchWorkflow(id: string, status: string) {
-    await apiPatch(`/admin/workflow-runs/${encodeURIComponent(id)}`, { status });
-    setReloadToken((n) => n + 1);
+    await mutation.run(async () => {
+      await apiPatch(`/admin/workflow-runs/${encodeURIComponent(id)}`, { status });
+      setReloadToken((n) => n + 1);
+    });
   }
 
   async function onOpenProposal(event: Event) {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const data = Object.fromEntries(new FormData(form).entries());
+    if (formStatus() === 'Creating…') return;
     setFormError(false);
     setFormStatus('Creating…');
     try {
@@ -184,6 +194,12 @@ export function ReviewsView() {
         }
       />
 
+      <Show when={mutation.pending()}><Loading text="Saving change…" /></Show>
+      <Show when={mutation.error()}>
+        <ErrorText text={mutation.error()} />
+        <button type="button" onClick={() => void mutation.retry()}>Retry change</button>
+      </Show>
+      <fieldset class="mutation-content" disabled={mutation.pending()}>
       <div class="toolbar">
         <div class="segmented" role="tablist" aria-label="Review sections">
           <button
@@ -226,10 +242,8 @@ export function ReviewsView() {
       </div>
 
       <Show when={tab() === 'proposals' && creating()}>
-        <div class="dialog-backdrop" role="presentation" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) setCreating(false);
-        }}>
-          <form class="form-card project-dialog" role="dialog" aria-modal="true" aria-labelledby="open-review-title" onSubmit={onOpenProposal}>
+        <Modal labelledBy="open-review-title" onClose={() => setCreating(false)}>
+          <form class="form-card" onSubmit={onOpenProposal}>
             <div class="dialog-heading">
               <div>
                 <span class="eyebrow">02 / Share changes</span>
@@ -258,11 +272,11 @@ export function ReviewsView() {
             </label>
             <div class="dialog-actions">
               <button type="button" class="ghost" onClick={() => setCreating(false)}>Cancel</button>
-              <button type="submit">Open review <span aria-hidden="true">→</span></button>
+              <button type="submit" disabled={formStatus() === 'Creating…'}>Open review <span aria-hidden="true">→</span></button>
             </div>
             <FormStatus message={formStatus()} error={formError()} />
           </form>
-        </div>
+        </Modal>
       </Show>
 
       <Show when={tab() === 'proposals'}>
@@ -446,6 +460,7 @@ export function ReviewsView() {
           onPatchWorkflow={(id, status) => void patchWorkflow(id, status)}
         />
       </Show>
+      </fieldset>
     </div>
   );
 }
@@ -538,6 +553,7 @@ function DetailCommentForm(props: { proposalId: string; onPosted: () => void }) 
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const data = Object.fromEntries(new FormData(form).entries());
+    if (status() === 'Posting…') return;
     setError(false);
     setStatus('Posting…');
     try {
@@ -567,7 +583,7 @@ function DetailCommentForm(props: { proposalId: string; onPosted: () => void }) 
         Path (optional)
         <input name="path" type="text" placeholder="src/main.rs" autocomplete="off" />
       </label>
-      <button type="submit">Post comment</button>
+      <button type="submit" disabled={status() === 'Posting…'}>Post comment</button>
       <FormStatus message={status()} error={error()} />
     </form>
   );

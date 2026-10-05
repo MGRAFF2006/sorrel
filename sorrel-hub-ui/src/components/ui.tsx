@@ -1,5 +1,5 @@
 import type { JSX, ParentProps } from 'solid-js';
-import { Show } from 'solid-js';
+import { Show, onMount, onCleanup } from 'solid-js';
 
 export function StatusPill(props: { value?: string | null }) {
   const value = () => props.value;
@@ -99,5 +99,19 @@ export function EmptyState(props: {
         <div class="empty-action">{props.action}</div>
       </Show>
     </div>
+  );
+}
+
+/** Native modal semantics provide focus trapping, Escape, and focus restoration. */
+export function Modal(props: ParentProps<{ labelledBy: string; onClose: () => void }>) {
+  let dialog!: HTMLDialogElement;
+  onMount(() => dialog.showModal());
+  onCleanup(() => dialog.close());
+  return (
+    <dialog ref={dialog} class="project-dialog native-dialog" aria-labelledby={props.labelledBy}
+      onCancel={(event) => { event.preventDefault(); props.onClose(); }}
+      onClick={(event) => { if (event.target === dialog) props.onClose(); }}>
+      {props.children}
+    </dialog>
   );
 }

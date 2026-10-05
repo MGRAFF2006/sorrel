@@ -449,3 +449,8 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
   .split.has-detail, .sync-split { grid-template-columns: 1fr; overflow: visible; }
   .review-workbench > .surface, .sync-split > .surface { border-right: 0; border-bottom: 1px solid var(--border); }
 }
+
+.native-dialog { border: 1px solid var(--border); color: var(--fg); background: var(--bg-elev); padding: 0; }
+.native-dialog::backdrop { background: rgba(8,10,14,.8); backdrop-filter: blur(5px); }
+.native-dialog .form-card { margin: 0; padding: 20px; }
+.mutation-content { border: 0; padding: 0; margin: 0; min-width: 0; }

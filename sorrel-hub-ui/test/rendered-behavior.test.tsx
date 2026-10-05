@@ -84,6 +84,17 @@ describe('HubApp rendered behavior', () => {
     expect(screen.queryByRole('link', { name: 'Actions' })).not.toBeInTheDocument();
   });
 
+  test('closes the native project dialog on Escape without submitting', async () => {
+    const calls = installHubFetch();
+    render(() => <HubApp platform={createWebPlatform()} />);
+    await fireEvent.click((await screen.findAllByRole('button', { name: 'Create project' }))[0]);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('open');
+    await fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(calls.some(call => call.init?.method === 'POST')).toBe(false);
+  });
+
   test('renders projects returned by Hub as project routes', async () => {
     installHubFetch([
       {

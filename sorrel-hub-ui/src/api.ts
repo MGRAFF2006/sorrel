@@ -1,3 +1,5 @@
+import { createSignal } from 'solid-js';
+
 export type Principal = { type: string; id: string };
 
 export const LOCAL_PRINCIPAL: Principal = { type: 'user', id: 'local' };
@@ -38,6 +40,9 @@ export type HubSessionInfo = {
 
 export type ApiFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+const [apiConnected, setApiConnected] = createSignal<boolean | null>(null);
+export const useApiConnection = () => apiConnected;
+
 let apiBase = '/api';
 const browserFetch: ApiFetch = (input, init) => globalThis.fetch(input, init);
 let apiFetch: ApiFetch = browserFetch;
@@ -75,7 +80,14 @@ export async function apiRequest(method: string, path: string, body?: unknown) {
     headers['content-type'] = 'application/json';
     init.body = JSON.stringify(body);
   }
-  const response = await apiFetch(`${apiBase}${path}`, init);
+  let response: Response;
+  try {
+    response = await apiFetch(`${apiBase}${path}`, init);
+    setApiConnected(response.status < 500);
+  } catch (error) {
+    setApiConnected(false);
+    throw error;
+  }
   const text = await response.text();
   let payload: unknown;
   try {
