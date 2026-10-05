@@ -100,3 +100,20 @@ test('static serving refuses traversal and symlinks outside the asset root', asy
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('unreachable upstream errors do not disclose URL credentials', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sorrel-hub-web-errors-'));
+  const server = createHubWebServer({ root, hubApiUrl: 'http://fixture-user:fixture-password@127.0.0.1:1' });
+  try {
+    const url = await listen(server);
+    const response = await fetch(`${url}/api/healthz`);
+    assert.equal(response.status, 502);
+    const text = await response.text();
+    assert.equal(text.includes('fixture-user'), false);
+    assert.equal(text.includes('fixture-password'), false);
+    assert.equal(JSON.parse(text).error.code, 'hub_api_unreachable');
+  } finally {
+    await close(server);
+    await rm(root, { recursive: true, force: true });
+  }
+});

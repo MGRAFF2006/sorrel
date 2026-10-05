@@ -74,11 +74,12 @@ function snapshotTreeId(parsed) {
  */
 export function walkClosure(repoId, rootIds, store, rootKind) {
   const closure = new Set();
+  const expanded = new Set();
   const missing = new Set();
   const pending = rootIds.map((id) => ({ id, expectedKind: rootKind }));
 
   while (pending.length > 0) {
-    const { id, expectedKind } = pending.pop();
+    const { id, expectedKind, terminal } = pending.pop();
     const normalized = normalizeId(id);
     if (!normalized || !/^[0-9a-f]{64}$/.test(normalized)) {
       throw new HttpError(422, 'closure contains an invalid object reference', 'invalid_sync_object');
@@ -88,15 +89,18 @@ export function walkClosure(repoId, rootIds, store, rootKind) {
       continue;
     }
 
+    closure.add(normalized);
+    if (terminal) continue;
+
     const parsed = parseJsonObject(store.get(repoId, normalized));
     const kind = typeof parsed?.kind === 'string' ? parsed.kind.toLowerCase() : undefined;
     if (expectedKind && kind !== expectedKind) {
       throw new HttpError(422, `object ${normalized} is not a ${expectedKind}`, 'invalid_sync_object');
     }
-    if (closure.has(normalized)) {
+    if (expanded.has(normalized)) {
       continue;
     }
-    closure.add(normalized);
+    expanded.add(normalized);
 
     if (kind === 'snapshot') {
       const treeId = snapshotTreeId(parsed);
@@ -114,7 +118,9 @@ export function walkClosure(repoId, rootIds, store, rootKind) {
       for (const entry of parsed.entries) {
         const directory = entry?.type === 'directory' ||
           (typeof entry?.object?.kind === 'string' && entry.object.kind.toLowerCase() === 'tree');
-        pending.push({ id: entryObjectId(entry), expectedKind: directory ? 'tree' : undefined });
+        const terminal = !directory && (entry?.type === 'file' ||
+          (typeof entry?.object?.kind === 'string' && entry.object.kind.toLowerCase() === 'blob'));
+        pending.push({ id: entryObjectId(entry), expectedKind: directory ? 'tree' : undefined, terminal });
       }
     }
   }

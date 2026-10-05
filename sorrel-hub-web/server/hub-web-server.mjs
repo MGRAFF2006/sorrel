@@ -106,13 +106,13 @@ export function createHubWebServer({ root, hubApiUrl }) {
         'content-type': upstream.headers.get('content-type') ?? 'application/json',
       });
       response.end(text);
-    } catch (error) {
+    } catch {
       response.writeHead(502, { 'content-type': 'application/json' });
       response.end(
         JSON.stringify({
           error: {
             code: 'hub_api_unreachable',
-            message: `Could not reach sorrel-hub API at ${hubApiUrl}: ${error.message}`,
+            message: 'Could not reach sorrel-hub API',
           },
         }),
       );

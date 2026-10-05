@@ -53,7 +53,7 @@ test('non-object JSON bodies return client errors on every request parser', asyn
 
 test('explicit invalid metadata IDs are rejected before persistence', async (t) => {
   const { app, baseUrl } = await withServer(t);
-  for (const id of ['', ' ', 42, {}]) {
+  for (const id of ['', ' ', 42, {}, '.', '..', '\ud800', '\udc00']) {
     const response = await fetch(`${baseUrl}/projects`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id, organizationId: 'org_test', name: 'Project' }),

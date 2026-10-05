@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Keep secret/environment binding keys distinct when identifiers contain colons.
 - Treat dollar-sign replacement syntax in redaction masks literally, preventing
   masks such as `$&` from reinserting the secret.
 - Parse quoted dotenv values with trailing comments correctly and reject

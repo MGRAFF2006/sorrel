@@ -34,6 +34,15 @@ function requiredString(attributes, fieldName) {
   return value.trim();
 }
 
+function metadataId(attributes, prefix) {
+  if (attributes.id == null) return id(prefix);
+  const value = requiredString(attributes, 'id');
+  if (value === '.' || value === '..' || !value.isWellFormed()) {
+    throw new ModelValidationError('id must be a valid URL path segment');
+  }
+  return value;
+}
+
 function optionalString(attributes, fieldName) {
   const value = attributes[fieldName];
   if (value === undefined || value === null) {
@@ -231,7 +240,7 @@ export function createOrganization(attributes) {
   const timestamp = nowIso();
 
   return {
-    id: attributes.id == null ? id('org') : requiredString(attributes, 'id'),
+    id: metadataId(attributes, 'org'),
     name,
     slug: attributes.slug ? slugify(attributes.slug) : slugify(name),
     ownerPrincipal: optionalPrincipal(attributes, 'ownerPrincipal'),
@@ -269,7 +278,7 @@ export function createProject(attributes) {
   const timestamp = nowIso();
 
   return {
-    id: attributes.id == null ? id('proj') : requiredString(attributes, 'id'),
+    id: metadataId(attributes, 'proj'),
     organizationId: requiredString(attributes, 'organizationId'),
     name,
     slug: attributes.slug ? slugify(attributes.slug) : slugify(name),
@@ -313,7 +322,7 @@ export function createRepository(attributes) {
   const timestamp = nowIso();
 
   return {
-    id: attributes.id == null ? id('repo') : requiredString(attributes, 'id'),
+    id: metadataId(attributes, 'repo'),
     organizationId: requiredString(attributes, 'organizationId'),
     projectId: requiredString(attributes, 'projectId'),
     provider: requiredString(attributes, 'provider'),
@@ -368,7 +377,7 @@ export function createProposal(attributes) {
   }
 
   return {
-    id: attributes.id == null ? id('prop') : requiredString(attributes, 'id'),
+    id: metadataId(attributes, 'prop'),
     projectId: requiredString(attributes, 'projectId'),
     repositoryId: optionalString(attributes, 'repositoryId'),
     syncRepoId: optionalString(attributes, 'syncRepoId'),
@@ -481,7 +490,7 @@ export function createReviewComment(attributes) {
   }
 
   return {
-    id: attributes.id == null ? id('comment') : requiredString(attributes, 'id'),
+    id: metadataId(attributes, 'comment'),
     proposalId: requiredString(attributes, 'proposalId'),
     authorRef,
     authorPrincipal,
@@ -557,7 +566,7 @@ export function createWorkflowRun(attributes) {
   const timestamp = nowIso();
 
   return {
-    id: attributes.id == null ? id('run') : requiredString(attributes, 'id'),
+    id: metadataId(attributes, 'run'),
     projectId: requiredString(attributes, 'projectId'),
     proposalId: optionalString(attributes, 'proposalId'),
     name: requiredString(attributes, 'name'),
@@ -631,7 +640,7 @@ export function createPolicy(attributes) {
   const timestamp = nowIso();
 
   return {
-    id: attributes.id == null ? id('policy') : requiredString(attributes, 'id'),
+    id: metadataId(attributes, 'policy'),
     organizationId: requiredString(attributes, 'organizationId'),
     projectId: optionalString(attributes, 'projectId'),
     name: requiredString(attributes, 'name'),

@@ -99,7 +99,10 @@ one mutable branch pointer.
 Merging first finds the best common ancestor. A fast-forward only moves the
 active lane. A divergent merge compares base/ours/theirs and either writes a
 two-parent snapshot or persists `Conflict` objects plus a `MergeResult`.
-The CLI leaves marker-annotated working files and `MERGE_STATE` for
+For a conflicted merge, Core can also produce a tentative working snapshot that
+contains every clean change and retains unresolved file contents. The CLI
+restores that snapshot, overlays conflict markers, and keeps the lane head
+unchanged. It leaves marker-annotated working files and `MERGE_STATE` for
 `merge --continue` or restores the pre-merge tree with `merge --abort`.
 
 ## Git compatibility

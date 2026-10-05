@@ -88,3 +88,39 @@ test('in-memory object reads cannot mutate content-addressed stored bytes', () =
   store.get('repo_immutable', id).fill(0);
   assert.deepEqual(store.get('repo_immutable', id), original);
 });
+
+test('typed file links treat JSON-shaped blob bytes as terminal content', () => {
+  const store = createRepoSyncStore();
+  const repoId = 'repo_json_blob';
+  for (const kind of ['Tree', 'Snapshot']) {
+    const blobId = store.put(repoId, Buffer.from(JSON.stringify({ kind })));
+    const treeId = store.put(repoId, Buffer.from(JSON.stringify({ kind: 'Tree', entries: [
+      { name: 'config.json', type: 'file', object: { kind: 'Blob', id: blobId } }
+    ] })));
+    const snapshotId = store.put(repoId, Buffer.from(JSON.stringify({ kind: 'Snapshot',
+      rootTree: { kind: 'Tree', id: treeId }, parents: []
+    })));
+    const result = walkClosure(repoId, [snapshotId], store, 'snapshot');
+    assert.equal(result.incomplete, false);
+    assert.deepEqual([...result.closure].sort(), [snapshotId, treeId, blobId].sort());
+  }
+});
+
+test('an object used as both a file and a directory still expands directory links', () => {
+  const store = createRepoSyncStore();
+  const repoId = 'repo_dual_use';
+  const absentId = 'bb'.repeat(32);
+  const childTreeId = store.put(repoId, Buffer.from(JSON.stringify({ kind: 'Tree', entries: [
+    { name: 'missing.txt', type: 'file', object: { kind: 'Blob', id: absentId } },
+  ] })));
+  const entries = [
+    { name: 'directory', type: 'directory', object: { kind: 'Tree', id: childTreeId } },
+    { name: 'tree.json', type: 'file', object: { kind: 'Blob', id: childTreeId } },
+  ];
+  for (const ordered of [entries, [...entries].reverse()]) {
+    const treeId = store.put(repoId, Buffer.from(JSON.stringify({ kind: 'Tree', entries: ordered })));
+    const result = walkClosure(repoId, [treeId], store, 'tree');
+    assert.equal(result.incomplete, true);
+    assert.deepEqual(result.missingIds, [absentId]);
+  }
+});

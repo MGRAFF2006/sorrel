@@ -73,3 +73,17 @@ test("materialized env retains keys named __proto__", () => {
   assert.equal(env.__proto__, "fixture-value");
   assert.equal(Object.getPrototypeOf(env), Object.prototype);
 });
+
+test("binding keys cannot collide across secrets and environments containing colons", () => {
+  const backend = new LocalDevSecretBackend({
+    grants: [],
+    secretRefs: [{ id: "secret_a:b", name: "ONE" }, { id: "secret_a", name: "TWO" }],
+    localDev: { backend: "local-dev", bindings: [
+      { secret: { id: "secret_a:b" }, environment: "c", envKey: "ONE", storeKey: "one" },
+      { secret: { id: "secret_a" }, environment: "b:c", envKey: "TWO", storeKey: "two" }
+    ] }
+  }, { corePolicy: () => ({ status: "allow" }) });
+  backend.importValues({ ONE: "fixture-one", TWO: "fixture-two" }, "*");
+  assert.equal(backend.resolve({ secret: "secret_a:b", environment: "c" }).value, "fixture-one");
+  assert.equal(backend.resolve({ secret: "secret_a", environment: "b:c" }).value, "fixture-two");
+});

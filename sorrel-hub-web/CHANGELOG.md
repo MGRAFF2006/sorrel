@@ -6,6 +6,7 @@ Notable changes to the Sorrel Hub web companion are documented here.
 
 ### Fixed
 
+- Keep upstream URL credentials and raw fetch errors out of proxy error responses.
 - Reject asset paths and symlinks outside the static root and return HTTP 400 for malformed URLs instead of crashing the server.
 
 

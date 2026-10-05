@@ -14,12 +14,14 @@ Notable changes to Sorrel Hub are documented here.
 - Keep lane submission reuse scoped to its project and normalized repository,
   including submissions without a repository.
 - Reject malformed request bodies, URL parameters, extra route segments, and
-  invalid metadata IDs with client errors; encode IDs in creation locations.
+  invalid metadata IDs (including dot segments and lone surrogates) with client
+  errors before persistence; encode IDs in creation locations.
 - Reject duplicate metadata IDs instead of overwriting records, and roll back
   in-memory metadata after a failed disk write so requests can safely retry.
 - Include missing descendants in sync negotiation, walk deep snapshot histories
   without overflowing the stack, and reject malformed snapshot/tree closures
-  before advancing refs. Reject invalid base64 uploads.
+  before advancing refs. Treat typed file blobs as terminal content even when
+  their JSON resembles structural objects. Reject invalid base64 uploads.
 - Keep object bytes immutable on in-memory reads and repair corrupt filesystem
   objects when verified original bytes are uploaded again.
 - Respect JWT date claim types, expiration boundaries, key IDs, algorithms,

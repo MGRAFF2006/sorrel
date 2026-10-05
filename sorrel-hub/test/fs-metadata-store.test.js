@@ -65,6 +65,18 @@ test('fs metadata store: createProject writes a JSON document under the collecti
   assert.equal(onDisk.slug, 'platform-collaboration');
 });
 
+test('invalid Unicode IDs cannot persist or overwrite replacement-character IDs', (t) => {
+  const dir = tempDir(t);
+  const store = createFsMetadataStore(dir);
+  const project = { organizationId: 'org_local', name: 'Unicode project' };
+  store.createProject({ ...project, id: '\ufffd' });
+  for (const id of ['\ud800', '\udc00', '.', '..']) {
+    assert.throws(() => store.createProject({ ...project, id }), /valid URL path segment/);
+  }
+  assert.deepEqual(fs.readdirSync(path.join(dir, 'projects')), [`${encodePathSegment('\ufffd')}.json`]);
+  assert.deepEqual(createFsMetadataStore(dir).listProjects().map(({ id }) => id), ['\ufffd']);
+});
+
 test('POST /projects survives a server restart over the same metadata directory', async (t) => {
   const metadataDir = tempDir(t);
   let projectId;

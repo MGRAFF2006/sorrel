@@ -148,7 +148,7 @@ export class LocalDevSecretBackend {
   }
 
   getBinding(secretId, environment) {
-    const binding = this.bindingsBySecret.get(`${secretId}:${environment}`);
+    const binding = this.bindingsBySecret.get(JSON.stringify([secretId, environment]));
 
     if (!binding) {
       throw new Error(`No local binding for ${secretId} in ${environment}`);
@@ -159,7 +159,7 @@ export class LocalDevSecretBackend {
 }
 
 function indexBindings(bindings) {
-  return new Map(bindings.map((binding) => [`${binding.secret.id}:${binding.environment}`, binding]));
+  return new Map(bindings.map((binding) => [JSON.stringify([binding.secret.id, binding.environment]), binding]));
 }
 
 function secretAuditEvent({ request, secretRef, decision, grant, redaction }) {
