@@ -1,6 +1,6 @@
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { readFile, realpath } from 'node:fs/promises';
+import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -15,34 +15,60 @@ const CONTENT_TYPES = {
 };
 
 export function createHubWebServer({ root, hubApiUrl }) {
+  root = resolve(root);
   const upstreamBaseUrl = hubApiUrl.replace(/\/$/, '');
+
+  function withinRoot(base, path) {
+    const fromRoot = relative(base, path);
+    return fromRoot !== '..' && !fromRoot.startsWith(`..${sep}`) && !isAbsolute(fromRoot);
+  }
+
+  async function readStatic(path) {
+    const [assetRoot, assetPath] = await Promise.all([realpath(root), realpath(path)]);
+    if (!withinRoot(assetRoot, assetPath)) {
+      const error = new Error('Forbidden');
+      error.code = 'FORBIDDEN';
+      throw error;
+    }
+    return readFile(assetPath);
+  }
 
   async function serveStatic(request, response) {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    let pathname = decodeURIComponent(url.pathname);
-    if (pathname === '/') {
-      pathname = '/index.html';
+    let pathname;
+    try {
+      pathname = decodeURIComponent(url.pathname);
+    } catch {
+      response.writeHead(400).end('Invalid URL');
+      return;
     }
+    if (pathname === '/') pathname = '/index.html';
 
-    const safePath = normalize(pathname).replace(/^(\.\.[/\\])+/, '');
-    const filePath = join(root, safePath);
-    if (!filePath.startsWith(root)) {
+    const filePath = resolve(root, `.${pathname}`);
+    if (!withinRoot(root, filePath)) {
       response.writeHead(403).end('Forbidden');
       return;
     }
 
     try {
-      const body = await readFile(filePath);
+      const body = await readStatic(filePath);
       const type = CONTENT_TYPES[extname(filePath)] ?? 'application/octet-stream';
       response.writeHead(200, { 'content-type': type }).end(body);
-    } catch {
+    } catch (error) {
+      if (error.code === 'FORBIDDEN') {
+        response.writeHead(403).end('Forbidden');
+        return;
+      }
       if (!extname(filePath)) {
         try {
-          const fallback = await readFile(join(root, 'index.html'));
+          const fallback = await readStatic(join(root, 'index.html'));
           response.writeHead(200, { 'content-type': CONTENT_TYPES['.html'] }).end(fallback);
           return;
-        } catch {
-          // Fall through to the not-found response.
+        } catch (error) {
+          if (error.code === 'FORBIDDEN') {
+            response.writeHead(403).end('Forbidden');
+            return;
+          }
         }
       }
       response.writeHead(404, { 'content-type': 'text/plain' }).end('Not found');
@@ -94,7 +120,13 @@ export function createHubWebServer({ root, hubApiUrl }) {
   }
 
   return http.createServer((request, response) => {
-    const url = new URL(request.url ?? '/', 'http://localhost');
+    let url;
+    try {
+      url = new URL(request.url ?? '/', 'http://localhost');
+    } catch {
+      response.writeHead(400).end('Invalid URL');
+      return;
+    }
     const handler =
       url.pathname === '/api' || url.pathname.startsWith('/api/') ? proxyApi : serveStatic;
     handler(request, response).catch(() => {

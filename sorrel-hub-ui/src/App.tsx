@@ -1,5 +1,5 @@
 import { A, Route, Router, useParams, type RouteSectionProps } from '@solidjs/router';
-import { createMemo, createResource, createSignal, For, onMount, Show, type ParentProps } from 'solid-js';
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show, type ParentProps } from 'solid-js';
 import {
   apiGet,
   fetchCapabilities,
@@ -15,7 +15,7 @@ import { useOpenProposalsCount, useOpenProposalsCountFromHub } from './convex/op
 import type { Project, Proposal } from './domain.ts';
 import { initials } from './domain.ts';
 import type { Platform } from './platform.ts';
-import { DEV_IDENTITY_PRESETS, setActingPrincipal, useActingPrincipal } from './session.ts';
+import { DEV_IDENTITY_PRESETS, setActingPrincipal, setSessionPrincipal, useEffectivePrincipal } from './session.ts';
 import { InboxView } from './views/InboxView.tsx';
 import { OrganizationsView } from './views/OrganizationsView.tsx';
 import { ProfileView } from './views/ProfileView.tsx';
@@ -35,7 +35,7 @@ function IdentityControl(props: {
   capabilities: HubCapabilities | null | undefined;
   hubSession: HubSessionInfo | null | undefined;
 }) {
-  const principal = useActingPrincipal();
+  const principal = useEffectivePrincipal();
   const mode = () => props.capabilities?.auth.mode ?? props.hubSession?.auth.mode ?? 'dev';
   const value = () => `${principal().type}:${principal().id}`;
 
@@ -168,9 +168,14 @@ export function HubApp(props: HubAppOptions) {
   const [capabilities] = createResource(fetchCapabilities);
   const [hubSession, { refetch: refetchSession }] = createResource(fetchSession);
   const [apiOk, setApiOk] = createSignal<boolean | null>(null);
-  const actingPrincipal = useActingPrincipal();
+  const effectivePrincipal = useEffectivePrincipal();
 
-  onMount(() => setPrincipalProvider(() => actingPrincipal()));
+  onMount(() => setPrincipalProvider(effectivePrincipal));
+  createEffect(() => setSessionPrincipal(hubSession()?.session?.principal ?? null));
+  onCleanup(() => {
+    setSessionPrincipal(null);
+    setPrincipalProvider(null);
+  });
 
   const convexUrl = createMemo(() => {
     if (props.convexUrl) return props.convexUrl;

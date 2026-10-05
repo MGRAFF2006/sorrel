@@ -12,7 +12,7 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function installHubFetch(projects: unknown[] = []) {
+function installHubFetch(projects: unknown[] = [], options: { authenticated?: boolean; rejectedMutation?: boolean } = {}) {
   const calls: FetchCall[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -22,13 +22,17 @@ function installHubFetch(projects: unknown[] = []) {
       return json({
         data: {
           modules: { core: true, actions: false, agents: true, secrets: true, objectStorage: 'fs' },
-          auth: { mode: 'dev', session: 'none' },
+          auth: { mode: options.authenticated ? 'oidc' : 'dev', session: options.authenticated ? 'bearer' : 'none' },
           convex: { enabled: false },
           deploy: 'dev',
         },
       });
     }
     if (url === '/api/session') {
+      if (options.authenticated) return json({ data: {
+        auth: { mode: 'oidc', session: 'bearer' },
+        session: { principal: { type: 'user', id: 'signed-in' }, sessionId: 'session', authMode: 'oidc', idpSubject: 'signed-in', expiresAt: null },
+      } });
       return json({ data: { auth: { mode: 'dev', session: 'none' }, session: null } });
     }
     if (url === '/api/healthz') return json({ status: 'ok' });
@@ -44,7 +48,12 @@ function installHubFetch(projects: unknown[] = []) {
     if (url === '/api/admin/repositories?projectId=project_alpha') {
       return json({ data: [{ id: 'repo_alpha', name: 'alpha', owner: 'acme', provider: 'sorrel', defaultBranch: 'main' }] });
     }
-    if (url === '/api/admin/proposals?projectId=project_alpha') return json({ data: [] });
+    if (url === '/api/admin/proposals?projectId=project_alpha') return json({ data: options.rejectedMutation
+      ? [{ id: 'proposal_alpha', projectId: 'project_alpha', title: 'Review Alpha', status: 'open' }]
+      : [] });
+    if (url === '/api/admin/proposals/proposal_alpha' && init?.method === 'PATCH') {
+      return json({ error: { message: 'Proposal permission denied' } }, 403);
+    }
     if (url === '/api/admin/sync-repos') return json({ repos: [{ id: 'repo_alpha', refCount: 1 }] });
     if (url === '/api/repo_alpha/refs') return json({ refs: [{ name: 'main', snapshot: 'a'.repeat(64) }] });
     if (url === '/api/repo_alpha/tree?ref=main&path=') {
@@ -74,6 +83,52 @@ function installHubFetch(projects: unknown[] = []) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('HubApp rendered behavior', () => {
+  test('uses the authenticated Hub principal without persisting it as a development hint', async () => {
+    window.history.pushState({}, '', '/profile');
+    installHubFetch([], { authenticated: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'signed-in' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Acting principal' })).not.toBeInTheDocument();
+    expect(localStorage.getItem('sorrel.hub.actingPrincipal')).toBeNull();
+  });
+
+  test('shows rejected proposal mutations instead of leaving an unhandled rejection', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha/reviews?proposal=proposal_alpha');
+    installHubFetch([{ id: 'project_alpha', name: 'Alpha' }], { rejectedMutation: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'approved' }));
+    expect(await screen.findByText('Proposal permission denied')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review Alpha' })).toBeInTheDocument();
+  });
+
+  test('attributes submitted comments to the effective Hub session principal', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha/reviews?proposal=proposal_alpha');
+    const calls = installHubFetch([{ id: 'project_alpha', name: 'Alpha' }], { authenticated: true, rejectedMutation: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+    await screen.findByRole('button', { name: 'approved' });
+    await waitFor(() => expect(document.querySelector('.avatar-link')).toHaveAttribute('title', 'user:signed-in'));
+    await fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'Review feedback' } });
+    await fireEvent.submit(screen.getByRole('button', { name: 'Post comment' }).closest('form')!);
+    await waitFor(() => expect(calls.some((call) => call.url === '/api/admin/review-comments' && call.init?.method === 'POST')).toBe(true));
+    const create = calls.find((call) => call.url === '/api/admin/review-comments' && call.init?.method === 'POST');
+    expect(JSON.parse(String(create?.init?.body))).toMatchObject({ authorPrincipal: { type: 'user', id: 'signed-in' } });
+    expect(create?.init?.headers).toMatchObject({ 'x-sorrel-acting-principal': JSON.stringify({ type: 'user', id: 'signed-in' }) });
+  });
+
+  test('clears the selected review when history removes its proposal query', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha/reviews?proposal=proposal_alpha');
+    installHubFetch([{ id: 'project_alpha', name: 'Alpha' }], { rejectedMutation: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+    expect(await screen.findByRole('button', { name: 'approved' })).toBeInTheDocument();
+
+    window.history.replaceState({}, '', '/projects/project_alpha/reviews');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'approved' })).not.toBeInTheDocument());
+    expect(screen.getByText('Select a review')).toBeInTheDocument();
+  });
+
   test('renders API health and the empty-project action from live responses', async () => {
     installHubFetch();
     render(() => <HubApp platform={createWebPlatform()} />);
