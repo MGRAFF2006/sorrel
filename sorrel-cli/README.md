@@ -9,15 +9,45 @@ The CLI depends on in-tree [`sorrel-core`](../sorrel-core) via the root Cargo
 workspace path dependency. Core provides the content-addressed object store,
 snapshots, changes, lanes, stacks, merge primitives, Git import/export, and
 policy object types. CLI-specific repository registries, Hub transport, line
-diffs, policy evaluation, and workflow parsing/local execution live here.
+diffs, policy compatibility, and workflow host adapters live here.
 
-Workflow execution currently uses an in-tree `cli_runner` (intentional
-**DEBT-1** — unify with `sorrel-runners` after secret injection). Secret
-handles are listed via `sorrel secret`; resolve/inject goes through SecretSpec
-providers under Core grants (see root `ROADMAP.md`).
+Workflow parsing and local execution use `sorrel-runners`; `cli_runner` contains
+thin adapters preserving CLI JSON. Workflow authorization uses native Core
+policy. Secret handles are listed via `sorrel secret`; host-side resolution goes
+through SecretSpec and resolved values stay outside portable bundles.
+
+Legacy top-level `jobs` files remain supported alongside named `workflows`.
+Use `--workflow <name>` when a file has several workflows. Running a job first
+runs its `needs` dependencies; a failed dependency stops execution. Literal
+`env` entries are applied, and authorized secret references support environment
+aliases. Legacy `shell` strings retain their `<shell> -c` invocation.
+
+Workflow failures, invalid/missing files or jobs, and policy denials return
+nonzero process status after printing JSON. A failed child preserves its exit
+code. Human output includes redacted output and a `sorrel run logs <id>` hint;
+JSON includes `runId` when persisted. Failure to save logs is reported as
+`run_log_failed`, even when the child succeeded.
 
 `tests/policy_conformance.rs` checks the CLI policy evaluator against the
 vendored `sorrel-protocol` conformance manifest.
+
+## Workspace file selection
+
+`status`, `diff`, and `change create` honor nested `.gitignore` and
+`.sorrelignore` rules. Ordinary files already tracked at HEAD remain tracked even
+when ignored later. `.env`, `.env.*`, and configured local dotenv-provider paths
+are protected before contents enter the object store; `.env.example` remains an
+ordinary file. Ignore negation cannot reinclude protected secret files.
+
+For legacy workspaces that already track secrets, see the
+[workspace selection and recovery contract](../docs/ARCHITECTURE.md#change-lane-and-merge-flow).
+
+Workspace commands acquire an advisory operating-system lock before reading
+or changing metadata. If another command is using the same workspace, retry
+after its busy error; the lock releases automatically when that process exits.
+Use separate workspaces for concurrent edits. Workflow child processes run
+outside the lock so they can invoke Sorrel. Head and change-index publication
+is journaled and an interrupted commit finishes on the next locked command.
 
 ## Features
 
@@ -27,7 +57,8 @@ vendored `sorrel-protocol` conformance manifest.
   `stack create` / `list` / `show`, and three-way `merge` with
   `--continue` / `--abort`. Conflicted merges apply clean changes alongside
   conflict markers; continuing preserves those changes, and aborting restores
-  the original tree.
+  the original tree. Incoming tracked files remain included even when the
+  receiving lane's ignore rules exclude them.
 - Git bridge: history `git import`, `git export`, and bidirectional,
   fast-forward-oriented `git sync` for colocated or separate mirrors. See
   [`GIT.md`](GIT.md).
@@ -117,7 +148,10 @@ agent principal lacks grants for `workflow.run`, `runner.use`, or any declared
 secret permissions. Workflow parsing only records `secretRefs`; it does not
 resolve values while parsing. At execution time, the CLI resolves authorized
 references through SecretSpec, injects them into the local process, and redacts
-the persisted run output.
+the persisted run output. Workflow grant scopes enforce exact `ref`/`path`
+identifiers (or `*`) and the selected `environment`. Unsupported scope fields or
+patterns are rejected; narrow existing grants to these supported constraints.
+Core deny decisions take precedence over allow grants.
 
 ## Examples
 

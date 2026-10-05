@@ -10,7 +10,7 @@ use std::{
     },
 };
 
-static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Result type used by Sorrel object stores.
 pub type ObjectStoreResult<T> = Result<T, ObjectStoreError>;
@@ -165,10 +165,22 @@ impl FileObjectStore {
         self.objects_dir().join(&hex[..2])
     }
 
-    fn tmp_path(&self, id: &ObjectId) -> PathBuf {
-        let sequence = NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed);
-        self.tmp_dir()
-            .join(format!("{id}.{}.{sequence}.tmp", std::process::id()))
+    fn create_temp(&self, id: &ObjectId) -> ObjectStoreResult<(PathBuf, fs::File)> {
+        loop {
+            let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let path = self
+                .tmp_dir()
+                .join(format!("{id}.{}.{sequence}.tmp", std::process::id()));
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(file) => return Ok((path, file)),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(ObjectStoreError::io(path, error)),
+            }
+        }
     }
 }
 
@@ -205,39 +217,27 @@ impl ObjectStore for FileObjectStore {
         fs::create_dir_all(&shard_dir)
             .map_err(|source| ObjectStoreError::io(&shard_dir, source))?;
 
-        let (tmp_path, mut tmp_file) = loop {
-            let tmp_path = self.tmp_path(&id);
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&tmp_path)
-            {
-                Ok(file) => break (tmp_path, file),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return Err(ObjectStoreError::io(tmp_path, error)),
-            }
-        };
-        {
+        let (tmp_path, mut tmp_file) = self.create_temp(&id)?;
+        let result = (|| {
             tmp_file
                 .write_all(bytes)
                 .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
             tmp_file
                 .sync_all()
                 .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
-        }
-        drop(tmp_file);
-
-        match fs::rename(&tmp_path, &path) {
-            Ok(()) => Ok(id),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                let _ = fs::remove_file(&tmp_path);
-                Ok(id)
+            drop(tmp_file);
+            match fs::rename(&tmp_path, &path) {
+                Ok(()) => Ok(id),
+                // Another writer may have published the same content on Windows.
+                Err(_) if path.is_file() => {
+                    self.read(&id)?;
+                    Ok(id)
+                }
+                Err(error) => Err(ObjectStoreError::io(&path, error)),
             }
-            Err(error) => {
-                let _ = fs::remove_file(&tmp_path);
-                Err(ObjectStoreError::io(path, error))
-            }
-        }
+        })();
+        let _ = fs::remove_file(&tmp_path);
+        result
     }
 
     fn has(&self, id: &ObjectId) -> ObjectStoreResult<bool> {
@@ -254,29 +254,6 @@ impl ObjectStore for FileObjectStore {
 mod tests {
     use super::*;
     use std::path::Path;
-
-    #[test]
-    fn concurrent_same_object_writes_all_succeed() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = FileObjectStore::new(dir.path()).unwrap();
-        let bytes = vec![b'x'; 1024 * 1024];
-        let expected = ObjectId::for_bytes(&bytes);
-        let barrier = std::sync::Barrier::new(8);
-        std::thread::scope(|scope| {
-            let handles = (0..8)
-                .map(|_| {
-                    scope.spawn(|| {
-                        barrier.wait();
-                        store.write(&bytes)
-                    })
-                })
-                .collect::<Vec<_>>();
-            for handle in handles {
-                assert_eq!(handle.join().unwrap().unwrap(), expected);
-            }
-        });
-        assert_eq!(store.read(&expected).unwrap(), bytes);
-    }
 
     fn assert_content_addressed_store(store: &impl ObjectStore) {
         let bytes = b"hello from sorrel";
@@ -350,6 +327,31 @@ mod tests {
         let store = FileObjectStore::new(temp_dir.path()).unwrap();
 
         assert_missing_read(&store);
+    }
+
+    #[test]
+    fn concurrent_filesystem_writers_do_not_share_temporary_files() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(temp_dir.path()).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let bytes = std::sync::Arc::new(vec![b'x'; 2 * 1024 * 1024]);
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let store = store.clone();
+                let barrier = barrier.clone();
+                let bytes = bytes.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    store.write(&bytes).unwrap()
+                })
+            })
+            .collect();
+        let id = ObjectId::for_bytes(&bytes);
+        for thread in threads {
+            assert_eq!(thread.join().unwrap(), id);
+        }
+        assert_eq!(store.read(&id).unwrap(), *bytes);
+        assert_eq!(fs::read_dir(store.tmp_dir()).unwrap().count(), 0);
     }
 
     #[test]

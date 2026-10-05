@@ -87,11 +87,58 @@ fn lane_submit_creates_hub_proposal_via_live_api() {
         .assert()
         .success();
 
+    std::fs::write(path.join("README.md"), b"main baseline\n").unwrap();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(path)
+        .args(["change", "create", "-m", "main baseline"])
+        .assert()
+        .success();
+    let feature_lane: Value = serde_json::from_slice(
+        &AssertCommand::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(path)
+            .args(["lane", "create", "--name", "feature", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    )
+    .unwrap();
+    let feature_lane_id = feature_lane["object"]["id"].as_str().unwrap();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(path)
+        .args(["lane", "switch", feature_lane_id])
+        .assert()
+        .success();
+
     std::fs::write(path.join("feature.txt"), b"submit-me\n").unwrap();
     AssertCommand::cargo_bin("sorrel")
         .unwrap()
         .current_dir(path)
         .args(["change", "create", "-m", "add feature"])
+        .assert()
+        .success();
+
+    // Main advances after the feature fork, so its tip is outside the source closure.
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(path)
+        .args(["lane", "switch", "lane_main"])
+        .assert()
+        .success();
+    std::fs::write(path.join("README.md"), b"main advanced\n").unwrap();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(path)
+        .args(["change", "create", "-m", "advance main after fork"])
+        .assert()
+        .success();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(path)
+        .args(["lane", "switch", feature_lane_id])
         .assert()
         .success();
 
@@ -135,6 +182,45 @@ fn lane_submit_creates_hub_proposal_via_live_api() {
     assert_eq!(submit["proposal"]["status"], "open");
     assert_eq!(submit["proposal"]["syncRepoId"], repo_id);
     assert!(submit["uploaded"].as_u64().unwrap() > 0);
+    assert!(submit["proposal"]["targetSnapshot"].is_string());
+    assert_ne!(
+        submit["proposal"]["targetSnapshot"],
+        submit["proposal"]["sourceSnapshot"]
+    );
+    let proposal_id = submit["proposal"]["id"].as_str().unwrap();
+    let comparison: Value = ureq::get(&format!(
+        "{}/admin/proposals/{proposal_id}/changes",
+        hub.url()
+    ))
+    .call()
+    .unwrap()
+    .into_json()
+    .unwrap();
+    let changes = comparison["data"]["changes"].as_array().unwrap();
+    let feature = changes
+        .iter()
+        .find(|change| change["path"] == "feature.txt")
+        .unwrap();
+    assert_eq!(feature["status"], "added");
+    let readme = changes
+        .iter()
+        .find(|change| change["path"] == "README.md")
+        .unwrap();
+    assert_eq!(readme["before"]["content"], "main advanced\n");
+    assert_eq!(readme["after"]["content"], "main baseline\n");
+    let refs: Value = ureq::get(&format!("{}/{repo_id}/refs", hub.url()))
+        .call()
+        .unwrap()
+        .into_json()
+        .unwrap();
+    let refs = refs["refs"].as_array().unwrap();
+    assert_eq!(
+        refs.len(),
+        1,
+        "uploading the target must not publish another ref"
+    );
+    assert_eq!(refs[0]["name"], "HEAD");
+    assert_eq!(refs[0]["snapshot"], submit["proposal"]["sourceSnapshot"]);
 
     let again: Value = serde_json::from_slice(
         &AssertCommand::cargo_bin("sorrel")

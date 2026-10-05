@@ -13,16 +13,31 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add explicit Hub repository linking and bounded comparison of recorded review
+  snapshots, including target history uploaded by CLI lane submission.
 - Add read-only Hub APIs for browsing synchronized repository trees and UTF-8
   files from named refs.
 
 ### Changed
 
+- Share workflow parsing/execution between CLI and runners; honor dependencies and environment values, evaluate workflow policy in Core, and return nonzero status with visible execution/log failures.
+
+- Guide Hub workspace connection and snapshot selection, show file contents and
+  recorded before/after review previews, distinguish closed reviews from merged
+  metadata, and make dialogs and mutations keyboard-safe and retryable.
+- Require verified sessions for non-development Hub mutations and bind review
+  attribution to the session principal.
 - Rebuild Sorrel Hub around repository-shaped project pages, a global Inbox,
   proposal-backed Work board, review workbench, and README-style organization
   and profile pages.
 
 ### Fixed
+
+- Keep local dotenv secrets and ignored untracked files out of workspace snapshots, with shared CLI/Rust SDK selection and protection before stat-cache reuse.
+
+- Preserve agent registrations and claims across concurrent writers, publish
+  Hub metadata only after successful persistence, and protect CLI workspace
+  mutations with recoverable head/index commits and unique object-store writes.
 
 - Preserve clean incoming changes during conflicted merges, executable modes
   during content merges, adjacent line edits, and distinct identical Git

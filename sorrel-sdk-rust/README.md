@@ -10,10 +10,14 @@ provides a `Workspace` helper for initializing local object storage and
 snapshotting a working tree. See [CHANGELOG.md](CHANGELOG.md) for the supported
 alpha surface and known limitations.
 
-`Workspace::init` uses the shared `.sorrel/objects` object-store layout. Older SDK
-versions wrote to `.sorrel/objects/objects`; those files remain untouched and are
-not automatically migrated. To read an older store directly, pass
-`.sorrel/objects` to `FileObjectStore::new`.
+`Workspace::init` stores objects under `.sorrel/objects`. Working-tree snapshots
+use Core's shared CLI/SDK selection: nested `.gitignore`/`.sorrelignore`, ordinary
+tracked-file preservation, and protected dotenv files. The parent snapshot is
+the tracked baseline. `.env.example` follows ordinary ignore rules. See the
+[workspace selection contract](../docs/ARCHITECTURE.md#change-lane-and-merge-flow).
+Older SDK stores under `.sorrel/objects/objects` remain untouched and are not
+automatically migrated. To read an older store directly, pass `.sorrel/objects`
+to `FileObjectStore::new`.
 
 ## Checks
 

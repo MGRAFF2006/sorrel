@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use sorrel_runners::workflow::WorkflowFile;
 
 use super::bundle::JobBundle;
 
@@ -56,6 +56,7 @@ pub struct ParsedWorkflow {
     pub version: u32,
     pub jobs: BTreeMap<String, ParsedJob>,
     pub source_path: Option<PathBuf>,
+    native: WorkflowFile,
 }
 
 impl ParsedWorkflow {
@@ -79,13 +80,33 @@ impl ParsedWorkflow {
                 message: format!("job `{job_name}` was not found in workflow `{}`", self.id),
             })?;
 
+        let mut selected = self.native.clone();
+        let spec = selected
+            .workflows
+            .get_mut(&self.id)
+            .expect("selected workflow exists");
+        let mut included = std::collections::BTreeSet::new();
+        let mut pending = vec![job_name.to_owned()];
+        while let Some(name) = pending.pop() {
+            if included.insert(name.clone()) {
+                pending.extend(spec.jobs[&name].needs.clone());
+            }
+        }
+        spec.jobs.retain(|name, _| included.contains(name));
+        let native = selected.to_bundle(&self.id).map_err(native_error)?;
+        let secret_refs = native
+            .secret_refs
+            .iter()
+            .map(|secret| secret.id.clone())
+            .collect();
         Ok(JobBundle {
             workflow_id: self.id.clone(),
             job_name: job.name.clone(),
             runner_id: "runner_local_process".to_owned(),
             command: job.command.clone(),
             shell: job.shell.clone().unwrap_or_else(|| "sh".to_owned()),
-            secret_refs: job.secret_refs.clone(),
+            secret_refs,
+            native: Some(native),
             environment: Some("dev".to_owned()),
         })
     }
@@ -96,52 +117,90 @@ pub fn parse_workflow_yaml(
     yaml: &str,
     workflow_id: Option<&str>,
 ) -> Result<ParsedWorkflow, WorkflowError> {
-    let document: WorkflowDocument =
-        serde_yaml_ng::from_str(yaml).map_err(|error| WorkflowError::ParseFailed {
-            message: error.to_string(),
-        })?;
+    parse_selected_workflow_yaml(yaml, None, workflow_id)
+}
 
-    if document.jobs.is_empty() {
-        return Err(WorkflowError::InvalidDocument {
-            message: "workflow must define at least one job".to_owned(),
-        });
-    }
-
-    let id = workflow_id
-        .map(str::to_owned)
-        .or(document.id)
-        .unwrap_or_else(|| "workflow_local".to_owned());
-
-    let mut jobs = BTreeMap::new();
-    for (name, job) in document.jobs {
-        if job.command.trim().is_empty() {
-            return Err(WorkflowError::InvalidDocument {
-                message: format!("job `{name}` is missing a command"),
-            });
+fn native_error(error: sorrel_runners::RunnerError) -> WorkflowError {
+    match error {
+        sorrel_runners::RunnerError::WorkflowParse(message) => {
+            WorkflowError::ParseFailed { message }
         }
+        error => WorkflowError::InvalidDocument {
+            message: error.to_string(),
+        },
+    }
+}
 
-        let secret_refs = job.secret_refs();
+pub fn parse_selected_workflow_yaml(
+    yaml: &str,
+    selected: Option<&str>,
+    id_override: Option<&str>,
+) -> Result<ParsedWorkflow, WorkflowError> {
+    let mut native = WorkflowFile::from_yaml(yaml).map_err(native_error)?;
+    let name = match selected {
+        Some(name) if native.workflows.contains_key(name) => name.to_owned(),
+        Some(name) => {
+            return Err(WorkflowError::InvalidDocument {
+                message: format!("workflow `{name}` was not found"),
+            })
+        }
+        None if native.workflows.len() == 1 => native.workflows.keys().next().unwrap().clone(),
+        None => {
+            return Err(WorkflowError::InvalidDocument {
+                message: "multiple workflows; select one with --workflow <name>".to_owned(),
+            })
+        }
+    };
+    native.to_bundle(&name).map_err(native_error)?;
+    let spec = native.workflows.remove(&name).unwrap();
+    let id = id_override.unwrap_or(&name).to_owned();
+    let mut jobs = BTreeMap::new();
+    for (name, job) in &spec.jobs {
+        let mut secret_refs = job.secrets.clone();
+        for value in job.env.values() {
+            match value {
+                sorrel_runners::workflow::WorkflowEnvValue::Literal(value) => {
+                    if let Some(reference) = value.strip_prefix("secret:") {
+                        secret_refs.push(reference.to_owned());
+                    }
+                }
+                sorrel_runners::workflow::WorkflowEnvValue::Secret { secret } => {
+                    secret_refs.push(secret.id.clone())
+                }
+            }
+        }
+        secret_refs.sort();
+        secret_refs.dedup();
         jobs.insert(
             name.clone(),
             ParsedJob {
-                name,
-                command: job.command,
-                shell: job.shell,
+                name: name.clone(),
+                command: job.command.clone(),
+                shell: job.shell.clone(),
                 secret_refs,
             },
         );
     }
-
+    native.workflows.clear();
+    native.workflows.insert(id.clone(), spec);
     Ok(ParsedWorkflow {
         id,
-        version: document.version,
+        version: native.version,
         jobs,
         source_path: None,
+        native,
     })
 }
 
 /// Parses a workflow file from disk.
 pub fn parse_workflow_file(path: &Path) -> Result<ParsedWorkflow, WorkflowError> {
+    parse_workflow_file_selected(path, None)
+}
+
+pub fn parse_workflow_file_selected(
+    path: &Path,
+    selected: Option<&str>,
+) -> Result<ParsedWorkflow, WorkflowError> {
     if !path.is_file() {
         return Err(WorkflowError::FileNotFound {
             path: path.to_path_buf(),
@@ -153,46 +212,9 @@ pub fn parse_workflow_file(path: &Path) -> Result<ParsedWorkflow, WorkflowError>
         message: error.to_string(),
     })?;
 
-    let mut workflow = parse_workflow_yaml(&yaml, None)?;
+    let mut workflow = parse_selected_workflow_yaml(&yaml, selected, None)?;
     workflow.source_path = Some(path.to_path_buf());
     Ok(workflow)
-}
-
-#[derive(Debug, Deserialize)]
-struct WorkflowDocument {
-    #[serde(default = "default_version")]
-    version: u32,
-    id: Option<String>,
-    jobs: BTreeMap<String, WorkflowJobDocument>,
-}
-
-fn default_version() -> u32 {
-    1
-}
-
-#[derive(Debug, Deserialize)]
-struct WorkflowJobDocument {
-    command: String,
-    #[serde(default)]
-    shell: Option<String>,
-    #[serde(default)]
-    secrets: Vec<String>,
-    #[serde(default)]
-    env: BTreeMap<String, String>,
-}
-
-impl WorkflowJobDocument {
-    fn secret_refs(&self) -> Vec<String> {
-        let mut refs = self.secrets.clone();
-        for value in self.env.values() {
-            if let Some(secret_ref) = value.strip_prefix("secret:") {
-                refs.push(secret_ref.to_owned());
-            }
-        }
-        refs.sort();
-        refs.dedup();
-        refs
-    }
 }
 
 #[cfg(test)]

@@ -4,6 +4,14 @@ This document covers pushing and pulling Sorrel snapshots over the HTTP sync
 transport against [`sorrel-hub`](../sorrel-hub/).
 For the local-only persistent workflow, see [`DEMO.md`](DEMO.md).
 
+`sorrel lane submit` records both the active source snapshot and the local target
+lane tip for a Hub review. With its default push, it uploads both snapshot
+closures, including diverged target history, while advancing only the source
+`HEAD` ref. Hub compares those recorded snapshots without merging them. With
+`--no-push`, both closures must already be available remotely for comparison.
+The Hub's “Mark as merged” action updates review metadata; use the local merge
+command to integrate file contents.
+
 ## Prerequisites
 
 1. **sorrel-hub** running locally (default `http://127.0.0.1:3000`).

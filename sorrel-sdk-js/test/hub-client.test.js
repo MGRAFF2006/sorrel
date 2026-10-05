@@ -77,6 +77,15 @@ test('HubClient health and projects against live hub', async () => {
       status: 'open',
     });
     assert.ok(proposal.data.id.startsWith('prop_'));
+    await assert.rejects(client.proposalChanges(proposal.data.id), (error) => {
+      assert.equal(error.status, 409);
+      assert.equal(error.body.error.code, 'comparison_unavailable');
+      return true;
+    });
+    await assert.rejects(client.linkProjectRepository(created.data.id, 'repo_missing'), (error) => {
+      assert.equal(error.status, 404);
+      return true;
+    });
 
     const proposals = await client.listProposals({ projectId: created.data.id });
     assert.deepEqual(proposals.data.map((item) => item.id), [proposal.data.id]);

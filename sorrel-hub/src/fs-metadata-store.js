@@ -26,8 +26,8 @@ const COLLECTIONS = [
  *   <rootDir>/<collection>/<id>.json   one JSON document per record
  *
  * On construction every readable record is loaded into the same in-memory
- * Maps as InMemoryStore. Each successful create also writes the record
- * atomically (temp file + rename). Corrupt or unreadable files are skipped
+ * Maps as InMemoryStore. Each mutation writes the record atomically before
+ * publishing it in memory. Corrupt or unreadable files are skipped
  * with a warning so a bad document never takes the process down.
  *
  * Public methods match InMemoryStore exactly so routes stay unchanged.
@@ -44,85 +44,18 @@ export class FsMetadataStore extends InMemoryStore {
     this.#hydrate();
   }
 
-  createOrganization(attributes) {
-    const organization = super.createOrganization(attributes);
-    this.#persist('organizations', organization);
-    return organization;
-  }
-
-  createProject(attributes) {
-    const project = super.createProject(attributes);
-    this.#persist('projects', project);
-    return project;
-  }
-
-  createRepository(attributes) {
-    const repository = super.createRepository(attributes);
-    this.#persist('repositories', repository);
-    return repository;
-  }
-
-  createProposal(attributes) {
-    const proposal = super.createProposal(attributes);
-    this.#persist('proposals', proposal);
-    return proposal;
-  }
-
-  updateProposal(id, attributes) {
-    const previous = this.proposals.get(id);
-    const proposal = super.updateProposal(id, attributes);
-    this.#persist('proposals', proposal, previous);
-    return proposal;
-  }
-
-  createReviewComment(attributes) {
-    const reviewComment = super.createReviewComment(attributes);
-    this.#persist('reviewComments', reviewComment);
-    return reviewComment;
-  }
-
-  updateReviewComment(id, attributes) {
-    const previous = this.reviewComments.get(id);
-    const reviewComment = super.updateReviewComment(id, attributes);
-    this.#persist('reviewComments', reviewComment, previous);
-    return reviewComment;
-  }
-
-  createWorkflowRun(attributes) {
-    const workflowRun = super.createWorkflowRun(attributes);
-    this.#persist('workflowRuns', workflowRun);
-    return workflowRun;
-  }
-
-  updateWorkflowRun(id, attributes) {
-    const previous = this.workflowRuns.get(id);
-    const workflowRun = super.updateWorkflowRun(id, attributes);
-    this.#persist('workflowRuns', workflowRun, previous);
-    return workflowRun;
-  }
-
-  createPolicy(attributes) {
-    const policy = super.createPolicy(attributes);
-    this.#persist('policies', policy);
-    return policy;
+  storeRecord(collection, record) {
+    this.#persist(collection, record);
+    super.storeRecord(collection, record);
   }
 
   #recordPath(collection, id) {
     return path.join(this.rootDir, collection, `${encodePathSegment(id)}.json`);
   }
 
-  #persist(collection, record, previous) {
-    try {
-      const payload = `${JSON.stringify(record)}\n`;
-      atomicWrite(this.#recordPath(collection, record.id), payload);
-    } catch (error) {
-      if (previous) {
-        this[collection].set(record.id, previous);
-      } else {
-        this[collection].delete(record.id);
-      }
-      throw error;
-    }
+  #persist(collection, record) {
+    const payload = `${JSON.stringify(record)}\n`;
+    atomicWrite(this.#recordPath(collection, record.id), payload);
   }
 
   #hydrate() {

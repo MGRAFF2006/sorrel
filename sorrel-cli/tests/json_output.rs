@@ -884,6 +884,8 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
         .to_owned();
 
     std::fs::write(temp_dir.path().join("a.txt"), b"main-edit\n").expect("write");
+    // Incoming files stay tracked even when this lane's ignore rules exclude them.
+    std::fs::write(temp_dir.path().join(".sorrelignore"), b"clean-add.txt\n").unwrap();
     let main_change = command_json(
         temp_dir.path(),
         &["change", "create", "-m", "main edits a", "--json"],
@@ -996,6 +998,7 @@ fn merge_continue_after_manual_resolution() {
         .to_owned();
 
     std::fs::write(temp_dir.path().join("a.txt"), b"main-edit\n").expect("write");
+    std::fs::write(temp_dir.path().join(".sorrelignore"), b"clean-add.txt\n").unwrap();
     command_json(
         temp_dir.path(),
         &["change", "create", "-m", "main edits a", "--json"],

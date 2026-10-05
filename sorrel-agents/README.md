@@ -10,8 +10,12 @@ This alpha is a coordination aid, not an enforcement boundary or a complete
 agent orchestration system. Claims are advisory and state is local. Expect the
 API and behavior to change before a stable release.
 
-Persistent updates replace the state file atomically; failed writes reject the
-operation and preserve the previous in-memory registrations and claims.
+Writers sharing a state directory serialize updates and reload before saving;
+`activeWork()` reads the latest atomic state. A failed save leaves the prior
+state intact. A busy writer is retried for up to five seconds, then rejected
+with the lock path. If a process crashes, check that no writer is running
+before removing its `state.lock` file and retrying. The lock contains the
+writer's process id; never remove an active writer's lock.
 
 ## Usage
 

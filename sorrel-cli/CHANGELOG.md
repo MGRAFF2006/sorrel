@@ -4,9 +4,24 @@ All notable changes to `sorrel-cli` are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Record and upload the target lane snapshot during review submission so
+  diverged histories can be compared without changing target refs.
+
+- Use canonical runners/Core workflow execution while retaining legacy YAML/JSON, add named-workflow selection, and surface workflow failures through exit status and redacted output/log hints.
+- Enforce workflow grant environment constraints and reject unsupported scope constraints before Core evaluation.
+
 ### Fixed
 
+- Apply safe workspace selection consistently to status, diff, and change creation before storing file contents or reusing cached blobs.
+
+- Reject competing workspace commands with a retryable busy error, use unique
+  temporary files, and recover interrupted lane-head, HEAD, and change-index
+  publication without advancing HEAD on a failed preparation.
+
 - Preserve clean additions, edits, deletions, and file modes during conflicted merges and subsequent `merge --continue`; `merge --abort` restores the original tree.
+- Retain incoming tracked files during conflict resolution and remove them on abort even when the receiving lane ignores their paths.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

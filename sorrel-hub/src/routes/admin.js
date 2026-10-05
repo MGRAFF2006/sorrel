@@ -1,5 +1,7 @@
 import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
-import { assertPrivilegedAdminAccess } from '../policy-guard.js';
+import { assertPrivilegedAdminAccess, bindSessionPrincipal } from '../policy-guard.js';
+import { createProposal, updateProposal } from '../proposal-mutations.js';
+import { browseSnapshotChanges } from '../sync-browser.js';
 import { StoreNotFoundError } from '../store.js';
 
 const COLLECTIONS = {
@@ -86,6 +88,11 @@ export async function handleAdminRoute(request, response, context) {
   }
 
   // GET /admin/proposals/:id/comments — nested review comments for a proposal
+  if (collectionName === 'proposals' && itemId && subResource === 'changes' && request.method === 'GET') {
+    const proposal = context.store.getProposal(itemId);
+    if (!proposal) throw new HttpError(404, `proposal ${itemId} not found`, 'not_found');
+    return sendJson(response, 200, { data: browseSnapshotChanges(proposal, context.store.sync) });
+  }
   if (
     collectionName === 'proposals' &&
     itemId &&
@@ -192,16 +199,21 @@ async function createCollectionItem(request, response, context, collection, coll
 
   let item;
   try {
-    item = context.store[collection.create](body);
+    if (collectionName === 'proposals') {
+      item = createProposal(body, context);
+    } else {
+      const principalField = {
+        repositories: 'linkedByPrincipal',
+        'review-comments': 'authorPrincipal',
+        'workflow-runs': 'requestedByPrincipal',
+      }[collectionName];
+      item = context.store[collection.create](principalField ? bindSessionPrincipal(body, context, principalField) : body);
+    }
   } catch (error) {
     if (error instanceof StoreNotFoundError) {
       throw new HttpError(404, error.message, error.code);
     }
     throw error;
-  }
-
-  if (collectionName === 'proposals' && context.convexMirror) {
-    void context.convexMirror.upsertProposal(item);
   }
 
   sendJson(
@@ -234,16 +246,14 @@ async function updateCollectionItem(
 
   let item;
   try {
-    item = context.store[collection.update](itemId, body);
+    item = collectionName === 'proposals'
+      ? updateProposal(itemId, body, context)
+      : context.store[collection.update](itemId, body);
   } catch (error) {
     if (error instanceof StoreNotFoundError) {
       throw new HttpError(404, error.message, error.code);
     }
     throw error;
-  }
-
-  if (collectionName === 'proposals' && context.convexMirror) {
-    void context.convexMirror.upsertProposal(item);
   }
 
   sendJson(response, 200, { data: item });

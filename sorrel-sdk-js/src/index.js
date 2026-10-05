@@ -94,6 +94,12 @@ export class HubClient {
     });
   }
 
+  linkProjectRepository(projectId, syncRepoId) {
+    return this.request(`/projects/${encodeURIComponent(projectId)}/repositories`, {
+      method: 'POST', body: JSON.stringify({ syncRepoId }),
+    });
+  }
+
   listSyncRepos() {
     return this.request('/admin/sync-repos');
   }
@@ -127,6 +133,10 @@ export class HubClient {
   getProposal(id, { includeComments = false } = {}) {
     const query = includeComments ? '?include=comments' : '';
     return this.request(`/admin/proposals/${encodeURIComponent(id)}${query}`);
+  }
+
+  proposalChanges(id) {
+    return this.request(`/admin/proposals/${encodeURIComponent(id)}/changes`);
   }
 
   createProposal(payload) {

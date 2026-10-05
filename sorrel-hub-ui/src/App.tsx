@@ -1,11 +1,12 @@
 import { A, Route, Router, useParams, type RouteSectionProps } from '@solidjs/router';
-import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show, type ParentProps } from 'solid-js';
+import { createEffect, createMemo, createResource, For, onCleanup, onMount, Show, type ParentProps } from 'solid-js';
 import {
   apiGet,
   fetchCapabilities,
   fetchSession,
   setPrincipalProvider,
   unwrapList,
+  useApiConnection,
   type HubCapabilities,
   type HubSessionInfo,
 } from './api.ts';
@@ -167,18 +168,18 @@ function ProjectLayout(props: RouteSectionProps) {
 export function HubApp(props: HubAppOptions) {
   const [capabilities] = createResource(fetchCapabilities);
   const [hubSession, { refetch: refetchSession }] = createResource(fetchSession);
-  const [apiOk, setApiOk] = createSignal<boolean | null>(null);
+  const apiOk = useApiConnection();
   const effectivePrincipal = useEffectivePrincipal();
 
-  onMount(() => setPrincipalProvider(effectivePrincipal));
   createEffect(() => {
-    const info = hubSession();
-    setSessionPrincipal(info?.auth.mode === 'dev' ? null : info?.session?.principal ?? null);
+    const resolved = hubSession();
+    setSessionPrincipal(resolved?.auth.mode !== 'dev' ? resolved?.session?.principal ?? null : null);
   });
   onCleanup(() => {
     setSessionPrincipal(null);
     setPrincipalProvider(null);
   });
+  onMount(() => setPrincipalProvider(effectivePrincipal));
 
   const convexUrl = createMemo(() => {
     if (props.convexUrl) return props.convexUrl;
@@ -194,10 +195,9 @@ export function HubApp(props: HubAppOptions) {
     void (async () => {
       try {
         await apiGet('/healthz');
-        setApiOk(true);
         void refetchSession();
       } catch {
-        setApiOk(false);
+        // apiRequest records the failed connection for the shell.
       }
     })();
   });

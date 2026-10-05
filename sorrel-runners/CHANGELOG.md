@@ -7,6 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Accept legacy jobs alongside named workflows, preserve shell/env/secret declarations, and support authorized host-resolved local secret injection with redacted results and dependency failure stopping.
+
 ### Fixed
 
 - Include workflow job secret references and required secret capabilities in converted bundles so valid secret workflows reach the permission gate.

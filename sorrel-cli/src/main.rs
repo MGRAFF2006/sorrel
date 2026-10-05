@@ -12,12 +12,12 @@ use serde_json::{json, Value};
 use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_import, is_descendant,
-    materialize_snapshot_excluding_with_stat_cache, merge_base, merge_snapshots_with_worktree,
-    parse_object_id_hex, read_conflict, read_snapshot, read_snapshot_files, read_stack,
-    restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree, ChangeOptions,
-    ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
-    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
-    PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
+    materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree, parse_object_id_hex,
+    read_conflict, read_snapshot, read_snapshot_files, read_stack, restore_snapshot_to_directory,
+    snapshot_diff, write_snapshot, write_tree, ChangeOptions, ConflictType, FileObjectStore,
+    GitExportOptions, GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions,
+    ObjectId, ObjectKind, ObjectRef, ObjectStore, PathChangeKind, Principal, SnapshotOptions,
+    StackOptions, StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -495,7 +495,7 @@ struct PullArgs {
 
 fn main() -> ExitCode {
     match run(Cli::parse()) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(error) => {
             eprintln!("sorrel: {error}");
             ExitCode::FAILURE
@@ -503,7 +503,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli) -> io::Result<()> {
+fn run(cli: Cli) -> io::Result<ExitCode> {
     if let Commands::Secret {
         command: sorrel_cli::secret_cmd::SecretCommand::Run(args),
     } = cli.command
@@ -511,10 +511,10 @@ fn run(cli: Cli) -> io::Result<()> {
         return match sorrel_cli::secret_cmd::execute_run(args, cli.json)? {
             sorrel_cli::secret_cmd::SecretRunResult::Output(output) => {
                 if cli.json {
-                    write_json(io::stdout().lock(), &output.json)
+                    write_json(io::stdout().lock(), &output.json).map(|()| ExitCode::SUCCESS)
                 } else {
                     let mut stdout = io::stdout().lock();
-                    writeln!(stdout, "{}", output.human)
+                    writeln!(stdout, "{}", output.human).map(|()| ExitCode::SUCCESS)
                 }
             }
             sorrel_cli::secret_cmd::SecretRunResult::Exit(code) => {
@@ -523,17 +523,44 @@ fn run(cli: Cli) -> io::Result<()> {
         };
     }
 
+    let is_workflow = matches!(&cli.command, Commands::Workflow { .. });
     let output = execute(cli.command)?;
+    let code = if is_workflow {
+        workflow_cmd::exit_code(&output)
+    } else {
+        0
+    };
 
     if cli.json {
-        write_json(io::stdout().lock(), &output.json)
+        write_json(io::stdout().lock(), &output.json)?;
     } else {
         let mut stdout = io::stdout().lock();
-        writeln!(stdout, "{}", output.human)
+        writeln!(stdout, "{}", output.human)?;
     }
+    Ok(ExitCode::from(code))
 }
 
 fn execute(command: Commands) -> io::Result<CommandOutput> {
+    // Workflow processes can invoke Sorrel themselves; never hold a workspace
+    // mutation lock while waiting for arbitrary user commands.
+    let root = repo::sorrel_dir();
+    // Headless commands must not create metadata. Only init and Git import
+    // bootstrap a workspace; other writers require existing metadata.
+    let needs_workspace_lock = root.exists()
+        || matches!(
+            &command,
+            Commands::Init
+                | Commands::Git {
+                    command: GitCommand::Import(_)
+                }
+        );
+    let _workspace_lock = if matches!(&command, Commands::Workflow { .. }) {
+        None
+    } else if needs_workspace_lock {
+        Some(repo::WorkspaceLock::acquire(&root)?)
+    } else {
+        None
+    };
     match command {
         Commands::Init => init_output(),
         Commands::Status => status_output(),
@@ -791,18 +818,17 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
         options
     }))?;
 
-    // Advance HEAD to the new snapshot on the current lane.
-    repo::write_head(&repo::Head {
-        lane: head.lane,
-        snapshot: new_snapshot.to_hex(),
-    })?;
-
-    // Record snapshot → change so `log` can resolve Change metadata later.
     let change_id = change.id.to_hex();
-    repo::append_changes_index(&repo::ChangesIndexEntry {
-        snapshot: new_snapshot.to_hex(),
-        change: change_id.clone(),
-    })?;
+    repo::write_head_and_change(
+        &repo::Head {
+            lane: head.lane,
+            snapshot: new_snapshot.to_hex(),
+        },
+        &repo::ChangesIndexEntry {
+            snapshot: new_snapshot.to_hex(),
+            change: change_id.clone(),
+        },
+    )?;
 
     let (changes, total) = diff_json(&change.diff);
 
@@ -1458,11 +1484,21 @@ fn lane_submit_output(args: LaneSubmitArgs) -> io::Result<CommandOutput> {
     let remotes = repo::load_remotes()?;
     let (remote_name, remote) = remotes.resolve(Some(&args.remote))?;
 
+    let target_snapshot = repo::load_lane_head(&args.target_lane)?;
     let do_push = args.push && !args.no_push;
     let mut uploaded = 0usize;
     if do_push {
         let push_result = sync::push(&store, &remote, &remote_name, "HEAD", &snapshot_id, None)?;
         uploaded = push_result.uploaded;
+        if let Some(target_hex) = target_snapshot.as_deref() {
+            let target_id = target_hex.parse::<ObjectId>().map_err(|error| {
+                io::Error::other(format!("invalid target lane snapshot id: {error}"))
+            })?;
+            if target_id != snapshot_id {
+                // A diverged target is not reachable from the pushed source snapshot.
+                uploaded += sync::upload_snapshot_closure(&store, &remote, &target_id)?;
+            }
+        }
     }
 
     let project_id = match args.project_id {
@@ -1473,13 +1509,14 @@ fn lane_submit_output(args: LaneSubmitArgs) -> io::Result<CommandOutput> {
     let title = args
         .title
         .unwrap_or_else(|| format!("Submit {source_lane}"));
-    let result = hub::lane_submit(
+    let result = hub::lane_submit_with_target_snapshot(
         &remote,
         &project_id,
         &title,
         &source_lane,
         &snapshot_hex,
         &args.target_lane,
+        target_snapshot.as_deref(),
     )?;
 
     let proposal_id = result
@@ -2390,16 +2427,17 @@ fn merge_continue_output() -> io::Result<CommandOutput> {
     ))?;
 
     let result_hex = result_snapshot.to_hex();
-    repo::write_head(&repo::Head {
-        lane: head.lane,
-        snapshot: result_hex.clone(),
-    })?;
-
     let change_id = change.id.to_hex();
-    repo::append_changes_index(&repo::ChangesIndexEntry {
-        snapshot: result_hex.clone(),
-        change: change_id.clone(),
-    })?;
+    repo::write_head_and_change(
+        &repo::Head {
+            lane: head.lane,
+            snapshot: result_hex.clone(),
+        },
+        &repo::ChangesIndexEntry {
+            snapshot: result_hex.clone(),
+            change: change_id.clone(),
+        },
+    )?;
     repo::clear_merge_state()?;
 
     let (changes, total) = diff_json(&change.diff);
@@ -2580,6 +2618,7 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
             base_snapshot: base_id.to_hex(),
             ours_snapshot: ours_id.to_hex(),
             theirs_snapshot: theirs_id.to_hex(),
+            working_snapshot: Some(working_snapshot.to_hex()),
             message,
         })?;
 
@@ -2600,16 +2639,17 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
     ))?;
 
     let result_hex = result_snapshot.to_hex();
-    repo::write_head(&repo::Head {
-        lane: head.lane,
-        snapshot: result_hex.clone(),
-    })?;
-
     let change_id = change.id.to_hex();
-    repo::append_changes_index(&repo::ChangesIndexEntry {
-        snapshot: result_hex.clone(),
-        change: change_id.clone(),
-    })?;
+    repo::write_head_and_change(
+        &repo::Head {
+            lane: head.lane,
+            snapshot: result_hex.clone(),
+        },
+        &repo::ChangesIndexEntry {
+            snapshot: result_hex.clone(),
+            change: change_id.clone(),
+        },
+    )?;
 
     let (changes, total) = diff_json(&change.diff);
 
@@ -2643,8 +2683,8 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
 /// Writes marker-annotated content into the working tree for every conflicted
 /// path of `merge_result` and returns the sorted list of those paths.
 ///
-/// The working tree equals `ours` when this runs (merges require a clean
-/// tree), so only conflicted paths are touched: content/add-add conflicts get
+/// The working tree already contains clean merged changes, so only conflicted
+/// paths are touched: content/add-add conflicts get
 /// `merge3` marker output, modify/delete keeps whichever side still has the
 /// file, and binary conflicts keep ours untouched.
 fn write_conflict_markers(
@@ -3374,10 +3414,19 @@ fn materialize_worktree(
     // Snapshot the working tree in place, excluding the on-disk object store
     // (`.sorrel/`) and a colocated Git metadata dir (`.git/`) at the root.
     // No copy-to-scratch. The stat cache lets unchanged files skip re-hashing.
-    let snapshot = to_io(materialize_snapshot_excluding_with_stat_cache(
+    let baseline = match repo::load_merge_state_record()?.and_then(|state| state.working_snapshot) {
+        Some(snapshot) => Some(snapshot.parse::<ObjectId>().map_err(|error| {
+            io::Error::other(format!("invalid tentative merge snapshot id: {error}"))
+        })?),
+        None => repo::load_head()?
+            .map(|head| head_snapshot_id(&head))
+            .transpose()?
+            .flatten(),
+    };
+    let snapshot = to_io(materialize_workspace_snapshot(
         store,
         Path::new("."),
-        [repo::SORREL_DIR, ".git"],
+        baseline.as_ref(),
         stat_cache,
         options,
     ))?;

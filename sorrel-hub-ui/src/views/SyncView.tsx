@@ -1,6 +1,7 @@
 import { useParams } from '@solidjs/router';
 import { createMemo, createResource, createSignal, For, Show } from 'solid-js';
-import { apiGet, shortId, unwrapList } from '../api.ts';
+import { createAction } from '../action.ts';
+import { apiGet, apiPost, getApiBaseUrl, shortId, unwrapList } from '../api.ts';
 import { EmptyState, ErrorText, Loading, PageHeader } from '../components/ui.tsx';
 
 type SyncRepo = { id?: string; refCount?: number };
@@ -16,6 +17,9 @@ export function SyncView() {
   const [selectedRepoId, setSelectedRepoId] = createSignal<string | null>(null);
   const [reloadToken, setReloadToken] = createSignal(0);
   const [query, setQuery] = createSignal('');
+  const linking = createAction();
+  const shellQuote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
+  const connectionCommands = () => `sorrel remote add origin ${shellQuote(getApiBaseUrl())}\nsorrel lane submit --project-id ${shellQuote(projectId())} --title 'First review'`;
 
   const [allSyncRepos] = createResource(
     () => reloadToken(),
@@ -41,7 +45,7 @@ export function SyncView() {
     },
   );
 
-  const [project] = createResource(projectId, async (id) => {
+  const [project] = createResource(() => ({ id: projectId(), token: reloadToken() }), async ({ id }) => {
     const payload = (await apiGet(`/projects/${encodeURIComponent(id)}`)) as { data?: Project };
     return (payload.data ?? payload) as Project;
   });
@@ -94,6 +98,33 @@ export function SyncView() {
           </button>
         }
       />
+
+      <section class="surface connection-guide">
+        <h2>Connect a workspace</h2>
+        <p>From an existing Sorrel workspace with a snapshot, run these commands. Submission pushes the current snapshot and opens a review in this project.</p>
+        <pre><code>{connectionCommands()}</code></pre>
+        <p class="muted">The CLI needs your Hub credentials and write grants. To reuse a remote, choose its name instead of origin.</p>
+        <Show when={(allSyncRepos() ?? []).some(repo => repo.id && !projectSyncRepos().some(linked => linked.id === repo.id))}>
+          <form onSubmit={(event) => {
+            event.preventDefault();
+            const syncRepoId = new FormData(event.currentTarget).get('syncRepoId');
+            void linking.run(async () => {
+              await apiPost(`/projects/${encodeURIComponent(projectId())}/repositories`, { syncRepoId });
+              setReloadToken(n => n + 1);
+            });
+          }}>
+            <label>Already pushed a repository?
+              <select name="syncRepoId" required>
+                <For each={(allSyncRepos() ?? []).filter(repo => repo.id && !projectSyncRepos().some(linked => linked.id === repo.id))}>
+                  {repo => <option value={repo.id}>{repo.id}</option>}
+                </For>
+              </select>
+            </label>
+            <button type="submit" disabled={linking.pending()}>{linking.pending() ? 'Connecting…' : 'Connect repository'}</button>
+          </form>
+        </Show>
+        <Show when={linking.error()}><ErrorText text={linking.error()} /><button type="button" onClick={() => void linking.retry()}>Retry connection</button></Show>
+      </section>
 
       <Show when={(repositories() ?? []).length > 0}>
         <div class="surface" style={{ padding: '0.85rem 1rem', 'margin-bottom': '0.75rem' }}>

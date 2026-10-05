@@ -34,10 +34,10 @@ production AuthAdapter and network controls. See the root
 | **Git bridge** | `sorrel git import`, `git export`, and colocated `git sync`; incremental fast-forwards in either direction, divergence parked on a normal Sorrel lane, `.sorrel/git-map.json` links SHAs ↔ snapshots. See `sorrel-cli/GIT.md`. |
 | **Sync** | CLI ↔ Hub over HTTP sync transport; Hub FS-backed object/ref store; isolated demos can opt into `user:local` bootstrap grants with `SORREL_HUB_BOOTSTRAP_GRANTS=1`. |
 | **Vault** | Secrets schema + local Node backend for tests. **Primary UX:** `sorrel secret *` resolves via upstream SecretSpec (`keyring` / `dotenv` / `env`) under Core grants; workflow jobs can inject authorized `secretRefs` with log redaction. |
-| **Runners** | Local + container runners (ContainerRunner tested), `sorrel.workflow.yml` → `JobBundle` parser, Core policy gate + log redaction. CLI prefers devenv when present (`backend: devenv`), else `local-fallback`. Structured logs under `.sorrel/runs/`. |
+| **Runners** | Shared CLI/library workflow parser and local executor, named/legacy YAML, job dependencies and literal env, native Core workflow policy, host-resolved secret injection/redaction. Simple CLI jobs prefer devenv; dependency/env jobs use `local-fallback`. ContainerRunner remains experimental. Structured logs under `.sorrel/runs/`; workflow failures return nonzero status. |
 | **Slices** | TS/JS slice manifest generator (prototype). |
-| **Hub API** | JSON HTTP server: health, projects, admin collections with GET/PATCH, proposals/reviews lifecycle, lane-submit collaboration endpoint, sync transport, read-only synchronized tree/text-file browsing, FS persistence. |
-| **Hub UI** | Shared Solid `sorrel-hub-ui` — repository-first project chrome with real tree/README browsing, proposal-backed Work board, review workbench, global Inbox, organization/profile README surfaces, and repository sync; hosted by thin `sorrel-hub-web`. |
+| **Hub API** | JSON HTTP server: health, projects/repository linking, admin collections with GET/PATCH, server-owned proposal transitions, lane-submit collaboration, sync transport, bounded tree/text browsing and recorded snapshot comparison, FS persistence; non-dev mutations require verified sessions. |
+| **Hub UI** | Shared Solid `sorrel-hub-ui` — guided organization/repository connection, file previews and recorded before/after review comparisons, proposal-backed Work board, global Inbox, organization/profile surfaces; keyboard-accessible dialogs with pending/error/retry states. Hosted by thin `sorrel-hub-web`. |
 | **Desktop app** | Tauri host for the shared Hub UI; native installers are built for Windows, macOS, and Linux on x64 and ARM64. The app connects to a local loopback Hub and wires scoped native notification/external-link adapters. |
 | **Mobile app** | Native Expo/React Native Hub companion for iPhone, iPad, Android phones, and Android tablets; native stacks/tabs, secure bearer storage, project/review/comment lifecycle, and repository refs. |
 | **Hub install seams** | `GET /capabilities` + `GET /session`; AuthAdapter (`dev` / `workos` / OIDC JWKS); shared `sorrel-hub/convex/` schema for SaaS + self-host. |
@@ -91,5 +91,5 @@ dependencies and workspace Cargo commands from the repo root.
 3. Define the stable embedding surface, then connect native apps to local
    workspaces and mature agents and SDKs around it.
 4. Add format migrations before persisted `v0` formats begin evolving rapidly.
-5. Collapse intentional duplicates (`cli_policy` / `cli_runner`) now that
-   SecretSpec injection has landed.
+5. Converge the remaining CLI policy-command/authority compatibility surface
+   onto native Core contracts; workflow evaluation already uses Core.

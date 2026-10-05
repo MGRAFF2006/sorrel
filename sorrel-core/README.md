@@ -64,6 +64,10 @@ let snapshot = materialize_snapshot(&store, "/path/to/workspace", SnapshotOption
 
 Two variants matter in practice:
 
+- `materialize_workspace_snapshot` is the shared CLI/SDK workspace entry point:
+  it applies nested `.gitignore`/`.sorrelignore`, preserves ordinary tracked
+  files, and protects dotenv files before any blob or cache access. See the
+  [workspace selection contract](../docs/ARCHITECTURE.md#change-lane-and-merge-flow).
 - `materialize_snapshot_excluding` skips top-level names such as `.sorrel`, so
   a workspace can snapshot itself without recursing into its own object store.
 - `materialize_snapshot_excluding_with_stat_cache` additionally takes a

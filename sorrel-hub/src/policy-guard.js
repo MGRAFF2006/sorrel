@@ -24,7 +24,19 @@ export function resolveActingPrincipal(request, context = {}) {
     return fromSession;
   }
 
+  if (context.authAdapter && context.authAdapter.mode !== 'dev') {
+    throw new HttpError(401, 'a verified Hub session is required', 'authentication_required');
+  }
   return parseActingPrincipal(request);
+}
+
+/** Bind attribution to verified identity; preserve anonymous local demo callers. */
+export function bindSessionPrincipal(attributes, context, field = 'authorPrincipal') {
+  if (!context.session?.principal) return attributes;
+  const principal = context.session.principal;
+  const bound = { ...attributes, [field]: principal };
+  if (field === 'authorPrincipal') bound.authorRef = `${principal.type}:${principal.id}`;
+  return bound;
 }
 
 export function parseActingPrincipal(request) {

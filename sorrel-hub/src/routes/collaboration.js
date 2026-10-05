@@ -7,6 +7,7 @@
 
 import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
 import { StoreNotFoundError } from '../store.js';
+import { createProposal } from '../proposal-mutations.js';
 
 /**
  * POST /collaboration/lane-submit
@@ -36,7 +37,8 @@ export async function handleCollaborationRoute(request, response, context) {
   throw new HttpError(404, 'collaboration route not found', 'not_found');
 }
 
-async function laneSubmit(request, response, { store, session }) {
+async function laneSubmit(request, response, context) {
+  const { store, session } = context;
   const body = await readJsonBody(request);
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -91,7 +93,7 @@ async function laneSubmit(request, response, { store, session }) {
   const open = body.open !== false;
   let proposal;
   try {
-    proposal = store.createProposal({
+    proposal = createProposal({
       projectId: projectId.trim(),
       repositoryId: body.repositoryId,
       syncRepoId,
@@ -115,7 +117,7 @@ async function laneSubmit(request, response, { store, session }) {
         ...(body.metadata ?? {}),
         submittedVia: 'collaboration.lane-submit',
       },
-    });
+    }, context);
   } catch (error) {
     if (error instanceof StoreNotFoundError) {
       throw new HttpError(404, error.message, error.code);

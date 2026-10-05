@@ -4,8 +4,17 @@ Notable changes to Sorrel Hub are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Publish filesystem metadata only after writes succeed, including persistent
+  project links to synchronized repositories.
+
 ### Added
 
+- Add project/repository linking, server-owned proposal transition capabilities,
+  and bounded comparison of recorded source/target snapshots.
+- Require verified sessions for non-development mutations and share attributed
+  proposal creation/mirroring across admin and lane-submit routes.
 - Add read-only tree and UTF-8 file browsing endpoints over synchronized
   Sorrel snapshots, with path validation and bounded text previews.
 

@@ -48,6 +48,8 @@ export type Proposal = {
   title?: string;
   description?: string;
   status?: string;
+  sourceSnapshot?: string;
+  targetSnapshot?: string;
   sourceLane?: string;
   targetLane?: string;
   sourceBranch?: string;
@@ -150,3 +152,15 @@ export function relativeTime(value: string | null | undefined): string {
   if (Math.abs(hours) < 24) return formatter.format(hours, 'hour');
   return formatter.format(Math.round(hours / 24), 'day');
 }
+
+export type ProposalChanges = {
+  repoId: string;
+  sourceSnapshot: string;
+  targetSnapshot: string;
+  changes: {
+    path: string;
+    status: 'added' | 'modified' | 'deleted';
+    before: { content: string | null; reason?: string; objectId?: string; mode?: string | number | null };
+    after: { content: string | null; reason?: string; objectId?: string; mode?: string | number | null };
+  }[];
+};
