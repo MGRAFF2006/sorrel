@@ -31,10 +31,23 @@ export async function readJsonBody(request) {
     return {};
   }
 
+  let body;
   try {
-    return JSON.parse(rawBody);
+    body = JSON.parse(rawBody);
   } catch {
     throw new HttpError(400, 'request body must be valid JSON', 'invalid_json');
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
+  }
+  return body;
+}
+
+export function decodePathComponent(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new HttpError(400, 'path must use valid percent encoding', 'invalid_request');
   }
 }
 

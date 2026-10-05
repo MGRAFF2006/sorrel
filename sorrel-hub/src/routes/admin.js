@@ -1,4 +1,4 @@
-import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
+import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
 import { assertPrivilegedAdminAccess } from '../policy-guard.js';
 import { StoreNotFoundError } from '../store.js';
 
@@ -56,10 +56,13 @@ const COLLECTIONS = {
 export function parseAdminPath(pathname) {
   const rest = pathname.slice('/admin/'.length);
   const segments = rest.split('/').filter(Boolean);
+  if (segments.length > 3) {
+    throw new HttpError(404, 'admin route not found', 'not_found');
+  }
   return {
     collectionName: segments[0] ?? '',
-    itemId: segments[1] ? decodeURIComponent(segments[1]) : null,
-    subResource: segments[2] ? decodeURIComponent(segments[2]) : null,
+    itemId: segments[1] ? decodePathComponent(segments[1]) : null,
+    subResource: segments[2] ? decodePathComponent(segments[2]) : null,
   };
 }
 
@@ -76,7 +79,7 @@ export async function handleAdminRoute(request, response, context) {
     return sendMethodNotAllowed(response, ['GET']);
   }
 
-  const collection = COLLECTIONS[collectionName];
+  const collection = Object.hasOwn(COLLECTIONS, collectionName) ? COLLECTIONS[collectionName] : undefined;
 
   if (!collection) {
     throw new HttpError(404, 'admin collection not found', 'not_found');
@@ -208,7 +211,7 @@ async function createCollectionItem(request, response, context, collection, coll
       data: item,
     },
     {
-      location: `${collection.locationPrefix}/${item.id}`,
+      location: `${collection.locationPrefix}/${encodeURIComponent(item.id)}`,
     },
   );
 }

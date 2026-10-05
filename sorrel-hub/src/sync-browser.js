@@ -132,7 +132,7 @@ function normalizeBrowsePath(path) {
 
 function requireObjectKind(store, repoId, objectId, expectedKind) {
   const parsed = parseJsonObject(getObject(store, repoId, objectId));
-  if (parsed?.kind?.toLowerCase() !== expectedKind) {
+  if (typeof parsed?.kind !== 'string' || parsed.kind.toLowerCase() !== expectedKind) {
     throw new HttpError(
       422,
       `object ${objectId} is not a ${expectedKind}`,

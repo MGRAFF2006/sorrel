@@ -95,8 +95,8 @@ export function createWorkOsAdapter(options = {}) {
           issuer,
           audience: options.audience ?? options.clientId,
         });
-        const subject = String(payload.sub ?? '');
-        if (!subject) {
+        const subject = payload.sub;
+        if (typeof subject !== 'string' || !subject.trim()) {
           return null;
         }
         const principal = {
@@ -149,8 +149,8 @@ export function createOidcAdapter(options = {}) {
           audience: options.audience,
           fetchJwks: options.fetchJwks,
         });
-        const subject = String(payload.sub ?? '');
-        if (!subject) {
+        const subject = payload.sub;
+        if (typeof subject !== 'string' || !subject.trim()) {
           return null;
         }
         const principal = {

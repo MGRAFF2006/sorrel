@@ -308,6 +308,7 @@ Moves a ref to a new snapshot id. The remote MUST:
 | `404` | Ref name unknown when `expected` is non-null and ref is missing (`unknown_ref`). |
 | `409` | New snapshot closure not fully on remote (`closure_incomplete`). |
 | `409` | New snapshot is not a descendant and `force` is `false` (`non_fast_forward`). |
+| `422` | Stored target or closure links have invalid object kinds or shapes (`invalid_sync_object`). |
 
 ---
 
@@ -437,6 +438,12 @@ never created).
   }
 }
 ```
+
+### `invalid_sync_object` — `422`
+
+The requested ref target is not a snapshot, or its stored snapshot/tree closure
+contains invalid object references, object kinds, or link collections. The ref
+is left unchanged.
 
 ### `invalid_request` — `400`
 

@@ -231,7 +231,7 @@ export function createOrganization(attributes) {
   const timestamp = nowIso();
 
   return {
-    id: attributes.id ?? id('org'),
+    id: attributes.id == null ? id('org') : requiredString(attributes, 'id'),
     name,
     slug: attributes.slug ? slugify(attributes.slug) : slugify(name),
     ownerPrincipal: optionalPrincipal(attributes, 'ownerPrincipal'),
@@ -269,7 +269,7 @@ export function createProject(attributes) {
   const timestamp = nowIso();
 
   return {
-    id: attributes.id ?? id('proj'),
+    id: attributes.id == null ? id('proj') : requiredString(attributes, 'id'),
     organizationId: requiredString(attributes, 'organizationId'),
     name,
     slug: attributes.slug ? slugify(attributes.slug) : slugify(name),
@@ -313,7 +313,7 @@ export function createRepository(attributes) {
   const timestamp = nowIso();
 
   return {
-    id: attributes.id ?? id('repo'),
+    id: attributes.id == null ? id('repo') : requiredString(attributes, 'id'),
     organizationId: requiredString(attributes, 'organizationId'),
     projectId: requiredString(attributes, 'projectId'),
     provider: requiredString(attributes, 'provider'),
@@ -368,7 +368,7 @@ export function createProposal(attributes) {
   }
 
   return {
-    id: attributes.id ?? id('prop'),
+    id: attributes.id == null ? id('prop') : requiredString(attributes, 'id'),
     projectId: requiredString(attributes, 'projectId'),
     repositoryId: optionalString(attributes, 'repositoryId'),
     syncRepoId: optionalString(attributes, 'syncRepoId'),
@@ -481,7 +481,7 @@ export function createReviewComment(attributes) {
   }
 
   return {
-    id: attributes.id ?? id('comment'),
+    id: attributes.id == null ? id('comment') : requiredString(attributes, 'id'),
     proposalId: requiredString(attributes, 'proposalId'),
     authorRef,
     authorPrincipal,
@@ -557,7 +557,7 @@ export function createWorkflowRun(attributes) {
   const timestamp = nowIso();
 
   return {
-    id: attributes.id ?? id('run'),
+    id: attributes.id == null ? id('run') : requiredString(attributes, 'id'),
     projectId: requiredString(attributes, 'projectId'),
     proposalId: optionalString(attributes, 'proposalId'),
     name: requiredString(attributes, 'name'),
@@ -631,7 +631,7 @@ export function createPolicy(attributes) {
   const timestamp = nowIso();
 
   return {
-    id: attributes.id ?? id('policy'),
+    id: attributes.id == null ? id('policy') : requiredString(attributes, 'id'),
     organizationId: requiredString(attributes, 'organizationId'),
     projectId: optionalString(attributes, 'projectId'),
     name: requiredString(attributes, 'name'),

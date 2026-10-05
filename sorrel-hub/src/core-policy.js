@@ -57,7 +57,13 @@ function resourcesMatch(grantResource, targetResource) {
  * @returns {CoreGrant[]}
  */
 export function hydrateTrustedGrants(grantRefs, trustedGrantsById = {}) {
+  if (!Array.isArray(grantRefs)) {
+    throw new PolicyEvaluationError('grantRefs must be an array');
+  }
   return grantRefs.map((grantRef) => {
+    if (!isPlainObject(grantRef) || typeof grantRef.id !== 'string' || !grantRef.id.trim()) {
+      throw new PolicyEvaluationError('each grant reference must contain a non-empty string id');
+    }
     const grant = trustedGrantsById[grantRef.id];
     if (!grant) {
       throw new PolicyEvaluationError(

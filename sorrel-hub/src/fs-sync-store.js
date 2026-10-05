@@ -141,7 +141,7 @@ export class FsRepoSyncStore {
     }
 
     const target = this.#objectPath(repoId, id);
-    if (!fs.existsSync(target)) {
+    if (!fs.existsSync(target) || !verifyObjectId(id, fs.readFileSync(target))) {
       atomicWrite(target, bytes);
     }
     return id;

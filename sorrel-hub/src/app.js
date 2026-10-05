@@ -35,9 +35,13 @@ export function createApp(options = {}) {
     convexMirror,
     capabilities,
     async handleRequest(request, response) {
-      const url = new URL(request.url ?? '/', 'http://localhost');
-
       try {
+        let url;
+        try {
+          url = new URL(request.url ?? '/', 'http://localhost');
+        } catch {
+          throw new HttpError(400, 'request URL is invalid', 'invalid_request');
+        }
         if (request.method === 'GET' && url.pathname === '/healthz') {
           return sendJson(response, 200, {
             status: 'ok',

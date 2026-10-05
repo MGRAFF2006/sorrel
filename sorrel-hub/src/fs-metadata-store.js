@@ -69,8 +69,9 @@ export class FsMetadataStore extends InMemoryStore {
   }
 
   updateProposal(id, attributes) {
+    const previous = this.proposals.get(id);
     const proposal = super.updateProposal(id, attributes);
-    this.#persist('proposals', proposal);
+    this.#persist('proposals', proposal, previous);
     return proposal;
   }
 
@@ -81,8 +82,9 @@ export class FsMetadataStore extends InMemoryStore {
   }
 
   updateReviewComment(id, attributes) {
+    const previous = this.reviewComments.get(id);
     const reviewComment = super.updateReviewComment(id, attributes);
-    this.#persist('reviewComments', reviewComment);
+    this.#persist('reviewComments', reviewComment, previous);
     return reviewComment;
   }
 
@@ -93,8 +95,9 @@ export class FsMetadataStore extends InMemoryStore {
   }
 
   updateWorkflowRun(id, attributes) {
+    const previous = this.workflowRuns.get(id);
     const workflowRun = super.updateWorkflowRun(id, attributes);
-    this.#persist('workflowRuns', workflowRun);
+    this.#persist('workflowRuns', workflowRun, previous);
     return workflowRun;
   }
 
@@ -108,9 +111,18 @@ export class FsMetadataStore extends InMemoryStore {
     return path.join(this.rootDir, collection, `${encodePathSegment(id)}.json`);
   }
 
-  #persist(collection, record) {
-    const payload = `${JSON.stringify(record)}\n`;
-    atomicWrite(this.#recordPath(collection, record.id), payload);
+  #persist(collection, record, previous) {
+    try {
+      const payload = `${JSON.stringify(record)}\n`;
+      atomicWrite(this.#recordPath(collection, record.id), payload);
+    } catch (error) {
+      if (previous) {
+        this[collection].set(record.id, previous);
+      } else {
+        this[collection].delete(record.id);
+      }
+      throw error;
+    }
   }
 
   #hydrate() {

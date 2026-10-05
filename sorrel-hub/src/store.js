@@ -42,6 +42,9 @@ export class InMemoryStore {
 
   createOrganization(attributes) {
     const organization = createOrganization(attributes);
+    if (this.organizations.has(organization.id)) {
+      throw new StoreConflictError(`organization ${organization.id} already exists`);
+    }
     this.organizations.set(organization.id, organization);
     return organization;
   }
@@ -64,6 +67,9 @@ export class InMemoryStore {
       throw new StoreConflictError('project slug already exists for organization');
     }
 
+    if (this.projects.has(project.id)) {
+      throw new StoreConflictError(`project ${project.id} already exists`);
+    }
     this.projects.set(project.id, project);
     return project;
   }
@@ -84,6 +90,9 @@ export class InMemoryStore {
 
   createRepository(attributes) {
     const repository = createRepository(attributes);
+    if (this.repositories.has(repository.id)) {
+      throw new StoreConflictError(`repository ${repository.id} already exists`);
+    }
     this.repositories.set(repository.id, repository);
     return repository;
   }
@@ -108,6 +117,9 @@ export class InMemoryStore {
 
   createProposal(attributes) {
     const proposal = createProposal(attributes);
+    if (this.proposals.has(proposal.id)) {
+      throw new StoreConflictError(`proposal ${proposal.id} already exists`);
+    }
     this.proposals.set(proposal.id, proposal);
     return proposal;
   }
@@ -157,6 +169,9 @@ export class InMemoryStore {
     if (!this.getProposal(reviewComment.proposalId)) {
       throw new StoreNotFoundError(`proposal ${reviewComment.proposalId} not found`);
     }
+    if (this.reviewComments.has(reviewComment.id)) {
+      throw new StoreConflictError(`reviewComment ${reviewComment.id} already exists`);
+    }
     this.reviewComments.set(reviewComment.id, reviewComment);
     return reviewComment;
   }
@@ -191,6 +206,9 @@ export class InMemoryStore {
 
   createWorkflowRun(attributes) {
     const workflowRun = createWorkflowRun(attributes);
+    if (this.workflowRuns.has(workflowRun.id)) {
+      throw new StoreConflictError(`workflowRun ${workflowRun.id} already exists`);
+    }
     this.workflowRuns.set(workflowRun.id, workflowRun);
     return workflowRun;
   }
@@ -229,6 +247,9 @@ export class InMemoryStore {
 
   createPolicy(attributes) {
     const policy = createPolicy(attributes);
+    if (this.policies.has(policy.id)) {
+      throw new StoreConflictError(`policy ${policy.id} already exists`);
+    }
     this.policies.set(policy.id, policy);
     return policy;
   }

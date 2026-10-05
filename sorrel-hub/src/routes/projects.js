@@ -1,10 +1,13 @@
-import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
+import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
 
 export async function handleProjectsRoute(request, response, context) {
   const { url, store } = context;
   const segments = url.pathname.split('/').filter(Boolean);
+  if (segments.length > 2) {
+    throw new HttpError(404, 'project route not found', 'not_found');
+  }
   // /projects or /projects/:id
-  const projectId = segments.length >= 2 ? decodeURIComponent(segments[1]) : null;
+  const projectId = segments.length >= 2 ? decodePathComponent(segments[1]) : null;
 
   if (projectId) {
     if (request.method === 'GET') {
@@ -52,7 +55,7 @@ async function createProject(request, response, { store }) {
       data: project,
     },
     {
-      location: `/projects/${project.id}`,
+      location: `/projects/${encodeURIComponent(project.id)}`,
     },
   );
 }
