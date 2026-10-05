@@ -21,6 +21,7 @@ export type HubCapabilities = {
     enabled: boolean;
     url?: string;
   };
+  collaboration?: { proposalTransitions: Record<string, string[]> };
   deploy: 'saas' | 'selfhost' | 'dev';
 };
 

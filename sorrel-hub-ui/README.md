@@ -37,3 +37,13 @@ and project id. `lane submit` pushes and associates the current workspace;
 already pushed repositories can be linked explicitly. Project creation offers
 known organizations and a local-workspace default. Review creation selects
 repository refs and captures their snapshot ids for stable comparisons.
+
+Files open in a numbered UTF-8 preview; binary files, files over 512 KiB, and
+excess lines receive bounded previews or explicit explanations. Submitted
+reviews compare the recorded source and target snapshots with a changed-file
+list and before/after text panes. Missing snapshots show an unavailable state
+instead of inventing a baseline. Review status actions only update metadata:
+“Mark as merged” follows a workspace merge and push, and closed reviews remain
+separate from merged work. Failed mutations show an explicit retry; creation
+and comments preserve drafts and prevent duplicate submissions. Native modal
+dialogs provide keyboard focus and Escape dismissal.

@@ -1,7 +1,8 @@
 import { useParams, useSearchParams } from '@solidjs/router';
 import { createEffect, createMemo, createResource, createSignal, For, Show } from 'solid-js';
-import { apiGet, apiPatch, apiPost, unwrapList } from '../api.ts';
-import type { Project, Proposal, Repository, SyncRef, SyncRepo } from '../domain.ts';
+import { apiGet, apiPatch, apiPost, fetchCapabilities, unwrapList } from '../api.ts';
+import { ReviewChanges } from '../components/ReviewChanges.tsx';
+import type { Project, Repository, SyncRef, SyncRepo } from '../domain.ts';
 import { createAction } from '../action.ts';
 import { getActingPrincipal } from '../session.ts';
 import {
@@ -33,12 +34,6 @@ type AdminItem = Record<string, unknown> & {
   grantRefs?: unknown[];
 };
 
-const PROPOSAL_TRANSITIONS: Record<string, string[]> = {
-  draft: ['open', 'closed'],
-  open: ['approved', 'rejected', 'merged', 'closed'],
-  approved: ['merged', 'closed'],
-  rejected: ['open', 'closed'],
-};
 
 const WORKFLOW_NEXT: Record<string, string[]> = {
   queued: ['in_progress', 'failed'],
@@ -59,6 +54,9 @@ export function ReviewsView() {
   const [formError, setFormError] = createSignal(false);
   const [creating, setCreating] = createSignal(false);
   const mutation = createAction();
+  const [capabilities] = createResource(fetchCapabilities);
+  const PROPOSAL_TRANSITIONS = () => capabilities()?.collaboration?.proposalTransitions ?? {};
+
   const [reviewRepoId, setReviewRepoId] = createSignal('');
   const [reviewRepositories] = createResource(() => ({ id: projectId(), token: reloadToken() }), async ({ id }) => {
     const [projectPayload, repositoriesPayload, syncPayload] = await Promise.all([
@@ -411,8 +409,10 @@ export function ReviewsView() {
                 <Show when={proposal().description}>
                   <p>{String(proposal().description)}</p>
                 </Show>
+                <p class="muted">Status actions update the review record. To integrate files, merge the lane in your workspace and push its snapshot, then mark this review as merged.</p>
+                <ReviewChanges proposalId={String(proposal().id)} />
                 <div class="card-actions">
-                  <For each={PROPOSAL_TRANSITIONS[String(proposal().status)] ?? []}>
+                  <For each={PROPOSAL_TRANSITIONS()[String(proposal().status)] ?? []}>
                     {(status) => (
                       <button
                         type="button"
@@ -423,7 +423,7 @@ export function ReviewsView() {
                         }
                         onClick={() => void patchProposalStatus(String(proposal().id), status)}
                       >
-                        {status}
+                        {status === 'merged' ? 'Mark as merged' : status}
                       </button>
                     )}
                   </For>

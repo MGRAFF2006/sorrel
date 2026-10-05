@@ -76,7 +76,7 @@ test('Reviews view covers proposal transitions and comment resolve', async () =>
     fs.readFile(new URL('../src/views/ReviewsView.tsx', import.meta.url), 'utf8'),
   );
   assert.match(reviews, /PROPOSAL_TRANSITIONS/);
-  assert.match(reviews, /approved/);
+  assert.match(reviews, /collaboration\?\.proposalTransitions/);
   assert.match(reviews, /state: 'resolved'/);
   assert.match(reviews, /DetailCommentForm/);
   assert.match(reviews, /admin\/proposals/);
@@ -99,7 +99,8 @@ test('Inbox, Work, and identity views derive from Hub records', async () => {
   assert.match(inbox, /admin\/workflow-runs/);
   assert.match(inbox, /Global, not home/);
   assert.match(work, /statuses: \['draft'\]/);
-  assert.match(work, /statuses: \['merged', 'closed'\]/);
+  assert.match(work, /statuses: \['merged'\]/);
+  assert.match(work, /statuses: \['closed'\]/);
   assert.match(work, /Proposal-backed lanes/);
   assert.match(organizations, /metadataString\(org\(\)\.metadata, 'readme'\)/);
   assert.match(organizations, /project\.organizationId/);

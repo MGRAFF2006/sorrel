@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { HubApp } from '../src/App.tsx';
+import { setActingPrincipal, setAuthenticatedPrincipal } from '../src/session.ts';
 import { createWebPlatform } from '../src/platform.ts';
 
 type FetchCall = { url: string; init?: RequestInit };
@@ -12,7 +13,7 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function installHubFetch(projects: unknown[] = []) {
+function installHubFetch(projects: unknown[] = [], proposals: unknown[] = [], options: { rejectPatch?: boolean; authenticatedPrincipal?: { type: string; id: string } } = {}) {
   const calls: FetchCall[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -22,14 +23,15 @@ function installHubFetch(projects: unknown[] = []) {
       return json({
         data: {
           modules: { core: true, actions: false, agents: true, secrets: true, objectStorage: 'fs' },
-          auth: { mode: 'dev', session: 'none' },
+          auth: { mode: options.authenticatedPrincipal ? 'oidc' : 'dev', session: options.authenticatedPrincipal ? 'bearer' : 'none' },
           convex: { enabled: false },
+          collaboration: { proposalTransitions: { draft: ['open', 'closed'], open: ['approved', 'merged', 'closed'], approved: ['merged', 'open', 'closed'], closed: ['open'] } },
           deploy: 'dev',
         },
       });
     }
     if (url === '/api/session') {
-      return json({ data: { auth: { mode: 'dev', session: 'none' }, session: null } });
+      return json({ data: { auth: { mode: options.authenticatedPrincipal ? 'oidc' : 'dev', session: options.authenticatedPrincipal ? 'bearer' : 'none' }, session: options.authenticatedPrincipal ? {principal: options.authenticatedPrincipal} : null } });
     }
     if (url === '/api/healthz') return json({ status: 'ok' });
     if (url === '/api/admin/proposals?status=open') return json({ data: [] });
@@ -49,9 +51,9 @@ function installHubFetch(projects: unknown[] = []) {
     if (url === '/api/admin/repositories?projectId=project_alpha') {
       return json({ data: [{ id: 'repo_alpha', name: 'alpha', owner: 'acme', provider: 'sorrel', defaultBranch: 'main' }] });
     }
-    if (url === '/api/admin/proposals?projectId=project_alpha') return json({ data: [] });
+    if (url === '/api/admin/proposals?projectId=project_alpha') return json({ data: proposals });
     if (url === '/api/admin/sync-repos') return json({ repos: [{ id: 'repo_alpha', refCount: 1 }, { id: 'repo_beta', refCount: 1 }] });
-    if (url === '/api/repo_alpha/refs') return json({ refs: [{ name: 'main', snapshot: 'a'.repeat(64) }] });
+    if (url === '/api/repo_alpha/refs') return json({ refs: [{ name: 'main', snapshot: 'a'.repeat(64) }, { name: 'HEAD', snapshot: 'c'.repeat(64) }] });
     if (url === '/api/repo_alpha/tree?ref=main&path=') {
       return json({
         repoId: 'repo_alpha',
@@ -64,6 +66,20 @@ function installHubFetch(projects: unknown[] = []) {
     if (url === '/api/repo_alpha/files?ref=main&path=README.md') {
       return json({ repoId: 'repo_alpha', ref: 'main', path: 'README.md', objectId: 'b'.repeat(64), size: 32, encoding: 'utf-8', content: '# Alpha\n\nRepository-shaped work.' });
     }
+    if (url === '/api/admin/proposals' && init?.method === 'POST') {
+      const proposal = {id: 'proposal_alpha', ...JSON.parse(String(init.body))};
+      proposals.push(proposal);
+      return json({data: proposal}, 201);
+    }
+    if (url === '/api/admin/proposals/proposal_alpha' && init?.method === 'PATCH') {
+      if (options.rejectPatch) { options.rejectPatch = false; return json({error: {message: 'Policy denied'}}, 403); }
+      Object.assign(proposals[0] as object, JSON.parse(String(init.body)));
+      return json({data: proposals[0]});
+    }
+    if (url === '/api/admin/proposals/proposal_alpha/changes') return json({data: {
+      repoId: 'repo_alpha', sourceSnapshot: 'c'.repeat(64), targetSnapshot: 'a'.repeat(64),
+      changes: [{path: 'src/main.rs', status: 'modified', before: {content: 'old source'}, after: {content: 'new source'}}],
+    }});
     if (url === '/api/projects' && init?.method === 'POST') {
       return json({ data: { id: 'project_new' } }, 201);
     }
@@ -76,7 +92,7 @@ function installHubFetch(projects: unknown[] = []) {
   return calls;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); setAuthenticatedPrincipal(null); setActingPrincipal({type: 'user', id: 'local'}); });
 
 describe('HubApp rendered behavior', () => {
   test('renders API health and the empty-project action from live responses', async () => {
@@ -98,6 +114,15 @@ describe('HubApp rendered behavior', () => {
     await fireEvent(dialog, new Event('cancel', { cancelable: true }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(calls.some(call => call.init?.method === 'POST')).toBe(false);
+  });
+
+  test('shows authenticated identity without replacing the saved development preset', async () => {
+    setActingPrincipal({type: 'user', id: 'reviewer'});
+    window.history.pushState({}, '', '/profile');
+    installHubFetch([], [], {authenticatedPrincipal: {type: 'user', id: 'oidc:alice'}});
+    render(() => <HubApp platform={createWebPlatform()} />);
+    expect(await screen.findByRole('heading', {level: 1, name: 'oidc:alice'})).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem('sorrel.hub.actingPrincipal')!)).toEqual({type: 'user', id: 'reviewer'});
   });
 
   test('renders projects returned by Hub as project routes', async () => {
@@ -156,6 +181,39 @@ describe('HubApp rendered behavior', () => {
     await waitFor(() => expect(document.querySelector('[data-repo-id="repo_beta"]')).toBeInTheDocument());
   });
 
+  test('captures selected source and target snapshots when creating a review', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha/reviews');
+    const calls = installHubFetch([{id: 'project_alpha', name: 'Alpha', repositoryIds: ['repo_alpha']}]);
+    render(() => <HubApp platform={createWebPlatform()} />);
+    await fireEvent.click(await screen.findByRole('button', {name: 'Open review'}));
+    await fireEvent.input(screen.getByLabelText('Title'), {target: {value: 'Inspect work'}});
+    await waitFor(() => expect(screen.getByLabelText(/Repository/).querySelector('option[value="repo_alpha"]')).toBeInTheDocument());
+    await fireEvent.change(screen.getByLabelText(/Repository/), {target: {value: 'repo_alpha'}});
+    await waitFor(() => expect(screen.getByLabelText(/Source lane/).querySelector('option[value="HEAD"]')).toBeInTheDocument());
+    await fireEvent.change(screen.getByLabelText(/Source lane/), {target: {value: 'HEAD'}});
+    await fireEvent.change(screen.getByLabelText('Compare against'), {target: {value: 'main'}});
+    await fireEvent.submit(screen.getByLabelText('Title').closest('form')!);
+    await waitFor(() => expect(calls.some(call => call.url === '/api/admin/proposals' && call.init?.method === 'POST')).toBe(true));
+    const request = calls.find(call => call.url === '/api/admin/proposals' && call.init?.method === 'POST');
+    expect(JSON.parse(String(request?.init?.body))).toMatchObject({syncRepoId: 'repo_alpha', sourceSnapshot: 'c'.repeat(64), targetSnapshot: 'a'.repeat(64)});
+  });
+
+  test('renders recorded snapshot changes and recovers a denied status mutation', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha/reviews?proposal=proposal_alpha');
+    const proposals = [{id: 'proposal_alpha', title: 'Review source', status: 'open'}];
+    const calls = installHubFetch([{id: 'project_alpha', name: 'Alpha'}], proposals, {rejectPatch: true});
+    render(() => <HubApp platform={createWebPlatform()} />);
+    expect(await screen.findByLabelText('Before src/main.rs')).toHaveTextContent('old source');
+    expect(await screen.findByLabelText('After src/main.rs')).toHaveTextContent('new source');
+    expect(screen.getByRole('button', {name: 'Mark as merged'})).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', {name: 'approved'}));
+    expect(await screen.findByText('Policy denied')).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', {name: 'Retry change'}));
+    await waitFor(() => expect(proposals[0].status).toBe('approved'));
+    expect(calls.filter(call => call.init?.method === 'PATCH')).toHaveLength(2);
+    expect(await screen.findByRole('button', {name: 'open'})).toBeInTheDocument();
+  });
+
   test('renders the real repository tree and README on a project route', async () => {
     window.history.pushState({}, '', '/projects/project_alpha');
     installHubFetch([
@@ -171,7 +229,8 @@ describe('HubApp rendered behavior', () => {
 
     expect(await screen.findByText('Ship repository view')).toBeInTheDocument();
     expect(await screen.findByText('Repository-shaped work.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /README.md/ })).toBeDisabled();
+    await fireEvent.click(screen.getByRole('button', { name: /README.md/ }));
+    expect(await screen.findByLabelText('README.md')).toHaveTextContent('Repository-shaped work.');
     expect(screen.getByRole('link', { name: /Work/ })).toHaveAttribute('href', '/projects/project_alpha/work');
   });
 });

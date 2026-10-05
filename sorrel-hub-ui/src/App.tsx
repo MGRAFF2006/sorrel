@@ -1,5 +1,5 @@
 import { A, Route, Router, useParams, type RouteSectionProps } from '@solidjs/router';
-import { createMemo, createResource, createSignal, For, onMount, Show, type ParentProps } from 'solid-js';
+import { createEffect, createMemo, createResource, For, onCleanup, onMount, Show, type ParentProps } from 'solid-js';
 import {
   apiGet,
   fetchCapabilities,
@@ -16,7 +16,7 @@ import { useOpenProposalsCount, useOpenProposalsCountFromHub } from './convex/op
 import type { Project, Proposal } from './domain.ts';
 import { initials } from './domain.ts';
 import type { Platform } from './platform.ts';
-import { DEV_IDENTITY_PRESETS, setActingPrincipal, useActingPrincipal } from './session.ts';
+import { DEV_IDENTITY_PRESETS, setActingPrincipal, setAuthenticatedPrincipal, useActingPrincipal } from './session.ts';
 import { InboxView } from './views/InboxView.tsx';
 import { OrganizationsView } from './views/OrganizationsView.tsx';
 import { ProfileView } from './views/ProfileView.tsx';
@@ -171,6 +171,11 @@ export function HubApp(props: HubAppOptions) {
   const apiOk = useApiConnection();
   const actingPrincipal = useActingPrincipal();
 
+  createEffect(() => {
+    const resolved = hubSession();
+    setAuthenticatedPrincipal(resolved?.auth.mode !== 'dev' ? resolved?.session?.principal ?? null : null);
+  });
+  onCleanup(() => setAuthenticatedPrincipal(null));
   onMount(() => setPrincipalProvider(() => actingPrincipal()));
 
   const convexUrl = createMemo(() => {
