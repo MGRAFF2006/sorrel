@@ -2,7 +2,16 @@
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Treat dollar-sign replacement syntax in redaction masks literally, preventing
+  masks such as `$&` from reinserting the secret.
+- Parse quoted dotenv values with trailing comments correctly and reject
+  malformed quotes without printing their values.
+- Keep file-imported values when process-environment fallback is enabled, and
+  retain environment keys named `__proto__` during materialization.
+- Ship the YAML parser as a runtime dependency so production-only installs can
+  start the CLI. Refresh vulnerable YAML/URI parser lockfile entries.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

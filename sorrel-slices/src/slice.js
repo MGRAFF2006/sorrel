@@ -101,7 +101,7 @@ export function createSliceManifest(options) {
 }
 
 export function parseImports(source) {
-  const masked = maskCommentsAndStrings(source);
+  const { masked, codePositions } = maskCommentsAndStrings(source);
   const imports = [];
   const patterns = [
     { kind: "static", syntax: "import", regex: /\bimport\s+(?:type\s+)?(?:[^;"']*?\s+from\s*)?["']([^"']+)["']/g },
@@ -113,6 +113,10 @@ export function parseImports(source) {
   for (const pattern of patterns) {
     let match;
     while ((match = pattern.regex.exec(masked)) !== null) {
+      if (!codePositions.has(match.index)) {
+        pattern.regex.lastIndex = match.index + 1;
+        continue;
+      }
       imports.push({
         kind: pattern.kind,
         syntax: pattern.syntax,
@@ -376,6 +380,8 @@ function maskCommentsAndStrings(source) {
   let result = "";
   let state = "code";
   let escaped = false;
+  const codePositions = new Set();
+  const templateExpressions = [];
 
   for (let index = 0; index < source.length; index += 1) {
     const char = source[index];
@@ -391,7 +397,15 @@ function maskCommentsAndStrings(source) {
         state = "blockComment";
         index += 1;
       } else {
+        codePositions.add(index);
         result += char;
+        if (templateExpressions.length > 0) {
+          if (char === "{") templateExpressions[templateExpressions.length - 1] += 1;
+          if (char === "}" && --templateExpressions[templateExpressions.length - 1] === 0) {
+            templateExpressions.pop();
+            state = "template";
+          }
+        }
         if (char === "'") {
           state = "singleQuote";
           escaped = false;
@@ -439,6 +453,14 @@ function maskCommentsAndStrings(source) {
       continue;
     }
 
+    if (state === "template" && char === "$" && next === "{") {
+      result += next;
+      index += 1;
+      templateExpressions.push(1);
+      state = "code";
+      continue;
+    }
+
     if (
       (state === "singleQuote" && char === "'") ||
       (state === "doubleQuote" && char === "\"") ||
@@ -448,7 +470,7 @@ function maskCommentsAndStrings(source) {
     }
   }
 
-  return result;
+  return { masked: result, codePositions };
 }
 
 function isLocalSpecifier(specifier) {

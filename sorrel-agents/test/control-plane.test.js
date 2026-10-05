@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -34,4 +34,27 @@ test('claimPath rejects unknown agents', async () => {
     () => plane.claimPath({ agentId: 'missing', path: 'a.txt' }),
     /unknown agent/,
   );
+});
+
+test('claims with colons in agent ids and paths do not overwrite each other', async (t) => {
+  const workspace = mkdtempSync(join(tmpdir(), 'sorrel-agents-'));
+  t.after(() => rmSync(workspace, { recursive: true, force: true }));
+  const plane = new AgentControlPlane({ workspace });
+  await plane.registerAgent({ id: 'agent:one' });
+  await plane.registerAgent({ id: 'agent' });
+  await plane.claimPath({ agentId: 'agent:one', path: 'file' });
+  await plane.claimPath({ agentId: 'agent', path: 'one:file' });
+  assert.equal((await plane.activeWork()).claims.length, 2);
+  const restored = new AgentControlPlane({ workspace });
+  assert.equal((await restored.activeWork()).claims.length, 2);
+});
+
+test('failed persistence leaves no rejected registration or temporary files', async (t) => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'sorrel-agents-write-'));
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  const plane = new AgentControlPlane({ stateDir });
+  mkdirSync(join(stateDir, 'state.json'));
+  await assert.rejects(plane.registerAgent({ id: 'rejected' }));
+  assert.deepEqual((await plane.activeWork()).agents, []);
+  assert.deepEqual(readdirSync(stateDir), ['state.json']);
 });

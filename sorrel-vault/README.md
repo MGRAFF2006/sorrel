@@ -27,7 +27,7 @@ add custom AWS/1Password adapters here.
   access, mapped to Core-style `PolicyRequest`/`PolicyDecision` objects.
 - `scripts/lib/redaction.mjs` - redaction helpers for resolved values and
   SecretRef/env-style output.
-- `scripts/vault-cli.mjs` - dependency-free CLI (`list`, `grant`, `import`,
+- `scripts/vault-cli.mjs` - CLI (`list`, `grant`, `import`,
   `redact`) that composes the library modules; logic lives in
   `scripts/lib/cli.mjs`.
 

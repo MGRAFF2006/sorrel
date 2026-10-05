@@ -112,6 +112,23 @@ test("parseImports detects supported static forms and dynamic imports", () => {
   ]);
 });
 
+test("parseImports ignores import-like text in strings and templates", () => {
+  assert.deepEqual(parseImports(`
+    const example = 'require("./fake-common")';
+    const template = \`import "./fake-static"; export { value } from "./fake-export"; import("./fake-dynamic");\`;
+    const incomplete = \`import value from\`;
+    import value from "./real";
+    /* import "./comment"; */
+  `), [{ kind: "static", syntax: "import", specifier: "./real" }]);
+});
+
+test("parseImports still detects calls inside template expressions", () => {
+  assert.deepEqual(parseImports('const text = `${require("./real")}-${`${import("./lazy")}`}`;'), [
+    { kind: "static", syntax: "require", specifier: "./real" },
+    { kind: "dynamic", syntax: "import", specifier: "./lazy" }
+  ]);
+});
+
 function unresolvedKeys(manifest) {
   return manifest.unresolvedImports.map((item) => `${item.from}|${item.specifier}|${item.reason}`);
 }

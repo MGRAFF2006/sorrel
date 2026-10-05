@@ -28,7 +28,7 @@ export function parseDotEnv(source, { filePath = "<inline>" } = {}) {
       throw new Error(`${filePath}:${lineNumber}: invalid environment key ${JSON.stringify(key)}`);
     }
 
-    values.set(key, parseValue(rawValue));
+    values.set(key, parseValue(rawValue, `${filePath}:${lineNumber}`));
   }
 
   return values;
@@ -39,23 +39,30 @@ export async function loadDotEnvFile(filePath) {
   return parseDotEnv(source, { filePath });
 }
 
-function parseValue(rawValue) {
-  if (rawValue.length < 2) {
-    return rawValue;
-  }
-
+function parseValue(rawValue, location) {
   const quote = rawValue[0];
-  const last = rawValue.at(-1);
-
-  if ((quote === `"` || quote === "'") && last === quote) {
-    const inner = rawValue.slice(1, -1);
-    return quote === `"` ? unescapeDoubleQuoted(inner) : inner;
+  if (quote === `"` || quote === "'") {
+    for (let index = 1; index < rawValue.length; index += 1) {
+      if (quote === `"` && rawValue[index] === "\\") {
+        index += 1;
+        continue;
+      }
+      if (rawValue[index] !== quote) continue;
+      const trailing = rawValue.slice(index + 1).trim();
+      if (trailing && !trailing.startsWith("#")) {
+        throw new Error(`${location}: unexpected text after quoted value`);
+      }
+      const inner = rawValue.slice(1, index);
+      return quote === `"` ? unescapeDoubleQuoted(inner) : inner;
+    }
+    throw new Error(`${location}: unterminated quoted value`);
   }
 
   return stripInlineComment(rawValue);
 }
 
 function stripInlineComment(value) {
+  if (value.startsWith("#")) return "";
   const hashIndex = value.search(/\s#/);
   return hashIndex === -1 ? value : value.slice(0, hashIndex).trimEnd();
 }

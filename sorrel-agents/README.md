@@ -10,6 +10,9 @@ This alpha is a coordination aid, not an enforcement boundary or a complete
 agent orchestration system. Claims are advisory and state is local. Expect the
 API and behavior to change before a stable release.
 
+Persistent updates replace the state file atomically; failed writes reject the
+operation and preserve the previous in-memory registrations and claims.
+
 ## Usage
 
 ```js
