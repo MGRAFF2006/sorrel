@@ -23,11 +23,15 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Add explicit Hub repository linking and bounded comparison of recorded review
+  snapshots, including target history uploaded by CLI lane submission.
 - Add read-only Hub APIs for browsing synchronized repository trees and UTF-8
   files from named refs.
 
 ### Changed
 
+- Require verified sessions for non-development Hub mutations and bind review
+  attribution to the session principal.
 - Rebuild Sorrel Hub around repository-shaped project pages, a global Inbox,
   proposal-backed Work board, review workbench, and README-style organization
   and profile pages.

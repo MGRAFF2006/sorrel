@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import { createApp } from '../src/app.js';
 import { objectId } from '../src/blake3.js';
+import { HubClient } from '../../sorrel-sdk-js/src/index.js';
 
 const repoId = 'repo_sync_test';
 
@@ -96,6 +97,73 @@ function grantBody(extra = {}) {
     ...extra,
   };
 }
+
+test('proposal comparison uses recorded snapshots and previews added, modified, deleted and binary files', async () => {
+  await withSyncServer(async (baseUrl, app) => {
+    const put = (object) => { app.store.sync.put(repoId, object.bytes); return object.id; };
+    const file = (name, content) => ({ name, object: put(makeProtocolBlob(content)) });
+    const beforeTree = makeTree([file('same.txt', 'same'), file('edit.txt', 'before'), file('gone.txt', 'gone'), { ...file('mode.sh', 'echo hi'), mode: 'normal' }]);
+    const afterTree = makeTree([file('same.txt', 'same'), file('edit.txt', 'after'), file('added.txt', 'new'), file('binary.dat', '\0data'), file('large.txt', 'x'.repeat(512 * 1024 + 1)), { ...file('mode.sh', 'echo hi'), mode: 'executable' }]);
+    const target = makeSnapshot(put(beforeTree));
+    const source = makeSnapshot(put(afterTree), [put(target)]);
+    put(source);
+    const proposal = app.store.createProposal({ projectId: 'proj_test', title: 'Inspect changes', authorRef: 'user:local', syncRepoId: repoId, sourceSnapshot: source.id, targetSnapshot: target.id });
+    const client = new HubClient({ baseUrl });
+    app.store.sync.setRef(repoId, 'HEAD', target.id);
+    const response = await fetch(`${baseUrl}/admin/proposals/${proposal.id}/changes`);
+    assert.equal(response.status, 200);
+    const { data } = await response.json();
+    assert.equal(data.sourceSnapshot, source.id);
+    assert.equal(data.targetSnapshot, target.id);
+    assert.deepEqual((await client.proposalChanges(proposal.id)).data, data);
+    assert.deepEqual(data.changes.map(({ path, status }) => ({ path, status })), [
+      { path: 'added.txt', status: 'added' }, { path: 'binary.dat', status: 'added' },
+      { path: 'edit.txt', status: 'modified' }, { path: 'gone.txt', status: 'deleted' }, { path: 'large.txt', status: 'added' }, { path: 'mode.sh', status: 'modified' },
+    ]);
+    assert.equal(data.changes.find((c) => c.path === 'edit.txt').before.content, 'before');
+    assert.equal(data.changes.find((c) => c.path === 'edit.txt').after.content, 'after');
+    assert.equal(data.changes.find((c) => c.path === 'binary.dat').after.reason, 'unsupported_file');
+    assert.equal(data.changes.find((c) => c.path === 'large.txt').after.reason, 'file_too_large');
+    assert.equal(data.changes.find((c) => c.path === 'mode.sh').before.mode, 'normal');
+    assert.equal(data.changes.find((c) => c.path === 'mode.sh').after.mode, 'executable');
+    assert.equal((await fetch(`${baseUrl}/admin/proposals/${proposal.id}/changes/extra`)).status, 404);
+    assert.equal(app.store.sync.getRef(repoId, 'HEAD'), target.id, 'comparison never moves refs');
+    assert.equal((await fetch(`${baseUrl}/${repoId}/files?path=binary.dat&ref=HEAD`)).status, 404);
+  });
+});
+
+test('comparison reports unavailable snapshots and missing closure rather than an empty diff', async () => {
+  await withSyncServer(async (baseUrl, app) => {
+    const proposal = app.store.createProposal({ projectId: 'proj_test', title: 'Metadata only', authorRef: 'user:local' });
+    const endpoint = `${baseUrl}/admin/proposals/${proposal.id}/changes`;
+    const unavailable = await fetch(endpoint);
+    assert.equal(unavailable.status, 409);
+    assert.equal((await unavailable.json()).error.code, 'comparison_unavailable');
+    app.store.updateProposal(proposal.id, { syncRepoId: repoId, sourceSnapshot: 'aa'.repeat(32), targetSnapshot: 'bb'.repeat(32) });
+    const missing = await fetch(endpoint);
+    assert.equal(missing.status, 409);
+    assert.equal((await missing.json()).error.code, 'closure_incomplete');
+  });
+});
+
+test('comparison traverses nested trees and bounds the changed-file count', async () => {
+  await withSyncServer(async (baseUrl, app) => {
+    const put = (object) => { app.store.sync.put(repoId, object.bytes); return object.id; };
+    const blob = makeProtocolBlob('content');
+    const blobId = put(blob);
+    const nested = makeTree([{ name: 'nested.txt', object: blobId }]);
+    const before = makeSnapshot(put(makeTree([])));
+    const after = makeSnapshot(put(makeTree([{ name: 'src', type: 'directory', object: put(nested) }])));
+    put(before); put(after);
+    const proposal = app.store.createProposal({ projectId: 'proj_test', title: 'Nested', authorRef: 'user:local', syncRepoId: repoId, sourceSnapshot: after.id, targetSnapshot: before.id });
+    const endpoint = `${baseUrl}/admin/proposals/${proposal.id}/changes`;
+    assert.equal((await fetch(endpoint).then((r) => r.json())).data.changes[0].path, 'src/nested.txt');
+    const huge = makeSnapshot(put(makeTree(Array.from({ length: 501 }, (_, i) => ({ name: `${i}.txt`, object: blobId })))));
+    put(huge);
+    app.store.updateProposal(proposal.id, { sourceSnapshot: huge.id });
+    assert.equal((await fetch(endpoint)).status, 413);
+  });
+});
 
 test('push flow: missing -> upload -> advance ref', async () => {
   await withSyncServer(async (baseUrl) => {

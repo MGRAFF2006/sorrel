@@ -1,3 +1,5 @@
+import { PROPOSAL_STATUS_TRANSITIONS } from './models.js';
+
 /**
  * Modular install capabilities advertised to clients.
  * `GET /capabilities` hides dead nav when modules aren’t installed.
@@ -5,6 +7,7 @@
 
 /**
  * @typedef {{
+ *   collaboration: { proposalTransitions: Record<string, string[]> },
  *   modules: {
  *     core: true,
  *     actions: boolean,
@@ -57,6 +60,7 @@ export function resolveCapabilities(options = {}) {
   }
 
   return {
+    collaboration: { proposalTransitions: PROPOSAL_STATUS_TRANSITIONS },
     modules: {
       core: true,
       actions,

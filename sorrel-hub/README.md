@@ -99,6 +99,13 @@ These adapters authenticate a principal; authorization still requires trusted
 Core grant references. WorkOS remains an adapter skeleton without sealed
 sessions, and the browser UI does not provide an IdP login flow in this alpha.
 
+In OIDC/WorkOS mode, every mutation requires a verified session and returns
+`401 authentication_required` without one. A development acting-principal
+header cannot substitute for that session. Project, proposal, comment, and run
+attribution is bound to the session instead of trusting a claimed body author.
+Read endpoints remain public in this alpha; this is not complete production
+access control. Development-mode anonymous metadata callers remain compatible.
+
 ### Trusted grants (sync push/pull)
 
 Mutating sync routes evaluate Core policy against a trusted grant map. The
@@ -263,6 +270,27 @@ Proposal records may carry lane-submit fields: `syncRepoId`, `sourceLane`,
 
 - `GET|POST /projects`
 - `GET /projects/:id`
+
+- `POST /projects/:id/repositories` with `{ "syncRepoId": "repo_…" }` links
+  an already synchronized repository to a project. Repeating the link is
+  idempotent; unknown repositories or projects return 404. The updated project
+  is returned as `{ "data": ... }` with its `repositoryIds`.
+- `GET /admin/proposals/:id/changes` compares the proposal's recorded
+  `targetSnapshot` (before) and `sourceSnapshot` (after), returning
+  `{ "data": { "repoId", "sourceSnapshot", "targetSnapshot", "changes" } }`.
+  Each change includes `path`, `status` (`added`, `modified`, `deleted`), and
+  `before`/`after` previews with `content`, optional `objectId`, and optional
+  `reason`. Binary and files above 512 KiB have null content; total text is
+  bounded to 4 MiB, snapshots to 10,000 entries, and comparisons to 500 changed
+  files. Missing comparison snapshots return 409; excessive counts return 413.
+  This endpoint never performs a merge or advances a ref. Proposal status
+  updates likewise record metadata only.
+- `/capabilities` includes `collaboration.proposalTransitions`, derived from
+  the same state-transition rules that validate proposal mutations.
+
+Admin proposal creation, updates, and lane submissions share verified
+attribution and best-effort Convex mirroring. Lane-submit reuse is scoped to
+the project as well as repository, lane, and source snapshot.
 
 These endpoints accept the same Core/protocol reference fields used by projects:
 

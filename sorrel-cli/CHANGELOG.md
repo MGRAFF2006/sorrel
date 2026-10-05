@@ -12,6 +12,10 @@ All notable changes to `sorrel-cli` are documented here.
   temporary files, and recover interrupted lane-head, HEAD, and change-index
   publication without advancing HEAD on a failed preparation.
 
+### Changed
+
+- Record and upload the target lane snapshot during review submission so
+  diverged histories can be compared without changing target refs.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

@@ -42,7 +42,8 @@ Hub proposal via `/collaboration/lane-submit`. Remaining: stacked changes UX.
 
 ### 5. Hub collaboration surface (`sorrel-hub` + `sorrel-hub-ui` + `sorrel-hub-web`) — IN PROGRESS
 
-FS metadata, Sync view, and the proposal/review write path are shipped. Shared
+FS metadata, guided repository connection, bounded file/snapshot inspection,
+recoverable dialogs, and the proposal/review write path are shipped. Shared
 Solid UI (`sorrel-hub-ui`) + thin web host, `GET /capabilities`, AuthAdapter
 (WorkOS/OIDC JWKS / dev), `GET /session`, and Convex metadata spike
 (`proposals.countOpen`) are the Phase-1 foundation. Remaining: WorkOS sealed

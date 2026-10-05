@@ -2,6 +2,11 @@
 
 Experimental, minimal JavaScript client for the Sorrel Hub HTTP API.
 
+`client.linkProjectRepository(projectId, syncRepoId)` associates an existing
+synchronized repository with a project. `client.proposalChanges(proposalId)`
+returns typed before/after previews for the review's recorded snapshots;
+missing snapshot comparisons fail with HTTP 409 rather than an empty diff.
+
 Talks to a real `sorrel-hub` process — no mocks. Mirrors Hub routes
 (`/healthz`, `/projects`, `/admin/*`, sync refs) without inventing permission
 logic.

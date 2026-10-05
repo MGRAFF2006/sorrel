@@ -72,6 +72,10 @@ export function createApp(options = {}) {
           });
         }
 
+        if (authAdapter.mode !== 'dev' && !session && !['GET', 'HEAD'].includes(request.method)) {
+          throw new HttpError(401, 'a verified Hub session is required', 'authentication_required');
+        }
+
         const routeContext = {
           store,
           url,

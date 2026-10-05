@@ -149,7 +149,10 @@ Hub separates product metadata from VCS transport:
   missing-object negotiation, closure checks, and fast-forward/expected-head
   enforcement.
 - `/capabilities` describes installed modules, auth mode, deployment shape, and
-  optional Convex availability. `/session` exposes the resolved Hub session.
+  optional Convex availability, including the server-owned proposal transitions.
+  `/session` exposes the resolved Hub session. Non-development mutations require
+  that verified session; creator, author, and requester attribution uses its
+  principal. Read access remains public in this alpha.
 - The shared SolidJS UI calls Hub through a host-injected transport: the
   browser host's `/api` proxy or the desktop shell's scoped Tauri HTTP client.
 - The desktop shell currently permits only loopback Hub URLs and does not claim
@@ -159,6 +162,15 @@ Hub separates product metadata from VCS transport:
   bearer credentials stay in the platform keychain/keystore.
 - Optional Convex state mirrors proposal metadata only. VCS objects and refs do
   not move into Convex.
+
+Projects can explicitly link an already synchronized repository. Reviews record
+source and target snapshot IDs; comparison reads those immutable trees without
+advancing refs or performing a merge. CLI submission uploads both closures when
+pushing, including diverged target history. Preview limits bound tree traversal,
+changed files, and text bytes; binary and large files show unavailable previews.
+The shared UI distinguishes closed reviews from integrated reviews and labels
+the metadata transition “Mark as merged.” Native dialogs and pending/error states
+keep mutations keyboard-accessible and retryable.
 
 The development stack is intentionally modular: Hub API, shared web/desktop UI,
 desktop host, browser host, native mobile companion, and public website are

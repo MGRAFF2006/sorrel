@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+
+- Add typed project repository linking and proposal snapshot comparison methods.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

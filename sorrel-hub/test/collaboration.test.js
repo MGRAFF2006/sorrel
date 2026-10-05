@@ -290,3 +290,31 @@ test('list proposals filters by status and sourceLane', async () => {
     assert.equal(laneB.data[0].title, 'B');
   });
 });
+
+test('admin and lane submissions share verified attribution and mirroring', async () => {
+  const principal = { type: 'user', id: 'verified' };
+  const mirrored = [];
+  await withServer(async (baseUrl) => {
+    const payload = {
+      projectId: 'proj_one', title: 'Review', syncRepoId: 'repo_one', sourceLane: 'lane_feature',
+      sourceSnapshot: 'aa'.repeat(32), authorPrincipal: { type: 'user', id: 'forged' },
+      authorRef: 'user:also-forged',
+    };
+    const admin = await postJson(`${baseUrl}/admin/proposals`, payload).then((r) => r.json());
+    const lane = await postJson(`${baseUrl}/collaboration/lane-submit`, { ...payload, projectId: 'proj_two' }).then((r) => r.json());
+    for (const proposal of [admin.data, lane.data]) {
+      assert.deepEqual(proposal.authorPrincipal, principal);
+      assert.equal(proposal.authorRef, 'user:verified');
+    }
+    assert.notEqual(admin.data.id, lane.data.id, 'idempotency is scoped to the project');
+    await patchJson(`${baseUrl}/admin/proposals/${admin.data.id}`, { status: 'open' });
+    assert.deepEqual(mirrored.map((p) => p.id), [admin.data.id, lane.data.id, admin.data.id]);
+    const comment = await postJson(`${baseUrl}/admin/review-comments`, {
+      proposalId: admin.data.id, body: 'Verified comment', authorRef: 'user:forged',
+    }).then((r) => r.json());
+    assert.equal(comment.data.authorRef, 'user:verified');
+  }, {
+    authAdapter: { mode: 'oidc', async resolveSession() { return { principal, sessionId: 'verified-session', authMode: 'oidc' }; } },
+    convexMirror: { async upsertProposal(proposal) { mirrored.push(proposal); } },
+  });
+});

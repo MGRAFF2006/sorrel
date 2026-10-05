@@ -1464,11 +1464,21 @@ fn lane_submit_output(args: LaneSubmitArgs) -> io::Result<CommandOutput> {
     let remotes = repo::load_remotes()?;
     let (remote_name, remote) = remotes.resolve(Some(&args.remote))?;
 
+    let target_snapshot = repo::load_lane_head(&args.target_lane)?;
     let do_push = args.push && !args.no_push;
     let mut uploaded = 0usize;
     if do_push {
         let push_result = sync::push(&store, &remote, &remote_name, "HEAD", &snapshot_id, None)?;
         uploaded = push_result.uploaded;
+        if let Some(target_hex) = target_snapshot.as_deref() {
+            let target_id = target_hex.parse::<ObjectId>().map_err(|error| {
+                io::Error::other(format!("invalid target lane snapshot id: {error}"))
+            })?;
+            if target_id != snapshot_id {
+                // A diverged target is not reachable from the pushed source snapshot.
+                uploaded += sync::upload_snapshot_closure(&store, &remote, &target_id)?;
+            }
+        }
     }
 
     let project_id = match args.project_id {
@@ -1479,13 +1489,14 @@ fn lane_submit_output(args: LaneSubmitArgs) -> io::Result<CommandOutput> {
     let title = args
         .title
         .unwrap_or_else(|| format!("Submit {source_lane}"));
-    let result = hub::lane_submit(
+    let result = hub::lane_submit_with_target_snapshot(
         &remote,
         &project_id,
         &title,
         &source_lane,
         &snapshot_hex,
         &args.target_lane,
+        target_snapshot.as_deref(),
     )?;
 
     let proposal_id = result
