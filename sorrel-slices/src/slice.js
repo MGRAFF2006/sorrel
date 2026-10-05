@@ -463,7 +463,8 @@ function toProjectPath(projectRoot, absPath) {
     throw new SliceError(`Path is outside project root: ${absPath}`);
   }
 
-  return normalizeProjectPath(path.relative(projectRoot, absPath));
+  // Convert native separators only; backslashes are literal filename characters on POSIX.
+  return path.relative(projectRoot, absPath).split(path.sep).join("/") || ".";
 }
 
 function normalizeProjectPath(value) {

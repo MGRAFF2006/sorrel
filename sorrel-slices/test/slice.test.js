@@ -192,6 +192,46 @@ function temporaryProject(t) {
   return { projectRoot, outside };
 }
 
+test("preserves literal POSIX backslashes without reading normalized outside paths", { skip: path.sep !== "/" }, (t) => {
+  const { projectRoot, outside } = temporaryProject(t);
+  const fileName = "..\\outside\\secret.ts";
+  fs.writeFileSync(path.join(projectRoot, "index.ts"), `import "./${fileName}";\n`);
+  fs.writeFileSync(path.join(projectRoot, fileName), "export const harmless = true;\n");
+  fs.writeFileSync(path.join(outside, "secret.ts"), 'import "sensitive-external-package-name";\n');
+
+  const manifest = createSliceManifest({ projectRoot, entrypoint: "index.ts" });
+  assert.deepEqual(manifest.includedFiles, [fileName, "index.ts"]);
+  assert.deepEqual(manifest.unresolvedImports, []);
+
+  const direct = createSliceManifest({ projectRoot, entrypoint: fileName });
+  assert.deepEqual(direct.entrypoints, [fileName]);
+  assert.deepEqual(direct.includedFiles, [fileName]);
+  assert.deepEqual(direct.unresolvedImports, []);
+});
+
+test("preserves literal POSIX backslashes in metadata directories", { skip: path.sep !== "/" }, (t) => {
+  const { projectRoot, outside } = temporaryProject(t);
+  const directoryName = "..\\outside";
+  const directory = path.join(projectRoot, directoryName);
+  fs.mkdirSync(directory);
+  fs.writeFileSync(path.join(projectRoot, "index.ts"), `import "./${directoryName}/index.ts";\n`);
+  fs.writeFileSync(path.join(directory, "index.ts"), "export const harmless = true;\n");
+  fs.writeFileSync(path.join(directory, "package.json"), '{"name":"inside-project"}');
+  fs.writeFileSync(path.join(directory, "tsconfig.json"), "{}");
+  fs.writeFileSync(path.join(outside, "index.ts"), 'import "sensitive-external-package-name";\n');
+  fs.writeFileSync(path.join(outside, "package.json"), "private metadata");
+
+  const manifest = createSliceManifest({ projectRoot, entrypoint: "index.ts" });
+  assert.deepEqual(manifest.includedFiles, [
+    `${directoryName}/index.ts`,
+    `${directoryName}/package.json`,
+    `${directoryName}/tsconfig.json`,
+    "index.ts"
+  ]);
+  assert.deepEqual(manifest.unresolvedImports, []);
+  assert.equal(manifest.detectedPackageMetadata[0].name, "inside-project");
+});
+
 function unresolvedKeys(manifest) {
   return manifest.unresolvedImports.map((item) => `${item.from}|${item.specifier}|${item.reason}`);
 }
