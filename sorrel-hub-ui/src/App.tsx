@@ -171,7 +171,10 @@ export function HubApp(props: HubAppOptions) {
   const effectivePrincipal = useEffectivePrincipal();
 
   onMount(() => setPrincipalProvider(effectivePrincipal));
-  createEffect(() => setSessionPrincipal(hubSession()?.session?.principal ?? null));
+  createEffect(() => {
+    const info = hubSession();
+    setSessionPrincipal(info?.auth.mode === 'dev' ? null : info?.session?.principal ?? null);
+  });
   onCleanup(() => {
     setSessionPrincipal(null);
     setPrincipalProvider(null);

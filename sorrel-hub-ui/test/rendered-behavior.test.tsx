@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { HubApp } from '../src/App.tsx';
 import { createWebPlatform } from '../src/platform.ts';
+import { LOCAL_PRINCIPAL } from '../src/api.ts';
+import { setActingPrincipal } from '../src/session.ts';
 
 type FetchCall = { url: string; init?: RequestInit };
 
@@ -12,7 +14,7 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function installHubFetch(projects: unknown[] = [], options: { authenticated?: boolean; rejectedMutation?: boolean } = {}) {
+function installHubFetch(projects: unknown[] = [], options: { authenticated?: boolean; developmentSession?: boolean; rejectedMutation?: boolean } = {}) {
   const calls: FetchCall[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -32,6 +34,10 @@ function installHubFetch(projects: unknown[] = [], options: { authenticated?: bo
       if (options.authenticated) return json({ data: {
         auth: { mode: 'oidc', session: 'bearer' },
         session: { principal: { type: 'user', id: 'signed-in' }, sessionId: 'session', authMode: 'oidc', idpSubject: 'signed-in', expiresAt: null },
+      } });
+      if (options.developmentSession) return json({ data: {
+        auth: { mode: 'dev', session: 'none' },
+        session: { principal: { type: 'user', id: 'maintainer' }, sessionId: 'dev:user:maintainer', authMode: 'dev', idpSubject: 'user:maintainer', expiresAt: null },
       } });
       return json({ data: { auth: { mode: 'dev', session: 'none' }, session: null } });
     }
@@ -80,9 +86,38 @@ function installHubFetch(projects: unknown[] = [], options: { authenticated?: bo
   return calls;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  setActingPrincipal(LOCAL_PRINCIPAL);
+  localStorage.clear();
+});
 
 describe('HubApp rendered behavior', () => {
+  test('development session hints do not pin the identity selector or write headers', async () => {
+    window.history.pushState({}, '', '/profile');
+    const calls = installHubFetch([], { developmentSession: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+    await screen.findByRole('heading', { level: 1 });
+    await waitFor(() => expect(calls.filter((call) => call.url === '/api/session')).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const identity = await screen.findByRole('combobox', { name: 'Acting principal' });
+    await fireEvent.change(identity, { target: { value: 'user:reviewer' } });
+    expect(identity).toHaveValue('user:reviewer');
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'reviewer' })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('link', { name: /^Projects$/ }));
+    await screen.findByText('No projects yet');
+    await fireEvent.click((await screen.findAllByRole('button', { name: 'Create project' }))[0]);
+    await fireEvent.input(screen.getByLabelText('Organization'), { target: { value: 'org_local' } });
+    await fireEvent.input(screen.getByLabelText('Project name'), { target: { value: 'Platform' } });
+    await fireEvent.submit(screen.getByRole('button', { name: 'Create and continue' }).closest('form')!);
+    await waitFor(() => expect(calls.some((call) => call.url === '/api/projects' && call.init?.method === 'POST')).toBe(true));
+    const create = calls.find((call) => call.url === '/api/projects' && call.init?.method === 'POST');
+    expect(create?.init?.headers).toMatchObject({
+      'x-sorrel-acting-principal': JSON.stringify({ type: 'user', id: 'reviewer' }),
+    });
+  });
+
   test('uses the authenticated Hub principal without persisting it as a development hint', async () => {
     window.history.pushState({}, '', '/profile');
     installHubFetch([], { authenticated: true });
