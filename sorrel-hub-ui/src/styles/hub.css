@@ -215,7 +215,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
 
 /* Proposal-backed work board */
 .work-page { min-width: 100%; min-height: 100%; padding: 25px 28px 55px; overflow-x: auto; }
-.kanban-board { min-width: 1040px; display: grid; grid-template-columns: repeat(4,minmax(240px,1fr)); gap: 10px; }
+.kanban-board { min-width: 1240px; display: grid; grid-template-columns: repeat(5,minmax(240px,1fr)); gap: 10px; }
 .kanban-column { border: 1px solid var(--border); background: rgba(18,22,28,.42); }
 .kanban-column > header { min-height: 67px; padding: 12px; border-bottom: 1px solid var(--border); }
 .kanban-column > header > div { display: flex; align-items: center; gap: 8px; font-size: 10px; }
@@ -449,3 +449,25 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
   .split.has-detail, .sync-split { grid-template-columns: 1fr; overflow: visible; }
   .review-workbench > .surface, .sync-split > .surface { border-right: 0; border-bottom: 1px solid var(--border); }
 }
+
+.native-dialog { border: 1px solid var(--border); color: var(--fg); background: var(--bg-elev); padding: 0; }
+.native-dialog::backdrop { background: rgba(8,10,14,.8); backdrop-filter: blur(5px); }
+.native-dialog .form-card { margin: 0; padding: 20px; }
+.mutation-content { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.connection-guide { padding: 18px; margin-bottom: 18px; }
+.connection-guide pre { overflow: auto; padding: 12px; background: var(--bg-deep); }
+.connection-guide form { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
+
+.file-card, .review-changes { min-width: 0; margin-top: 18px; }
+.file-card .detail-head { padding: 12px; }
+.source-preview { overflow: auto; max-height: 65vh; margin: 0; padding: 10px 0; background: var(--bg-deep); font: 12px/1.6 var(--mono); }
+.source-line { display: flex; min-width: max-content; }
+.line-number { display: inline-block; min-width: 4em; padding: 0 1em; color: var(--muted); text-align: right; user-select: none; }
+.changed-file { border: 1px solid var(--border); margin: 12px 0; }
+.changed-file summary { display: flex; gap: 12px; align-items: center; padding: 10px; cursor: pointer; overflow-wrap: anywhere; }
+.comparison-panes { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; background: var(--border); }
+.comparison-panes section { min-width: 0; background: var(--bg-elev); }
+.comparison-panes h3 { margin: 0; padding: 8px; font-size: 12px; }
+.comparison-panes .source-preview { max-height: 40vh; }
+@media (max-width: 700px) { .comparison-panes { grid-template-columns: minmax(0,1fr); } }

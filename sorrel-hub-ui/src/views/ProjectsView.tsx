@@ -1,11 +1,13 @@
 import { A, useNavigate } from '@solidjs/router';
 import { createResource, createSignal, For, Show } from 'solid-js';
+import type { Organization } from '../domain.ts';
 import { apiGet, apiPost, unwrapList } from '../api.ts';
 import {
   EmptyState,
   ErrorText,
   FormStatus,
   Loading,
+  Modal,
   PageHeader,
   StatusPill,
 } from '../components/ui.tsx';
@@ -37,6 +39,14 @@ export function ProjectsHome() {
     },
   );
 
+  const [organizations] = createResource(async () => unwrapList(await apiGet('/admin/organizations')) as Organization[]);
+  const organizationOptions = () => {
+    const options = new Map<string, string>([['org_local', 'Local workspace']]);
+    for (const org of organizations() ?? []) if (org.id) options.set(org.id, org.name ?? org.id);
+    for (const project of projects() ?? []) if (project.organizationId && !options.has(project.organizationId)) options.set(project.organizationId, project.organizationId);
+    return [...options];
+  };
+
   function openProject(id: string) {
     navigate(`/projects/${encodeURIComponent(id)}`);
   }
@@ -45,6 +55,7 @@ export function ProjectsHome() {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const data = Object.fromEntries(new FormData(form).entries());
+    if (status() === 'Creating…') return;
     setStatusError(false);
     setStatus('Creating…');
     try {
@@ -99,10 +110,8 @@ export function ProjectsHome() {
       </div>
 
       <Show when={creating()}>
-        <div class="dialog-backdrop" role="presentation" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) setCreating(false);
-        }}>
-          <form class="form-card project-dialog" role="dialog" aria-modal="true" aria-labelledby="create-project-title" onSubmit={onCreate}>
+        <Modal labelledBy="create-project-title" onClose={() => setCreating(false)}>
+          <form class="form-card" onSubmit={onCreate}>
             <div class="dialog-heading">
               <div>
                 <span class="eyebrow">01 / New workspace</span>
@@ -114,7 +123,10 @@ export function ProjectsHome() {
             <div class="form-grid two">
             <label>
               <span>Organization</span>
-              <input name="organizationId" required placeholder="Your team" autocomplete="off" />
+              <select name="organizationId" required>
+                <For each={organizationOptions()}>{([id, name]) => <option value={id}>{name}</option>}</For>
+              </select>
+              <Show when={organizations.error}><span class="error">Organizations could not be loaded. Local workspace remains available.</span></Show>
             </label>
             <label>
               <span>Project name</span>
@@ -127,11 +139,11 @@ export function ProjectsHome() {
             </label>
             <div class="dialog-actions">
               <button type="button" class="ghost" onClick={() => setCreating(false)}>Cancel</button>
-              <button type="submit">Create and continue <span aria-hidden="true">→</span></button>
+              <button type="submit" disabled={status() === 'Creating…'}>Create and continue <span aria-hidden="true">→</span></button>
             </div>
             <FormStatus message={status()} error={statusError()} />
           </form>
-        </div>
+        </Modal>
       </Show>
 
       <div class="surface surface-flush" aria-live="polite">

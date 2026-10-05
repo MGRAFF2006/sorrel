@@ -1,11 +1,12 @@
 import { A, Route, Router, useParams, type RouteSectionProps } from '@solidjs/router';
-import { createMemo, createResource, createSignal, For, onMount, Show, type ParentProps } from 'solid-js';
+import { createEffect, createMemo, createResource, For, onCleanup, onMount, Show, type ParentProps } from 'solid-js';
 import {
   apiGet,
   fetchCapabilities,
   fetchSession,
   setPrincipalProvider,
   unwrapList,
+  useApiConnection,
   type HubCapabilities,
   type HubSessionInfo,
 } from './api.ts';
@@ -15,7 +16,7 @@ import { useOpenProposalsCount, useOpenProposalsCountFromHub } from './convex/op
 import type { Project, Proposal } from './domain.ts';
 import { initials } from './domain.ts';
 import type { Platform } from './platform.ts';
-import { DEV_IDENTITY_PRESETS, setActingPrincipal, useActingPrincipal } from './session.ts';
+import { DEV_IDENTITY_PRESETS, setActingPrincipal, setSessionPrincipal, useEffectivePrincipal } from './session.ts';
 import { InboxView } from './views/InboxView.tsx';
 import { OrganizationsView } from './views/OrganizationsView.tsx';
 import { ProfileView } from './views/ProfileView.tsx';
@@ -35,7 +36,7 @@ function IdentityControl(props: {
   capabilities: HubCapabilities | null | undefined;
   hubSession: HubSessionInfo | null | undefined;
 }) {
-  const principal = useActingPrincipal();
+  const principal = useEffectivePrincipal();
   const mode = () => props.capabilities?.auth.mode ?? props.hubSession?.auth.mode ?? 'dev';
   const value = () => `${principal().type}:${principal().id}`;
 
@@ -167,10 +168,18 @@ function ProjectLayout(props: RouteSectionProps) {
 export function HubApp(props: HubAppOptions) {
   const [capabilities] = createResource(fetchCapabilities);
   const [hubSession, { refetch: refetchSession }] = createResource(fetchSession);
-  const [apiOk, setApiOk] = createSignal<boolean | null>(null);
-  const actingPrincipal = useActingPrincipal();
+  const apiOk = useApiConnection();
+  const effectivePrincipal = useEffectivePrincipal();
 
-  onMount(() => setPrincipalProvider(() => actingPrincipal()));
+  createEffect(() => {
+    const resolved = hubSession();
+    setSessionPrincipal(resolved?.auth.mode !== 'dev' ? resolved?.session?.principal ?? null : null);
+  });
+  onCleanup(() => {
+    setSessionPrincipal(null);
+    setPrincipalProvider(null);
+  });
+  onMount(() => setPrincipalProvider(effectivePrincipal));
 
   const convexUrl = createMemo(() => {
     if (props.convexUrl) return props.convexUrl;
@@ -186,10 +195,9 @@ export function HubApp(props: HubAppOptions) {
     void (async () => {
       try {
         await apiGet('/healthz');
-        setApiOk(true);
         void refetchSession();
       } catch {
-        setApiOk(false);
+        // apiRequest records the failed connection for the shell.
       }
     })();
   });

@@ -70,6 +70,27 @@ pub fn lane_submit(
     source_snapshot: &str,
     target_lane: &str,
 ) -> io::Result<LaneSubmitResult> {
+    lane_submit_with_target_snapshot(
+        remote,
+        project_id,
+        title,
+        source_lane,
+        source_snapshot,
+        target_lane,
+        None,
+    )
+}
+
+/// Submit a review with an immutable target snapshot for comparison.
+pub fn lane_submit_with_target_snapshot(
+    remote: &Remote,
+    project_id: &str,
+    title: &str,
+    source_lane: &str,
+    source_snapshot: &str,
+    target_lane: &str,
+    target_snapshot: Option<&str>,
+) -> io::Result<LaneSubmitResult> {
     let base = remote.url.trim_end_matches('/');
     let token = hub_bearer_token();
     let body = json!({
@@ -79,6 +100,7 @@ pub fn lane_submit(
         "sourceLane": source_lane,
         "targetLane": target_lane,
         "sourceSnapshot": source_snapshot,
+        "targetSnapshot": target_snapshot,
         "authorPrincipal": serde_json::from_str::<Value>(DEFAULT_ACTING_PRINCIPAL)
             .unwrap_or_else(|_| json!({"type":"user","id":"local"})),
         "open": true,

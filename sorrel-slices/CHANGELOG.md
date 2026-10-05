@@ -8,6 +8,8 @@
   the project root, and report such imports as `outside_project_root` without
   reading their contents. Preserve links within the project and symlinked roots.
 - Accept valid project paths whose names begin with `..`.
+- Ignore import-like examples inside strings, template text, and regex literals
+  while retaining dependency calls in template expressions and division operands.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

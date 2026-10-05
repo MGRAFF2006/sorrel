@@ -177,3 +177,38 @@ test('resolveActingPrincipal prefers AuthAdapter session over header', async () 
   );
   assert.deepEqual(principal, { type: 'user', id: 'session' });
 });
+
+test('authenticated deployments reject anonymous mutations and forged development headers', async () => {
+  for (const mode of ['oidc', 'workos']) {
+    const app = createApp({ env: { SORREL_HUB_AUTH: mode, SORREL_OIDC_ISSUER: 'https://idp.invalid' } });
+    const { server, url } = await listen(app);
+    try {
+      for (const [method, path] of [
+        ['POST', '/projects'], ['POST', '/admin/organizations'], ['POST', '/admin/proposals'],
+        ['PATCH', '/admin/proposals/prop_test'], ['POST', '/admin/review-comments'],
+        ['POST', '/admin/workflow-runs'], ['POST', '/collaboration/lane-submit'],
+        ['POST', '/repo_test/objects'], ['POST', '/repo_test/refs/HEAD'],
+        ['POST', '/projects/proj_test/repositories'],
+      ]) {
+        const response = await fetch(`${url}${path}`, {
+          method,
+          headers: { 'content-type': 'application/json', 'x-sorrel-acting-principal': '{"type":"user","id":"forged"}' },
+          body: '{}',
+        });
+        assert.equal(response.status, 401, `${mode} ${method} ${path}`);
+        assert.equal((await response.json()).error.code, 'authentication_required');
+      }
+      assert.equal(app.store.listProjects().length, 0);
+      assert.equal((await fetch(`${url}/session`).then((r) => r.json())).data.session, null);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+});
+
+test('non-development principal resolution never falls back to a claimed header', async () => {
+  const { resolveActingPrincipal } = await import('../src/policy-guard.js');
+  assert.throws(() => resolveActingPrincipal({ headers: {
+    'x-sorrel-acting-principal': '{"type":"user","id":"forged"}',
+  } }, { authAdapter: { mode: 'oidc' }, session: null }), { statusCode: 401 });
+});

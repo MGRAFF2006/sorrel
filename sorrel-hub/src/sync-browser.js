@@ -52,6 +52,18 @@ export function browseTextFile(repoId, refName, path, store) {
   }
 
   const objectId = requireEntryObjectId(entry);
+  const preview = readTextBlob(repoId, objectId, store);
+  return {
+    repoId,
+    ref: refName,
+    path: segments.join('/'),
+    objectId,
+    ...preview,
+    snapshot: snapshotSummary(location.snapshotId, location.snapshot),
+  };
+}
+
+function readTextBlob(repoId, objectId, store) {
   const bytes = getObject(store, repoId, objectId);
   if (!bytes.subarray(0, BLOB_PREFIX.length).equals(BLOB_PREFIX)) {
     throw new HttpError(422, `object ${objectId} is not a Sorrel blob`, 'invalid_sync_object');
@@ -60,6 +72,9 @@ export function browseTextFile(repoId, refName, path, store) {
   const content = bytes.subarray(BLOB_PREFIX.length);
   if (content.length > MAX_TEXT_FILE_BYTES) {
     throw new HttpError(413, 'file is too large to preview', 'file_too_large');
+  }
+  if (content.includes(0)) {
+    throw new HttpError(415, 'file contains binary data', 'unsupported_file');
   }
 
   let text;
@@ -70,15 +85,77 @@ export function browseTextFile(repoId, refName, path, store) {
   }
 
   return {
-    repoId,
-    ref: refName,
-    path: segments.join('/'),
-    objectId,
     size: content.length,
     encoding: 'utf-8',
     content: text,
-    snapshot: snapshotSummary(location.snapshotId, location.snapshot),
   };
+}
+
+/** Read-only comparison of two recorded snapshots, never a merge decision. */
+export function browseSnapshotChanges(proposal, store) {
+  const { syncRepoId: repoId, sourceSnapshot, targetSnapshot } = proposal;
+  if (!repoId || !isObjectId(sourceSnapshot) || !isObjectId(targetSnapshot)) {
+    throw new HttpError(409, 'this review needs recorded source and target snapshots to compare', 'comparison_unavailable');
+  }
+  const before = snapshotFiles(repoId, targetSnapshot, store);
+  const after = snapshotFiles(repoId, sourceSnapshot, store);
+  const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
+  const changed = paths.filter((path) => before.get(path)?.objectId !== after.get(path)?.objectId || before.get(path)?.mode !== after.get(path)?.mode);
+  if (changed.length > 500) throw new HttpError(413, 'review exceeds the 500-file preview limit', 'comparison_too_large');
+  let remainingBytes = 4 * 1024 * 1024;
+  const preview = (entry) => {
+    if (!entry) return { content: null };
+    try {
+      const text = readTextBlob(repoId, entry.objectId, store);
+      if (text.size > remainingBytes) return { objectId: entry.objectId, mode: entry.mode, content: null, reason: 'preview_limit' };
+      remainingBytes -= text.size;
+      return { objectId: entry.objectId, mode: entry.mode, content: text.content };
+    } catch (error) {
+      if (error instanceof HttpError && [413, 415].includes(error.statusCode)) {
+        return { objectId: entry.objectId, mode: entry.mode, content: null, reason: error.code };
+      }
+      throw error;
+    }
+  };
+  return {
+    repoId, sourceSnapshot, targetSnapshot,
+    changes: changed.map((path) => ({
+      path,
+      status: !before.has(path) ? 'added' : !after.has(path) ? 'deleted' : 'modified',
+      before: preview(before.get(path)),
+      after: preview(after.get(path)),
+    })),
+  };
+}
+
+function snapshotFiles(repoId, snapshotId, store) {
+  const snapshot = requireObjectKind(store, repoId, snapshotId, 'snapshot');
+  const root = refObjectId(snapshot.rootTree ?? snapshot.tree ?? snapshot.root);
+  if (!isObjectId(root)) throw new HttpError(422, 'snapshot has no valid root tree', 'invalid_sync_object');
+  const files = new Map();
+  let entryCount = 0;
+  function visit(objectId, prefix, ancestors) {
+    if (ancestors.has(objectId) || ancestors.size >= 64) {
+      throw new HttpError(422, 'snapshot tree is cyclic or too deep to preview', 'invalid_sync_object');
+    }
+    const tree = requireObjectKind(store, repoId, objectId, 'tree');
+    if (!Array.isArray(tree.entries)) throw new HttpError(422, 'tree entries must be an array', 'invalid_sync_object');
+    const nextAncestors = new Set([...ancestors, objectId]);
+    const names = new Set();
+    for (const raw of tree.entries) {
+      if (++entryCount > 10000) throw new HttpError(413, 'snapshot exceeds the 10000-entry preview limit', 'comparison_too_large');
+      const entry = normalizeTreeEntry(raw);
+      if (normalizeBrowsePath(entry.name).length !== 1 || names.has(entry.name)) {
+        throw new HttpError(422, 'tree entry name is invalid or duplicated', 'invalid_sync_object');
+      }
+      names.add(entry.name);
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.type === 'directory') visit(entry.objectId, path, nextAncestors);
+      else files.set(path, entry);
+    }
+  }
+  visit(root, '', new Set());
+  return files;
 }
 
 function resolveLocation(repoId, refName, path, store) {
@@ -132,7 +209,7 @@ function normalizeBrowsePath(path) {
 
 function requireObjectKind(store, repoId, objectId, expectedKind) {
   const parsed = parseJsonObject(getObject(store, repoId, objectId));
-  if (parsed?.kind?.toLowerCase() !== expectedKind) {
+  if (typeof parsed?.kind !== 'string' || parsed.kind.toLowerCase() !== expectedKind) {
     throw new HttpError(
       422,
       `object ${objectId} is not a ${expectedKind}`,

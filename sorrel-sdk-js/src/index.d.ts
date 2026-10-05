@@ -1,5 +1,14 @@
 export type Principal = { type: string; id: string };
 
+export type Project = { id: string; organizationId: string; name: string; repositoryIds: string[] };
+export type FilePreview = { content: string | null; objectId?: string; mode?: string | number | null; reason?: string };
+export type ProposalChanges = {
+  repoId: string;
+  sourceSnapshot: string;
+  targetSnapshot: string;
+  changes: { path: string; status: 'added' | 'modified' | 'deleted'; before: FilePreview; after: FilePreview }[];
+};
+
 export type HubClientOptions = {
   baseUrl: string;
   principal?: Principal;
@@ -30,6 +39,7 @@ export declare class HubClient {
   listProjects<T = unknown>(query?: ProjectQuery): Promise<T>;
   getProject<T = unknown>(id: string): Promise<T>;
   createProject<T = unknown>(payload: unknown): Promise<T>;
+  linkProjectRepository(projectId: string, syncRepoId: string): Promise<{ data: Project }>;
   listSyncRepos<T = unknown>(): Promise<T>;
   listRefs<T = unknown>(repoId: string): Promise<T>;
   listAdminCollection<T = unknown>(name: string): Promise<T>;
@@ -42,6 +52,7 @@ export declare class HubClient {
     id: string,
     options?: { includeComments?: boolean },
   ): Promise<T>;
+  proposalChanges(id: string): Promise<{ data: ProposalChanges }>;
   createProposal<T = unknown>(payload: unknown): Promise<T>;
   updateProposal<T = unknown>(id: string, payload: unknown): Promise<T>;
   createReviewComment<T = unknown>(payload: unknown): Promise<T>;

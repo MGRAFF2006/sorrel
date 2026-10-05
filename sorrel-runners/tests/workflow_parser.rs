@@ -6,6 +6,53 @@ use sorrel_runners::{
 };
 
 #[test]
+fn secret_workflow_declares_its_bundle_dependencies() {
+    let file = WorkflowFile::from_yaml(
+        r#"
+version: 1
+workflows:
+  test:
+    jobs:
+      first:
+        command: echo first
+        env:
+          TOKEN: {secret: {kind: SecretRef, id: shared}}
+      second:
+        command: echo second
+        env:
+          TOKEN: {secret: {kind: SecretRef, id: shared}}
+"#,
+    )
+    .unwrap();
+    let bundle = file.to_bundle("test").unwrap();
+    bundle
+        .validate()
+        .expect("converted workflow must be a valid bundle");
+    assert_eq!(
+        bundle.secret_refs,
+        vec![ObjectRef::new("SecretRef", "shared")]
+    );
+    for capability in [
+        sorrel_runners::CAPABILITY_SECRET_READ,
+        sorrel_runners::CAPABILITY_SECRET_INJECT,
+    ] {
+        assert!(
+            bundle
+                .required_capabilities
+                .iter()
+                .any(|declared| declared == capability)
+        );
+    }
+    let runner = LocalProcessRunner::default_local();
+    let error = runner
+        .run(&bundle, &allow_all(runner.capabilities(), &bundle))
+        .unwrap_err();
+    assert!(
+        matches!(error, RunnerError::PolicyDenied { capability, .. } if capability == sorrel_runners::CAPABILITY_SECRET_READ)
+    );
+}
+
+#[test]
 fn parses_multi_job_workflow_in_topological_order() {
     let source = r#"
 version: 1

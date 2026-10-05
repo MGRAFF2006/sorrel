@@ -84,7 +84,7 @@ fn workflow_run_denies_execution_without_grants() {
         .env("SORREL_WORKFLOW_POLICY", "restrictive")
         .args(["workflow", "run", "test", "--json"]);
 
-    let assert = command.assert().success();
+    let assert = command.assert().failure();
     let output: Value =
         serde_json::from_slice(&assert.get_output().stdout).expect("workflow denial emits json");
 
@@ -118,8 +118,14 @@ fn command_json(cwd: &Path, args: &[&str]) -> Value {
     let mut command = Command::cargo_bin("sorrel").expect("sorrel binary is available");
     command.current_dir(cwd).args(args);
 
-    let assert = command.assert().success();
-    serde_json::from_slice(&assert.get_output().stdout).expect("command emits json")
+    let output = command.output().expect("command runs");
+    let json: Value = serde_json::from_slice(&output.stdout).expect("command emits json");
+    let failed_workflow = json["command"]
+        .as_str()
+        .is_some_and(|name| name.starts_with("workflow"))
+        && !matches!(json["status"].as_str(), Some("valid" | "completed"));
+    assert_eq!(output.status.success(), !failed_workflow);
+    json
 }
 
 #[test]

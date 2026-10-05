@@ -17,6 +17,7 @@ pub mod snapshot;
 pub mod stat_cache;
 pub mod store;
 pub mod transport;
+pub mod workspace;
 
 pub use authority::{
     evaluate_policy_change, AuthorityRoot, AuthoritySignature, AuthoritySigningKey, PolicyChange,
@@ -45,7 +46,7 @@ pub use lane_stack::{
     create_lane, create_stack, read_lane, read_stack, Lane, LaneOptions, LaneStackError,
     LaneStackResult, Stack, StackOptions,
 };
-pub use merge::{merge_snapshots, MergeError, MergeOptions};
+pub use merge::{merge_snapshots, merge_snapshots_with_worktree, MergeError, MergeOptions};
 pub use object::{parse_object_id_hex, ObjectId, ObjectIdParseError};
 pub use permissions::{
     AuditHook, Grant, GrantRef, PermissionError, PermissionMetadata, PermissionResult, PolicyRef,
@@ -74,3 +75,5 @@ pub use transport::{
     collect_closure, is_descendant, missing_in_target, missing_objects, transfer_objects,
     TransportError, TransportResult,
 };
+
+pub use workspace::materialize_workspace_snapshot;

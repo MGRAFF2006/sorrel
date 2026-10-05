@@ -96,7 +96,7 @@ export function generateChangelogs({ changes, version, date, repository, root = 
     .sort((left, right) => (left.number ?? 0) - (right.number ?? 0));
 
   const paths = ['CHANGELOG.md', ...modules.map((module) => `${module}/CHANGELOG.md`)];
-  for (const path of paths) {
+  const updates = paths.map((path) => {
     const module = path === 'CHANGELOG.md' ? null : path.split('/')[0];
     const selected = module
       ? included.filter((change) => packagesForChange(change, [module]).length > 0)
@@ -108,6 +108,9 @@ export function generateChangelogs({ changes, version, date, repository, root = 
       changes: selected,
       repository,
     });
+    return { absolute, updated };
+  });
+  for (const { absolute, updated } of updates) {
     writeFileSync(absolute, updated);
   }
 
@@ -205,7 +208,8 @@ function validateVersion(version) {
 }
 
 function validateDate(date) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
+  const timestamp = Date.parse(`${date}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== date) {
     throw new Error(`invalid release date: ${date}`);
   }
 }

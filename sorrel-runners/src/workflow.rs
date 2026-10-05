@@ -21,8 +21,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    CAPABILITY_RUNNER_USE, CAPABILITY_WORKFLOW_RUN, CommandSpec, EnvValue, Job, JobBundle,
-    JobInput, ObjectRef, PrincipalContext, RunnerError, Shell, WORKFLOW_KIND,
+    CAPABILITY_RUNNER_USE, CAPABILITY_SECRET_INJECT, CAPABILITY_SECRET_READ,
+    CAPABILITY_WORKFLOW_RUN, CommandSpec, EnvValue, Job, JobBundle, JobInput, ObjectRef,
+    PrincipalContext, RunnerError, Shell, WORKFLOW_KIND,
 };
 
 /// Errors produced while parsing or converting a workflow file.
@@ -89,6 +90,12 @@ pub struct WorkflowSpec {
 pub struct WorkflowJob {
     /// Shell command line executed for this job.
     pub command: String,
+    /// Shell override for legacy and named workflow documents.
+    #[serde(default)]
+    pub shell: Option<String>,
+    /// Secret handles resolved by the host (never raw secret values).
+    #[serde(default)]
+    pub secrets: Vec<String>,
     /// Ids of jobs (in the same workflow) that must run before this job.
     #[serde(default)]
     pub needs: Vec<String>,
@@ -145,8 +152,41 @@ impl WorkflowFile {
     /// Returns [`RunnerError::WorkflowParse`] on malformed YAML and
     /// [`WorkflowError::EmptyFile`] when no workflows are declared.
     pub fn from_yaml(source: &str) -> crate::Result<Self> {
-        let file: WorkflowFile = serde_yaml_ng::from_str(source)
+        #[derive(Deserialize)]
+        struct Document {
+            #[serde(default = "default_version")]
+            version: u32,
+            id: Option<String>,
+            jobs: Option<BTreeMap<String, WorkflowJob>>,
+            #[serde(default)]
+            workflows: BTreeMap<String, WorkflowSpec>,
+        }
+        fn default_version() -> u32 {
+            1
+        }
+        let document: Document = serde_yaml_ng::from_str(source)
             .map_err(|error| RunnerError::WorkflowParse(error.to_string()))?;
+        if document.version != 1 {
+            return Err(RunnerError::WorkflowParse(format!(
+                "unsupported workflow version {} (expected 1)",
+                document.version
+            )));
+        }
+        let mut file = WorkflowFile {
+            version: document.version,
+            workflows: document.workflows,
+        };
+        if let Some(jobs) = document.jobs {
+            if !file.workflows.is_empty() {
+                return Err(RunnerError::WorkflowParse(
+                    "use either jobs or workflows, not both".to_owned(),
+                ));
+            }
+            file.workflows.insert(
+                document.id.unwrap_or_else(|| "workflow_local".to_owned()),
+                WorkflowSpec { jobs },
+            );
+        }
         if file.workflows.is_empty() {
             return Err(WorkflowError::EmptyFile.into());
         }
@@ -178,7 +218,7 @@ impl WorkflowFile {
         }
 
         let workflow_ref = ObjectRef::new(WORKFLOW_KIND, workflow_name);
-        let bundle = JobBundle {
+        let mut bundle = JobBundle {
             schema_version: crate::PROTOCOL_VERSION.to_owned(),
             kind: crate::BUNDLE_KIND.to_owned(),
             id: format!("workflow_{workflow_name}"),
@@ -199,6 +239,18 @@ impl WorkflowFile {
             metadata: BTreeMap::new(),
         };
 
+        bundle.secret_refs = crate::secret_read_dependencies(&bundle);
+        if !bundle.secret_refs.is_empty() {
+            bundle
+                .required_capabilities
+                .push(CAPABILITY_SECRET_READ.to_owned());
+        }
+        if !crate::secret_inject_dependencies(&bundle).is_empty() {
+            bundle
+                .required_capabilities
+                .push(CAPABILITY_SECRET_INJECT.to_owned());
+        }
+        bundle.validate()?;
         Ok(bundle)
     }
 }
@@ -210,9 +262,18 @@ fn convert_job(job_id: &str, spec: &WorkflowJob) -> crate::Result<Job> {
     }
 
     let mut env = BTreeMap::new();
-    let mut secret_refs = Vec::new();
+    let mut secret_refs: Vec<_> = spec
+        .secrets
+        .iter()
+        .map(|id| ObjectRef::new("SecretRef", id))
+        .collect();
     for (key, value) in &spec.env {
         match value {
+            WorkflowEnvValue::Literal(value) if value.starts_with("secret:") => {
+                let secret = ObjectRef::new("SecretRef", value.trim_start_matches("secret:"));
+                secret_refs.push(secret.clone());
+                env.insert(key.clone(), EnvValue::SecretRef { secret });
+            }
             WorkflowEnvValue::Literal(value) => {
                 env.insert(
                     key.clone(),
@@ -248,9 +309,14 @@ fn convert_job(job_id: &str, spec: &WorkflowJob) -> crate::Result<Job> {
     let mut job = Job {
         id: job_id.to_owned(),
         name: None,
-        command: CommandSpec::Shell {
-            shell: Shell::Sh,
-            command: spec.command.clone(),
+        command: match &spec.shell {
+            Some(shell) => CommandSpec::Exec {
+                argv: vec![shell.clone(), "-c".to_owned(), spec.command.clone()],
+            },
+            None => CommandSpec::Shell {
+                shell: Shell::Sh,
+                command: spec.command.clone(),
+            },
         },
         working_directory: None,
         inputs,
@@ -363,4 +429,22 @@ fn topological_order(
     }
 
     Ok(order)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parser_rejects_unsupported_versions_for_both_document_shapes() {
+        for source in [
+            "version: 2\njobs:\n  test: {command: 'echo test'}",
+            "version: 2\nworkflows:\n  test:\n    jobs:\n      test: {command: 'echo test'}",
+        ] {
+            assert!(matches!(
+                WorkflowFile::from_yaml(source),
+                Err(RunnerError::WorkflowParse(_))
+            ));
+        }
+    }
 }

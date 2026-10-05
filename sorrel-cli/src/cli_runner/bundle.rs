@@ -10,6 +10,8 @@ pub struct JobBundle {
     pub shell: String,
     pub secret_refs: Vec<String>,
     pub environment: Option<String>,
+    #[serde(skip)]
+    pub native: Option<sorrel_runners::JobBundle>,
 }
 
 impl JobBundle {

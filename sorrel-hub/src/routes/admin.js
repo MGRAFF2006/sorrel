@@ -1,5 +1,7 @@
-import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
-import { assertPrivilegedAdminAccess } from '../policy-guard.js';
+import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
+import { assertPrivilegedAdminAccess, bindSessionPrincipal } from '../policy-guard.js';
+import { createProposal, updateProposal } from '../proposal-mutations.js';
+import { browseSnapshotChanges } from '../sync-browser.js';
 import { StoreNotFoundError } from '../store.js';
 
 const COLLECTIONS = {
@@ -56,10 +58,13 @@ const COLLECTIONS = {
 export function parseAdminPath(pathname) {
   const rest = pathname.slice('/admin/'.length);
   const segments = rest.split('/').filter(Boolean);
+  if (segments.length > 3) {
+    throw new HttpError(404, 'admin route not found', 'not_found');
+  }
   return {
     collectionName: segments[0] ?? '',
-    itemId: segments[1] ? decodeURIComponent(segments[1]) : null,
-    subResource: segments[2] ? decodeURIComponent(segments[2]) : null,
+    itemId: segments[1] ? decodePathComponent(segments[1]) : null,
+    subResource: segments[2] ? decodePathComponent(segments[2]) : null,
   };
 }
 
@@ -76,13 +81,18 @@ export async function handleAdminRoute(request, response, context) {
     return sendMethodNotAllowed(response, ['GET']);
   }
 
-  const collection = COLLECTIONS[collectionName];
+  const collection = Object.hasOwn(COLLECTIONS, collectionName) ? COLLECTIONS[collectionName] : undefined;
 
   if (!collection) {
     throw new HttpError(404, 'admin collection not found', 'not_found');
   }
 
   // GET /admin/proposals/:id/comments — nested review comments for a proposal
+  if (collectionName === 'proposals' && itemId && subResource === 'changes' && request.method === 'GET') {
+    const proposal = context.store.getProposal(itemId);
+    if (!proposal) throw new HttpError(404, `proposal ${itemId} not found`, 'not_found');
+    return sendJson(response, 200, { data: browseSnapshotChanges(proposal, context.store.sync) });
+  }
   if (
     collectionName === 'proposals' &&
     itemId &&
@@ -189,16 +199,21 @@ async function createCollectionItem(request, response, context, collection, coll
 
   let item;
   try {
-    item = context.store[collection.create](body);
+    if (collectionName === 'proposals') {
+      item = createProposal(body, context);
+    } else {
+      const principalField = {
+        repositories: 'linkedByPrincipal',
+        'review-comments': 'authorPrincipal',
+        'workflow-runs': 'requestedByPrincipal',
+      }[collectionName];
+      item = context.store[collection.create](principalField ? bindSessionPrincipal(body, context, principalField) : body);
+    }
   } catch (error) {
     if (error instanceof StoreNotFoundError) {
       throw new HttpError(404, error.message, error.code);
     }
     throw error;
-  }
-
-  if (collectionName === 'proposals' && context.convexMirror) {
-    void context.convexMirror.upsertProposal(item);
   }
 
   sendJson(
@@ -208,7 +223,7 @@ async function createCollectionItem(request, response, context, collection, coll
       data: item,
     },
     {
-      location: `${collection.locationPrefix}/${item.id}`,
+      location: `${collection.locationPrefix}/${encodeURIComponent(item.id)}`,
     },
   );
 }
@@ -231,16 +246,14 @@ async function updateCollectionItem(
 
   let item;
   try {
-    item = context.store[collection.update](itemId, body);
+    item = collectionName === 'proposals'
+      ? updateProposal(itemId, body, context)
+      : context.store[collection.update](itemId, body);
   } catch (error) {
     if (error instanceof StoreNotFoundError) {
       throw new HttpError(404, error.message, error.code);
     }
     throw error;
-  }
-
-  if (collectionName === 'proposals' && context.convexMirror) {
-    void context.convexMirror.upsertProposal(item);
   }
 
   sendJson(response, 200, { data: item });

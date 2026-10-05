@@ -27,6 +27,17 @@ function readStoredPrincipal(): Principal {
 }
 
 const [actingPrincipal, setActingPrincipalSignal] = createSignal<Principal>(readStoredPrincipal());
+const [sessionPrincipal, setSessionPrincipal] = createSignal<Principal | null>(null);
+
+export { setSessionPrincipal };
+
+export function getEffectivePrincipal(): Principal {
+  return sessionPrincipal() ?? actingPrincipal();
+}
+
+export function useEffectivePrincipal() {
+  return getEffectivePrincipal;
+}
 
 export function getActingPrincipal(): Principal {
   return actingPrincipal();

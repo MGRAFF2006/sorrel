@@ -39,6 +39,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
@@ -81,6 +82,160 @@ pub const DEFAULT_LANE_NAME: &str = "main";
 
 /// Protocol schema version stamped into persisted objects.
 pub const PROTOCOL_VERSION: &str = "sorrel.protocol.v0";
+
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const TRANSACTION_FILE: &str = "metadata-transaction.json";
+
+/// Exclusive command-level guard for workspace reads and mutations.
+///
+/// The operating system releases this advisory lock when the process exits.
+pub struct WorkspaceLock {
+    _file: fs::File,
+}
+
+impl WorkspaceLock {
+    /// Acquire the workspace guard and finish any interrupted metadata commit.
+    pub fn acquire(root: &Path) -> io::Result<Self> {
+        fs::create_dir_all(root)?;
+        let path = root.join("write.lock");
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)?;
+        fs2::FileExt::try_lock_exclusive(&file).map_err(|error| {
+            if error.kind() == io::ErrorKind::WouldBlock
+                || error.raw_os_error() == fs2::lock_contended_error().raw_os_error()
+            {
+                io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    format!(
+                        "workspace is busy ({}); retry after the current command finishes",
+                        path.display()
+                    ),
+                )
+            } else {
+                error
+            }
+        })?;
+        let guard = Self { _file: file };
+        recover_metadata_transaction(root)?;
+        Ok(guard)
+    }
+}
+
+fn stage_bytes(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    loop {
+        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let temporary = parent.join(format!(".sorrel-{}-{sequence}.tmp", std::process::id()));
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary);
+        let mut file = match file {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        };
+        if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+            drop(file);
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        return Ok(temporary);
+    }
+}
+
+fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let temporary = stage_bytes(path, bytes)?;
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn metadata_transaction(root: &Path, updates: &[(PathBuf, Vec<u8>)]) -> io::Result<()> {
+    let journal = root.join(TRANSACTION_FILE);
+    if journal.exists() {
+        return Err(io::Error::other(
+            "pending metadata transaction; acquire the workspace lock to recover it",
+        ));
+    }
+    let mut staged = Vec::new();
+    let preparation = (|| {
+        for (target, bytes) in updates {
+            // Refuse known invalid targets before any visible metadata changes.
+            if target.exists() && !target.is_file() {
+                return Err(io::Error::other(format!(
+                    "metadata target is not a file: {}",
+                    target.display()
+                )));
+            }
+            let temporary = stage_bytes(target, bytes)?;
+            staged.push((
+                target.strip_prefix(root).unwrap().to_path_buf(),
+                temporary.strip_prefix(root).unwrap().to_path_buf(),
+                sorrel_core::ObjectId::for_bytes(bytes).to_hex(),
+            ));
+        }
+        write_json_atomic(&journal, &serde_json::to_value(&staged)?)
+    })();
+    if let Err(error) = preparation {
+        for (_, temporary, _) in &staged {
+            let _ = fs::remove_file(root.join(temporary));
+        }
+        return Err(error);
+    }
+    recover_metadata_transaction(root)
+}
+
+fn recover_metadata_transaction(root: &Path) -> io::Result<()> {
+    let journal = root.join(TRANSACTION_FILE);
+    let bytes = match fs::read(&journal) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let entries: Vec<(PathBuf, PathBuf, String)> = serde_json::from_slice(&bytes)?;
+    for (target, temporary, _) in &entries {
+        let valid_target = target == Path::new(HEAD_FILE)
+            || target == Path::new(CHANGES_INDEX_FILE)
+            || (target.parent() == Some(Path::new(HEADS_DIR))
+                && target
+                    .file_name()
+                    .is_some_and(|name| name != "." && name != ".."));
+        if !valid_target
+            || temporary.parent() != target.parent()
+            || !temporary.file_name().is_some_and(|name| {
+                name.to_string_lossy().starts_with(".sorrel-")
+                    && name.to_string_lossy().ends_with(".tmp")
+            })
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid metadata transaction path",
+            ));
+        }
+    }
+    for (target, temporary, digest) in entries {
+        let target = root.join(target);
+        let temporary = root.join(temporary);
+        if temporary.is_file() {
+            fs::rename(&temporary, &target)?;
+        } else if !target.is_file()
+            || sorrel_core::ObjectId::for_bytes(&fs::read(&target)?).to_hex() != digest
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "metadata transaction is missing staged data",
+            ));
+        }
+    }
+    fs::remove_file(journal)
+}
 
 /// Absolute-ish path to the `.sorrel` directory rooted at the current dir.
 #[must_use]
@@ -169,6 +324,8 @@ pub struct MergeState {
     pub ours_snapshot: String,
     /// Incoming (theirs) snapshot id when the merge started.
     pub theirs_snapshot: String,
+    /// Tentative merged snapshot used to preserve incoming tracked paths.
+    pub working_snapshot: Option<String>,
     /// Commit message used when finalizing the merge.
     pub message: String,
 }
@@ -211,6 +368,10 @@ pub fn load_merge_state_record() -> io::Result<Option<MergeState>> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned(),
+        working_snapshot: value
+            .get("workingSnapshot")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         message: value
             .get("message")
             .and_then(Value::as_str)
@@ -234,6 +395,7 @@ pub fn write_merge_state_record(state: &MergeState) -> io::Result<()> {
             "baseSnapshot": state.base_snapshot,
             "oursSnapshot": state.ours_snapshot,
             "theirsSnapshot": state.theirs_snapshot,
+            "workingSnapshot": state.working_snapshot,
             "message": state.message,
         }),
     )
@@ -249,6 +411,7 @@ pub fn write_merge_state(merge_result_id: &str) -> io::Result<()> {
         base_snapshot: String::new(),
         ours_snapshot: String::new(),
         theirs_snapshot: String::new(),
+        working_snapshot: None,
         message: String::new(),
     })
 }
@@ -314,11 +477,13 @@ pub fn load_changes_index() -> BTreeMap<String, String> {
 ///
 /// Reads the existing file (if any), appends one JSON line, and replaces the
 /// file via temp + rename so concurrent readers never see a partial write.
+/// The caller must hold [`WorkspaceLock`] to serialize read-modify-write.
 pub fn append_changes_index(entry: &ChangesIndexEntry) -> io::Result<()> {
-    let path = changes_index_path();
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
+    write_bytes_atomic(&changes_index_path(), &changes_index_bytes(entry)?)
+}
 
+fn changes_index_bytes(entry: &ChangesIndexEntry) -> io::Result<Vec<u8>> {
+    let path = changes_index_path();
     let mut body = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
@@ -334,13 +499,7 @@ pub fn append_changes_index(entry: &ChangesIndexEntry) -> io::Result<()> {
     body.extend_from_slice(line.to_string().as_bytes());
     body.push(b'\n');
 
-    let tmp = parent.join(format!(".{CHANGES_INDEX_FILE}.tmp"));
-    {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(&body)?;
-        file.flush()?;
-    }
-    fs::rename(&tmp, &path)
+    Ok(body)
 }
 
 /// Loads the workspace stat cache, or an empty cache when none exists yet.
@@ -358,19 +517,10 @@ pub fn load_stat_cache() -> sorrel_core::StatCache {
 
 /// Saves the workspace stat cache atomically (temp file + rename).
 pub fn save_stat_cache(cache: &sorrel_core::StatCache) -> io::Result<()> {
-    let path = stat_cache_path();
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let tmp = parent.join(format!(".{STAT_CACHE_FILE}.tmp"));
     let bytes = cache
         .to_bytes()
         .map_err(|error| io::Error::other(error.to_string()))?;
-    {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(&bytes)?;
-        file.flush()?;
-    }
-    fs::rename(&tmp, &path)
+    write_bytes_atomic(&stat_cache_path(), &bytes)
 }
 
 /// Returns true when a workspace manifest already exists.
@@ -448,21 +598,9 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 /// Writes `value` as pretty JSON to `path` atomically (temp file + rename).
 pub fn write_json_atomic(path: &Path, value: &Value) -> io::Result<()> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let tmp = parent.join(format!(
-        ".{}.tmp",
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("sorrel")
-    ));
-    {
-        let mut file = fs::File::create(&tmp)?;
-        serde_json::to_writer_pretty(&mut file, value)?;
-        writeln!(file)?;
-        file.flush()?;
-    }
-    fs::rename(&tmp, path)
+    let mut bytes = serde_json::to_vec_pretty(value)?;
+    bytes.push(b'\n');
+    write_bytes_atomic(path, &bytes)
 }
 
 /// Loads the workspace manifest, if present.
@@ -504,12 +642,29 @@ pub fn load_head() -> io::Result<Option<Head>> {
 /// Writes the HEAD pointer atomically and mirrors the snapshot into the active
 /// lane's per-lane head file under `.sorrel/heads/`.
 pub fn write_head(head: &Head) -> io::Result<()> {
-    let value = json!({
-        "lane": head.lane,
-        "snapshot": head.snapshot,
-    });
-    write_json_atomic(&head_path(), &value)?;
-    write_lane_head(&head.lane, &head.snapshot)
+    commit_head(head, None)
+}
+
+/// Publish a head and its change-index entry as one recoverable metadata commit.
+/// The caller must hold [`WorkspaceLock`] throughout reading and updating state.
+pub fn write_head_and_change(head: &Head, entry: &ChangesIndexEntry) -> io::Result<()> {
+    commit_head(head, Some(entry))
+}
+
+fn commit_head(head: &Head, entry: Option<&ChangesIndexEntry>) -> io::Result<()> {
+    let mut updates = Vec::new();
+    if let Some(entry) = entry {
+        updates.push((changes_index_path(), changes_index_bytes(entry)?));
+    }
+    updates.push((
+        lane_head_path(&head.lane),
+        serde_json::to_vec(&json!({ "snapshot": head.snapshot }))?,
+    ));
+    updates.push((
+        head_path(),
+        serde_json::to_vec(&json!({ "lane": head.lane, "snapshot": head.snapshot }))?,
+    ));
+    metadata_transaction(&sorrel_dir(), &updates)
 }
 
 /// Loads the per-lane head snapshot id for `lane_id`, if present.
@@ -723,6 +878,133 @@ fn sanitize_id(id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_lock_rejects_another_writer_and_releases_on_drop() {
+        let root = tempfile::tempdir().unwrap();
+        let first = WorkspaceLock::acquire(root.path()).unwrap();
+        assert!(
+            matches!(WorkspaceLock::acquire(root.path()), Err(error) if error.kind() == io::ErrorKind::WouldBlock)
+        );
+        drop(first);
+        assert!(WorkspaceLock::acquire(root.path()).is_ok());
+    }
+
+    #[test]
+    fn transaction_preparation_failure_keeps_existing_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        let head = root.path().join(HEAD_FILE);
+        let index = root.path().join(CHANGES_INDEX_FILE);
+        fs::write(&head, b"old head").unwrap();
+        fs::create_dir(&index).unwrap();
+        assert!(metadata_transaction(
+            root.path(),
+            &[
+                (head.clone(), b"new head".to_vec()),
+                (index, b"new index".to_vec()),
+            ]
+        )
+        .is_err());
+        assert_eq!(fs::read(head).unwrap(), b"old head");
+        assert!(!root.path().join(TRANSACTION_FILE).exists());
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 2);
+    }
+
+    #[test]
+    fn acquiring_lock_finishes_an_interrupted_index_and_head_commit() {
+        let root = tempfile::tempdir().unwrap();
+        let index = root.path().join(CHANGES_INDEX_FILE);
+        let head = root.path().join(HEAD_FILE);
+        fs::write(&head, b"old head").unwrap();
+        let staged_index = stage_bytes(&index, b"new index").unwrap();
+        let staged_head = stage_bytes(&head, b"new head").unwrap();
+        let entries = vec![
+            (
+                PathBuf::from(CHANGES_INDEX_FILE),
+                staged_index
+                    .strip_prefix(root.path())
+                    .unwrap()
+                    .to_path_buf(),
+                sorrel_core::ObjectId::for_bytes(b"new index").to_hex(),
+            ),
+            (
+                PathBuf::from(HEAD_FILE),
+                staged_head.strip_prefix(root.path()).unwrap().to_path_buf(),
+                sorrel_core::ObjectId::for_bytes(b"new head").to_hex(),
+            ),
+        ];
+        write_json_atomic(
+            &root.path().join(TRANSACTION_FILE),
+            &serde_json::to_value(entries).unwrap(),
+        )
+        .unwrap();
+        fs::rename(staged_index, &index).unwrap();
+        let _guard = WorkspaceLock::acquire(root.path()).unwrap();
+        assert_eq!(fs::read(index).unwrap(), b"new index");
+        assert_eq!(fs::read(head).unwrap(), b"new head");
+        assert!(!root.path().join(TRANSACTION_FILE).exists());
+    }
+
+    #[test]
+    fn recovery_rejects_journal_paths_outside_workspace_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        write_json_atomic(
+            &root.path().join(TRANSACTION_FILE),
+            &json!([["../outside", ".sorrel-test.tmp", "digest"]]),
+        )
+        .unwrap();
+        assert!(
+            matches!(WorkspaceLock::acquire(root.path()), Err(error) if error.kind() == io::ErrorKind::InvalidData)
+        );
+    }
+
+    #[test]
+    fn recovery_rejects_lost_staging_when_target_has_not_been_committed() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join(HEAD_FILE), b"old head").unwrap();
+        write_json_atomic(
+            &root.path().join(TRANSACTION_FILE),
+            &json!([[
+                HEAD_FILE,
+                ".sorrel-missing.tmp",
+                sorrel_core::ObjectId::for_bytes(b"new head").to_hex()
+            ]]),
+        )
+        .unwrap();
+        assert!(
+            matches!(WorkspaceLock::acquire(root.path()), Err(error) if error.kind() == io::ErrorKind::InvalidData)
+        );
+        assert!(root.path().join(TRANSACTION_FILE).is_file());
+        assert_eq!(fs::read(root.path().join(HEAD_FILE)).unwrap(), b"old head");
+    }
+
+    #[test]
+    fn concurrent_atomic_writes_publish_complete_json_and_clean_temporaries() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("record.json");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let threads: Vec<_> = (0..8)
+            .map(|index| {
+                let path = path.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    write_json_atomic(
+                        &path,
+                        &json!({ "index": index, "content": "x".repeat(100_000) }),
+                    )
+                    .unwrap();
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        let value: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert!(value["index"].as_u64().unwrap() < 8);
+        assert_eq!(value["content"].as_str().unwrap().len(), 100_000);
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn repo_id_has_prefix_and_is_nonempty() {

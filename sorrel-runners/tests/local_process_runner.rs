@@ -8,6 +8,22 @@ use sorrel_runners::{
 };
 
 #[test]
+fn redaction_preserves_line_endings_in_output_and_commands() {
+    let runner = LocalProcessRunner::default_local();
+    let command = "printf 'out\\n\\r\\n';\nprintf 'TOKEN=hidden\\nlast\\n' >&2\n";
+    let bundle = sample_bundle("bundle_line_endings", command);
+    let result = runner
+        .run(&bundle, &grant_runner_use(runner.capabilities(), &bundle))
+        .unwrap();
+    let job = &result.jobs[0];
+    assert_eq!(job.stdout, "out\n\r\n");
+    assert_eq!(job.stderr, "TOKEN=***\nlast\n");
+    assert!(
+        matches!(&job.log.records[0], sorrel_runners::LogRecord::Started { command, .. } if command == &bundle.jobs[0].command)
+    );
+}
+
+#[test]
 fn successful_local_command() {
     let runner = LocalProcessRunner::default_local();
     let bundle = sample_bundle("bundle_success", "printf 'hello sorrel'");

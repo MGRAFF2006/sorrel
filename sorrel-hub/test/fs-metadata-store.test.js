@@ -65,6 +65,34 @@ test('fs metadata store: createProject writes a JSON document under the collecti
   assert.equal(onDisk.slug, 'platform-collaboration');
 });
 
+test('failed persistence never publishes a created or updated record', (t) => {
+  const dir = tempDir(t);
+  const store = createFsMetadataStore(dir);
+  const project = store.createProject({ id: 'project', organizationId: 'org_local', name: 'Existing' });
+  const proposal = store.createProposal({ id: 'proposal', projectId: project.id, title: 'Existing', authorRef: 'user:local' });
+  const rename = t.mock.method(fs, 'renameSync', () => { throw new Error('simulated disk failure'); });
+  assert.throws(() => store.createProject({ id: 'failed', organizationId: 'org_local', name: 'Failed' }), /simulated disk failure/);
+  assert.equal(store.getProject('failed'), null);
+  assert.throws(() => store.updateProposal(proposal.id, { status: 'open' }), /simulated disk failure/);
+  assert.equal(store.getProposal(proposal.id), proposal);
+  assert.throws(() => store.linkProjectRepository(project.id, 'repo_sync'), /simulated disk failure/);
+  assert.equal(store.getProject(project.id), project);
+  rename.mock.restore();
+  const reopened = createFsMetadataStore(dir);
+  assert.equal(reopened.getProposal(proposal.id).status, 'draft');
+  assert.deepEqual(reopened.getProject(project.id).repositoryIds, []);
+});
+
+test('linking a synchronized repository is deduplicated and survives restart', (t) => {
+  const dir = tempDir(t);
+  const store = createFsMetadataStore(dir);
+  const project = store.createProject({ organizationId: 'org_local', name: 'Linked' });
+  store.linkProjectRepository(project.id, 'repo_sync');
+  store.linkProjectRepository(project.id, 'repo_sync');
+  assert.deepEqual(createFsMetadataStore(dir).getProject(project.id).repositoryIds, ['repo_sync']);
+  assert.throws(() => store.linkProjectRepository('missing', 'repo_sync'), /project missing not found/);
+});
+
 test('POST /projects survives a server restart over the same metadata directory', async (t) => {
   const metadataDir = tempDir(t);
   let projectId;
@@ -202,4 +230,73 @@ test('fs metadata store: StoreConflictError does not leave an extra file on disk
 
   const files = fs.readdirSync(path.join(dir, 'projects'));
   assert.equal(files.filter((name) => name.endsWith('.json')).length, 1);
+});
+
+test('invalid Unicode IDs cannot persist or overwrite replacement-character IDs', (t) => {
+  const dir = tempDir(t);
+  const store = createFsMetadataStore(dir);
+  const project = { organizationId: 'org_local', name: 'Unicode project' };
+  store.createProject({ ...project, id: '\ufffd' });
+  for (const id of ['\ud800', '\udc00', '.', '..']) {
+    assert.throws(() => store.createProject({ ...project, id }), /valid URL path segment/);
+  }
+  assert.deepEqual(fs.readdirSync(path.join(dir, 'projects')), [`${encodePathSegment('\ufffd')}.json`]);
+  assert.deepEqual(createFsMetadataStore(dir).listProjects().map(({ id }) => id), ['\ufffd']);
+});
+
+test('duplicate record IDs never overwrite existing metadata', (t) => {
+  const dir = tempDir(t);
+  const store = createFsMetadataStore(dir);
+  const proposal = store.createProposal({ id: 'prop_base', projectId: 'proj_base', title: 'Original', authorRef: 'user:local' });
+  const cases = [
+    ['organizations', 'createOrganization', { id: 'org_test', name: 'Original' }],
+    ['projects', 'createProject', { id: 'proj_test', organizationId: 'org_test', name: 'Original' }],
+    ['repositories', 'createRepository', { id: 'repo_test', organizationId: 'org_test', projectId: 'proj_test', provider: 'sorrel', owner: 'local', name: 'Original' }],
+    ['proposals', 'createProposal', { id: 'prop_test', projectId: 'proj_base', title: 'Original', authorRef: 'user:local' }],
+    ['reviewComments', 'createReviewComment', { id: 'comment_test', proposalId: proposal.id, body: 'Original', authorRef: 'user:local' }],
+    ['workflowRuns', 'createWorkflowRun', { id: 'run_test', projectId: 'proj_base', name: 'Original' }],
+    ['policies', 'createPolicy', { id: 'policy_test', organizationId: 'org_test', name: 'Original' }],
+  ];
+  for (const [collection, method, attributes] of cases) {
+    const original = store[method](attributes);
+    assert.throws(() => store[method]({ ...attributes, name: 'Changed', title: 'Changed', body: 'Changed' }), StoreConflictError);
+    assert.deepEqual(store[collection].get(original.id), original);
+    assert.deepEqual(createFsMetadataStore(dir)[collection].get(original.id), JSON.parse(JSON.stringify(original)));
+  }
+});
+
+test('failed metadata creation leaves no visible record and permits a retry', (t) => {
+  const dir = tempDir(t);
+  const store = createFsMetadataStore(dir);
+  const blockedDir = path.join(dir, 'projects');
+  fs.writeFileSync(blockedDir, 'not a directory');
+  const attributes = { id: 'proj_retry', organizationId: 'org_local', name: 'Retry' };
+  assert.throws(() => store.createProject(attributes));
+  assert.deepEqual(store.listProjects(), []);
+  fs.unlinkSync(blockedDir);
+  store.createProject(attributes);
+  assert.equal(createFsMetadataStore(dir).getProject(attributes.id).name, 'Retry');
+});
+
+test('failed metadata updates preserve the previous record in memory and after restart', (t) => {
+  const dir = tempDir(t);
+  const store = createFsMetadataStore(dir);
+  const proposal = store.createProposal({ id: 'prop_test', projectId: 'proj_test', title: 'Original', authorRef: 'user:local' });
+  const comment = store.createReviewComment({ id: 'comment_test', proposalId: proposal.id, body: 'Original', authorRef: 'user:local' });
+  const run = store.createWorkflowRun({ id: 'run_test', projectId: 'proj_test', name: 'Validate' });
+  for (const [collection, method, original, attributes] of [
+    ['proposals', 'updateProposal', proposal, { title: 'Changed' }],
+    ['reviewComments', 'updateReviewComment', comment, { body: 'Changed' }],
+    ['workflowRuns', 'updateWorkflowRun', run, { status: 'succeeded' }],
+  ]) {
+    const collectionDir = path.join(dir, collection);
+    const backupDir = `${collectionDir}.backup`;
+    fs.renameSync(collectionDir, backupDir);
+    fs.writeFileSync(collectionDir, 'not a directory');
+    assert.throws(() => store[method](original.id, attributes));
+    assert.deepEqual(store[collection].get(original.id), original);
+    fs.unlinkSync(collectionDir);
+    fs.renameSync(backupDir, collectionDir);
+    assert.deepEqual(createFsMetadataStore(dir)[collection].get(original.id), JSON.parse(JSON.stringify(original)));
+  }
 });

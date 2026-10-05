@@ -1,12 +1,16 @@
 import { useParams, useSearchParams } from '@solidjs/router';
 import { createEffect, createMemo, createResource, createSignal, For, Show } from 'solid-js';
-import { apiGet, apiPatch, apiPost, unwrapList } from '../api.ts';
-import { getActingPrincipal } from '../session.ts';
+import { apiGet, apiPatch, apiPost, fetchCapabilities, unwrapList } from '../api.ts';
+import { ReviewChanges } from '../components/ReviewChanges.tsx';
+import type { Project, Repository, SyncRef, SyncRepo } from '../domain.ts';
+import { createAction } from '../action.ts';
+import { getEffectivePrincipal } from '../session.ts';
 import {
   EmptyState,
   ErrorText,
   FormStatus,
   Loading,
+  Modal,
   PageHeader,
   RefList,
   StatusPill,
@@ -30,12 +34,6 @@ type AdminItem = Record<string, unknown> & {
   grantRefs?: unknown[];
 };
 
-const PROPOSAL_TRANSITIONS: Record<string, string[]> = {
-  draft: ['open', 'closed'],
-  open: ['approved', 'rejected', 'merged', 'closed'],
-  approved: ['merged', 'closed'],
-  rejected: ['open', 'closed'],
-};
 
 const WORKFLOW_NEXT: Record<string, string[]> = {
   queued: ['in_progress', 'failed'],
@@ -55,12 +53,28 @@ export function ReviewsView() {
   const [formStatus, setFormStatus] = createSignal('');
   const [formError, setFormError] = createSignal(false);
   const [creating, setCreating] = createSignal(false);
+  const mutation = createAction();
+  const [capabilities] = createResource(fetchCapabilities);
+  const PROPOSAL_TRANSITIONS = () => capabilities()?.collaboration?.proposalTransitions ?? {};
+
+  const [reviewRepoId, setReviewRepoId] = createSignal('');
+  const [reviewRepositories] = createResource(() => ({ id: projectId(), token: reloadToken() }), async ({ id }) => {
+    const [projectPayload, repositoriesPayload, syncPayload] = await Promise.all([
+      apiGet(`/projects/${encodeURIComponent(id)}`), apiGet(`/admin/repositories?projectId=${encodeURIComponent(id)}`), apiGet('/admin/sync-repos'),
+    ]);
+    const project = (projectPayload as { data: Project }).data;
+    const repositories = unwrapList(repositoriesPayload) as Repository[];
+    const linked = new Set([...(project.repositoryIds ?? []), ...repositories.map(repo => repo.id), ...(proposals() ?? []).map(proposal => proposal.syncRepoId)]);
+    return (unwrapList(syncPayload) as SyncRepo[]).filter(repo => repo.id && linked.has(repo.id));
+  });
+  const [reviewRefs, { refetch: retryRefs }] = createResource(() => reviewRepoId() || false, async id => unwrapList(await apiGet(`/${encodeURIComponent(id)}/refs`)) as SyncRef[]);
+  const availableReviewRefs = () => reviewRefs.error ? [] : reviewRefs() ?? [];
   const [filter, setFilter] = createSignal('');
 
   createEffect(() => {
     const fromQuery = search.proposal;
+    setSelectedProposalId(typeof fromQuery === 'string' && fromQuery.length > 0 ? fromQuery : null);
     if (typeof fromQuery === 'string' && fromQuery.length > 0) {
-      setSelectedProposalId(fromQuery);
       setTab('proposals');
     }
   });
@@ -114,24 +128,36 @@ export function ReviewsView() {
     (comments() ?? []).filter((c) => c.proposalId === selectedProposalId());
 
   async function patchProposalStatus(id: string, status: string) {
-    await apiPatch(`/admin/proposals/${encodeURIComponent(id)}`, { status });
-    setReloadToken((n) => n + 1);
+    await mutation.run(async () => {
+      await apiPatch(`/admin/proposals/${encodeURIComponent(id)}`, { status });
+      setReloadToken((n) => n + 1);
+    });
   }
 
   async function resolveComment(id: string) {
-    await apiPatch(`/admin/review-comments/${encodeURIComponent(id)}`, { state: 'resolved' });
-    setReloadToken((n) => n + 1);
+    await mutation.run(async () => {
+      await apiPatch(`/admin/review-comments/${encodeURIComponent(id)}`, { state: 'resolved' });
+      setReloadToken((n) => n + 1);
+    });
   }
 
   async function patchWorkflow(id: string, status: string) {
-    await apiPatch(`/admin/workflow-runs/${encodeURIComponent(id)}`, { status });
-    setReloadToken((n) => n + 1);
+    await mutation.run(async () => {
+      await apiPatch(`/admin/workflow-runs/${encodeURIComponent(id)}`, { status });
+      setReloadToken((n) => n + 1);
+    });
   }
 
   async function onOpenProposal(event: Event) {
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const data = Object.fromEntries(new FormData(form).entries());
+    if (formStatus() === 'Creating…') return;
+    if (reviewRepoId() && (reviewRefs.loading || reviewRefs.error)) {
+      setFormError(true);
+      setFormStatus('Load repository refs before opening this review.');
+      return;
+    }
     setFormError(false);
     setFormStatus('Creating…');
     try {
@@ -140,8 +166,11 @@ export function ReviewsView() {
         title: data.title,
         syncRepoId: data.syncRepoId || undefined,
         sourceLane: data.sourceLane || undefined,
+        targetLane: data.targetLane || undefined,
+        sourceSnapshot: availableReviewRefs().find(ref => ref.name === data.sourceLane)?.snapshot,
+        targetSnapshot: availableReviewRefs().find(ref => ref.name === data.targetLane)?.snapshot,
         description: data.description || undefined,
-        authorPrincipal: getActingPrincipal(),
+        authorPrincipal: getEffectivePrincipal(),
         status: 'open',
       })) as { data: { id: string } };
       setFormStatus(`Created ${created.data.id}`);
@@ -184,6 +213,12 @@ export function ReviewsView() {
         }
       />
 
+      <Show when={mutation.pending()}><Loading text="Saving change…" /></Show>
+      <Show when={mutation.error()}>
+        <ErrorText text={mutation.error()} />
+        <button type="button" onClick={() => void mutation.retry()}>Retry change</button>
+      </Show>
+      <fieldset class="mutation-content" disabled={mutation.pending()}>
       <div class="toolbar">
         <div class="segmented" role="tablist" aria-label="Review sections">
           <button
@@ -226,10 +261,8 @@ export function ReviewsView() {
       </div>
 
       <Show when={tab() === 'proposals' && creating()}>
-        <div class="dialog-backdrop" role="presentation" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) setCreating(false);
-        }}>
-          <form class="form-card project-dialog" role="dialog" aria-modal="true" aria-labelledby="open-review-title" onSubmit={onOpenProposal}>
+        <Modal labelledBy="open-review-title" onClose={() => setCreating(false)}>
+          <form class="form-card" onSubmit={onOpenProposal}>
             <div class="dialog-heading">
               <div>
                 <span class="eyebrow">02 / Share changes</span>
@@ -245,24 +278,38 @@ export function ReviewsView() {
             <div class="form-grid two">
               <label>
                 <span>Repository <i>optional</i></span>
-                <input name="syncRepoId" placeholder="repo_…" autocomplete="off" />
+                <select name="syncRepoId" value={reviewRepoId()} onChange={event => setReviewRepoId(event.currentTarget.value)}>
+                  <option value="">Review notes only</option>
+                  <For each={reviewRepositories() ?? []}>{repo => <option value={repo.id}>{repo.id}</option>}</For>
+                </select>
               </label>
               <label>
                 <span>Source lane <i>optional</i></span>
-                <input name="sourceLane" placeholder="lane_feature" autocomplete="off" />
+                <select name="sourceLane" disabled={!reviewRepoId() || reviewRefs.loading || !!reviewRefs.error} required={!!reviewRepoId()}>
+                  <option value="">Choose source ref</option>
+                  <For each={availableReviewRefs()}>{ref => <option value={ref.name}>{ref.name}</option>}</For>
+                </select>
               </label>
             </div>
+            <Show when={reviewRepoId()}>
+              <label><span>Compare against</span><select name="targetLane" disabled={reviewRefs.loading || !!reviewRefs.error}>
+                <option value="">No target snapshot</option>
+                <For each={availableReviewRefs()}>{ref => <option value={ref.name}>{ref.name}</option>}</For>
+              </select></label>
+              <Show when={reviewRefs.error}><ErrorText text="Repository refs could not be loaded. Your review draft is preserved." /><button type="button" class="ghost" disabled={reviewRefs.loading} onClick={() => void retryRefs()}>Retry refs</button></Show>
+              <p class="muted">Source and target snapshots are captured now, so later pushes do not change this comparison.</p>
+            </Show>
             <label>
               <span>Description <i>optional</i></span>
               <textarea name="description" rows={4} placeholder="What changed, and what should reviewers focus on?" />
             </label>
             <div class="dialog-actions">
               <button type="button" class="ghost" onClick={() => setCreating(false)}>Cancel</button>
-              <button type="submit">Open review <span aria-hidden="true">→</span></button>
+              <button type="submit" disabled={formStatus() === 'Creating…'}>Open review <span aria-hidden="true">→</span></button>
             </div>
             <FormStatus message={formStatus()} error={formError()} />
           </form>
-        </div>
+        </Modal>
       </Show>
 
       <Show when={tab() === 'proposals'}>
@@ -368,8 +415,10 @@ export function ReviewsView() {
                 <Show when={proposal().description}>
                   <p>{String(proposal().description)}</p>
                 </Show>
+                <p class="muted">Status actions update the review record. To integrate files, merge the lane in your workspace and push its snapshot, then mark this review as merged.</p>
+                <ReviewChanges proposalId={String(proposal().id)} />
                 <div class="card-actions">
-                  <For each={PROPOSAL_TRANSITIONS[String(proposal().status)] ?? []}>
+                  <For each={PROPOSAL_TRANSITIONS()[String(proposal().status)] ?? []}>
                     {(status) => (
                       <button
                         type="button"
@@ -380,7 +429,7 @@ export function ReviewsView() {
                         }
                         onClick={() => void patchProposalStatus(String(proposal().id), status)}
                       >
-                        {status}
+                        {status === 'merged' ? 'Mark as merged' : status}
                       </button>
                     )}
                   </For>
@@ -446,6 +495,7 @@ export function ReviewsView() {
           onPatchWorkflow={(id, status) => void patchWorkflow(id, status)}
         />
       </Show>
+      </fieldset>
     </div>
   );
 }
@@ -538,6 +588,7 @@ function DetailCommentForm(props: { proposalId: string; onPosted: () => void }) 
     event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
     const data = Object.fromEntries(new FormData(form).entries());
+    if (status() === 'Posting…') return;
     setError(false);
     setStatus('Posting…');
     try {
@@ -545,7 +596,7 @@ function DetailCommentForm(props: { proposalId: string; onPosted: () => void }) 
         proposalId: props.proposalId,
         body: data.body,
         path: data.path || undefined,
-        authorPrincipal: getActingPrincipal(),
+        authorPrincipal: getEffectivePrincipal(),
       });
       setStatus('Posted');
       form.reset();
@@ -567,7 +618,7 @@ function DetailCommentForm(props: { proposalId: string; onPosted: () => void }) 
         Path (optional)
         <input name="path" type="text" placeholder="src/main.rs" autocomplete="off" />
       </label>
-      <button type="submit">Post comment</button>
+      <button type="submit" disabled={status() === 'Posting…'}>Post comment</button>
       <FormStatus message={status()} error={error()} />
     </form>
   );

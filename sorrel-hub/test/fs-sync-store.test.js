@@ -297,3 +297,16 @@ test('sync transport over fs store survives a server restart', async (t) => {
     assert.deepEqual(missingBody.missing, [blob.id, tree.id, snapshot.id].sort());
   });
 });
+
+
+test('re-uploading verified bytes repairs an existing corrupt object', (t) => {
+  const dir = tempDir(t);
+  const store = createFsRepoSyncStore(dir);
+  const bytes = Buffer.from('verified original');
+  const id = store.put(repoId, bytes);
+  const storedPath = path.join(dir, encodePathSegment(repoId), 'objects', id.slice(0, 2), id);
+  fs.writeFileSync(storedPath, 'corrupted');
+  assert.throws(() => store.get(repoId, id), SyncObjectIdMismatchError);
+  assert.equal(store.put(repoId, bytes, id), id);
+  assert.deepEqual(createFsRepoSyncStore(dir).get(repoId, id), bytes);
+});

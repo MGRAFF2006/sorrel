@@ -83,24 +83,60 @@ A CLI workspace adds mutable references around those immutable objects:
   remotes.json      Hub remotes
   git-map.json      Git SHA ↔ Sorrel snapshot mapping, when used
   MERGE_STATE       only while resolving a conflicted merge
+  write.lock        advisory command lock (released by the OS on process exit)
+  metadata-transaction.json  only while publishing heads and change metadata
 ```
 
-Mutable files are written atomically. Unknown format versions fail closed.
+Mutable files are written through unique temporary files and atomic replacement.
+CLI workspace commands hold an advisory OS lock while reading and changing
+metadata; a competing command fails with a retryable busy error. Workflow
+processes run outside that lock so they can invoke Sorrel. HEAD, its lane head,
+and a new change-index entry are staged together with a recovery journal; the
+next locked command completes an interrupted publication before reading state.
+Unknown format versions fail closed.
 There is no general migration framework yet, so alpha workspaces and Hub data
 must be backed up before upgrading.
 
 ## Change, lane, and merge flow
 
-`status`, `diff`, and `change create` materialize the working tree while
-excluding `.sorrel/`. A size/mtime stat cache avoids rehashing unchanged files.
+`status`, `diff`, and `change create` use Core's `materialize_workspace_snapshot`,
+shared with the Rust SDK. It excludes root `.sorrel/` and `.git/`, applies nested
+`.gitignore` and `.sorrelignore` rules (Sorrel rules take precedence in the same
+directory), and skips ignored untracked files before reading or storing their
+contents. Existing ordinary tracked files remain tracked when a new ignore rule
+matches them; removing a tracked file from disk still records a deletion.
+
+Files named `.env` or `.env.*` are always protected, except `.env.example`, which
+follows ordinary ignore rules unless explicitly configured as a secret source.
+Configured `dotenv:` / `dotenv://` file paths in `sorrel.secrets.yml`,
+`.sorrel/secrets/*.json`, and `secretspec.toml`, plus Vault's declared local import
+files, are also protected. Protection includes case variants and canonical
+symlink targets, even when ignore rules try to reinclude them. Malformed provider
+configuration fails closed. Explicit provider overrides outside these project
+configs must be added to `.sorrelignore` before use. This selection runs before
+stat-cache lookup, and excluded paths are removed from a successfully saved
+cache. A size/mtime stat cache avoids rehashing unchanged selected files.
+
+A HEAD that already tracks a protected secret path causes an error before any
+new objects are written. This does not purge previously stored secret blobs or
+rewrite history. Back up the workspace, rotate exposed credentials, and rebuild
+a clean workspace from source files without the protected paths before syncing
+it. Core's low-level directory materialization APIs remain unfiltered for callers
+that deliberately import arbitrary trees.
 Each lane has an independent head, so parallel work can advance without sharing
 one mutable branch pointer.
 
 Merging first finds the best common ancestor. A fast-forward only moves the
 active lane. A divergent merge compares base/ours/theirs and either writes a
 two-parent snapshot or persists `Conflict` objects plus a `MergeResult`.
-The CLI leaves marker-annotated working files and `MERGE_STATE` for
+For a conflicted merge, Core can also produce a tentative working snapshot that
+contains every clean change and retains unresolved file contents. The CLI
+restores that snapshot, overlays conflict markers, and keeps the lane head
+unchanged. It leaves marker-annotated working files and `MERGE_STATE` for
 `merge --continue` or restores the pre-merge tree with `merge --abort`.
+`MERGE_STATE` records the tentative snapshot as the tracked-file baseline, so
+incoming clean files remain tracked even when the receiving lane ignores them.
+Older merge records without that baseline fall back to HEAD.
 
 ## Git compatibility
 
@@ -115,12 +151,16 @@ through the regular Sorrel merge flow before the next export.
 Hub separates product metadata from VCS transport:
 
 - Product metadata—projects, repositories, proposals, comments, workflow runs,
-  and policy references—is stored as atomic JSON records.
+  and policy references—is stored as atomic JSON records. A record becomes
+  visible in the running server only after its filesystem write succeeds.
 - Sync objects and refs use a filesystem store with digest verification,
   missing-object negotiation, closure checks, and fast-forward/expected-head
   enforcement.
 - `/capabilities` describes installed modules, auth mode, deployment shape, and
-  optional Convex availability. `/session` exposes the resolved Hub session.
+  optional Convex availability, including the server-owned proposal transitions.
+  `/session` exposes the resolved Hub session. Non-development mutations require
+  that verified session; creator, author, and requester attribution uses its
+  principal. Read access remains public in this alpha.
 - The shared SolidJS UI calls Hub through a host-injected transport: the
   browser host's `/api` proxy or the desktop shell's scoped Tauri HTTP client.
 - The desktop shell currently permits only loopback Hub URLs and does not claim
@@ -130,6 +170,15 @@ Hub separates product metadata from VCS transport:
   bearer credentials stay in the platform keychain/keystore.
 - Optional Convex state mirrors proposal metadata only. VCS objects and refs do
   not move into Convex.
+
+Projects can explicitly link an already synchronized repository. Reviews record
+source and target snapshot IDs; comparison reads those immutable trees without
+advancing refs or performing a merge. CLI submission uploads both closures when
+pushing, including diverged target history. Preview limits bound tree traversal,
+changed files, and text bytes; binary and large files show unavailable previews.
+The shared UI distinguishes closed reviews from integrated reviews and labels
+the metadata transition “Mark as merged.” Native dialogs and pending/error states
+keep mutations keyboard-accessible and retryable.
 
 The development stack is intentionally modular: Hub API, shared web/desktop UI,
 desktop host, browser host, native mobile companion, and public website are
@@ -164,14 +213,25 @@ does not resolve values by itself.
 
 Runners expose serializable `JobBundle` objects, a versioned workflow parser,
 Core-shaped permission gates, local process execution, and an experimental
-Docker/Podman adapter. CLI workflow execution prefers devenv when detected,
-falls back to the local process runner, and records structured results under
-`.sorrel/runs/`. Execution logs redact resolved secret values and secret-like
-environment data; follow/Hub streaming is not implemented.
+Docker/Podman adapter. The CLI delegates parsing/execution to this library and
+uses a native Core policy adapter; its CLI-shaped JSON and policy-command
+compatibility surface remain intact. Both named `workflows` and legacy `jobs`
+YAML are accepted. Selected jobs include their dependency closure and stop on
+failure; literal environment values and authorized secret aliases are applied.
+
+The CLI resolves SecretSpec values out of band and gives them to the authorized
+local runner without adding values to `JobBundle`. Results and all log records
+redact secrets. Simple jobs can use detected devenv; jobs requiring environment
+injection or dependency execution use the shared local runner. Results persist
+under `.sorrel/runs/`; failures to persist are reported. Workflow commands print
+structured JSON before returning nonzero status for failure/denial/invalid or
+missing input. Human output includes redacted streams and a saved-log hint;
+follow/Hub streaming is not implemented.
 
 Slices compute deterministic TS/JS dependency closures for focused context.
 The agent package persists advisory agent/lane registrations and path claims;
-it is coordination, not an enforcement boundary. The JavaScript and Rust SDKs
+writers lock and reload the local state before atomic replacement, and readers
+refresh from disk. It is coordination, not an enforcement boundary. The JavaScript and Rust SDKs
 are intentionally thin until a stable embedding surface is designed.
 
 ## Compatibility and trust rules

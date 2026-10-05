@@ -41,16 +41,27 @@ export async function saveConnection(
   connection: Connection,
   options: { accessToken?: string; preserveAccessToken?: boolean } = {},
 ): Promise<string | undefined> {
-  await SecureStore.setItemAsync(CONNECTION_KEY, JSON.stringify(connection));
-  if (options.accessToken) {
-    await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, options.accessToken);
-    return options.accessToken;
-  }
-  if (!options.preserveAccessToken) {
+  const accessToken = await connectionAccessToken(connection.baseUrl, options);
+  // Remove the old endpoint before changing credentials so partial writes cannot
+  // associate a token with another Hub after an app restart.
+  await SecureStore.deleteItemAsync(CONNECTION_KEY);
+  if (accessToken) {
+    await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, accessToken);
+  } else {
     await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
-    return undefined;
   }
-  return (await SecureStore.getItemAsync(ACCESS_TOKEN_KEY)) ?? undefined;
+  await SecureStore.setItemAsync(CONNECTION_KEY, JSON.stringify(connection));
+  return accessToken;
+}
+
+export async function connectionAccessToken(
+  baseUrl: string,
+  options: { accessToken?: string; preserveAccessToken?: boolean } = {},
+): Promise<string | undefined> {
+  if (options.accessToken) return options.accessToken;
+  if (!options.preserveAccessToken) return undefined;
+  const saved = await loadConnection();
+  return saved.connection?.baseUrl === baseUrl ? saved.accessToken : undefined;
 }
 
 export async function clearConnection(): Promise<void> {

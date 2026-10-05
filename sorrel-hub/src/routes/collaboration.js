@@ -7,6 +7,7 @@
 
 import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
 import { StoreNotFoundError } from '../store.js';
+import { createProposal } from '../proposal-mutations.js';
 
 /**
  * POST /collaboration/lane-submit
@@ -36,7 +37,8 @@ export async function handleCollaborationRoute(request, response, context) {
   throw new HttpError(404, 'collaboration route not found', 'not_found');
 }
 
-async function laneSubmit(request, response, { store, session }) {
+async function laneSubmit(request, response, context) {
+  const { store, session } = context;
   const body = await readJsonBody(request);
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -47,7 +49,11 @@ async function laneSubmit(request, response, { store, session }) {
   const sourceLane = body.sourceLane;
   const sourceSnapshot = body.sourceSnapshot;
   const title = body.title;
-  const syncRepoId = body.syncRepoId ?? body.repositoryId;
+  const rawSyncRepoId = body.syncRepoId ?? body.repositoryId;
+  if (rawSyncRepoId !== undefined && typeof rawSyncRepoId !== 'string') {
+    throw new HttpError(400, 'syncRepoId must be a string', 'invalid_request_body');
+  }
+  const syncRepoId = rawSyncRepoId?.trim();
 
   if (typeof projectId !== 'string' || !projectId.trim()) {
     throw new HttpError(400, 'projectId is required', 'invalid_request_body');
@@ -65,11 +71,13 @@ async function laneSubmit(request, response, { store, session }) {
   // Prefer reusing an open/draft proposal for the same lane tip.
   const existing = store
     .listProposals({
-      syncRepoId: typeof syncRepoId === 'string' ? syncRepoId : undefined,
+      projectId: projectId.trim(),
+      syncRepoId,
       sourceLane: sourceLane.trim(),
     })
     .find(
       (proposal) =>
+        proposal.syncRepoId === syncRepoId &&
         proposal.sourceSnapshot === sourceSnapshot.trim() &&
         (proposal.status === 'open' || proposal.status === 'draft'),
     );
@@ -85,10 +93,10 @@ async function laneSubmit(request, response, { store, session }) {
   const open = body.open !== false;
   let proposal;
   try {
-    proposal = store.createProposal({
+    proposal = createProposal({
       projectId: projectId.trim(),
       repositoryId: body.repositoryId,
-      syncRepoId: typeof syncRepoId === 'string' ? syncRepoId.trim() : undefined,
+      syncRepoId,
       title: title.trim(),
       description: body.description,
       authorPrincipal:
@@ -109,7 +117,7 @@ async function laneSubmit(request, response, { store, session }) {
         ...(body.metadata ?? {}),
         submittedVia: 'collaboration.lane-submit',
       },
-    });
+    }, context);
   } catch (error) {
     if (error instanceof StoreNotFoundError) {
       throw new HttpError(404, error.message, error.code);
@@ -125,7 +133,7 @@ async function laneSubmit(request, response, { store, session }) {
       reused: false,
     },
     {
-      location: `/admin/proposals/${proposal.id}`,
+      location: `/admin/proposals/${encodeURIComponent(proposal.id)}`,
     },
   );
 }

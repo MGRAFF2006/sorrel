@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Update the schema validator's locked `fast-uri` dependency to 3.1.8 to fix
+  authority injection, host confusion, and host normalization vulnerabilities.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

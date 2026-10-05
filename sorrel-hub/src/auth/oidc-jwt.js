@@ -12,6 +12,7 @@ import { createPublicKey, createVerify } from 'node:crypto';
  *   kid?: string,
  *   use?: string,
  *   alg?: string,
+ *   key_ops?: string[],
  *   n?: string,
  *   e?: string,
  *   crv?: string,
@@ -37,6 +38,10 @@ export function decodeJwt(token) {
   const [headerB64, payloadB64, signatureB64] = parts;
   const header = JSON.parse(base64UrlToUtf8(headerB64));
   const payload = JSON.parse(base64UrlToUtf8(payloadB64));
+  if (!header || typeof header !== 'object' || Array.isArray(header) ||
+      !payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('jwt header and payload must be objects');
+  }
   return {
     header,
     payload,
@@ -79,7 +84,12 @@ export async function verifyOidcAccessToken(token, options) {
 
   const nowSec = Math.floor((options.nowMs ?? Date.now()) / 1000);
   const skew = options.clockSkewSec ?? 60;
-  if (typeof payload.exp === 'number' && nowSec > payload.exp + skew) {
+  for (const claim of ['exp', 'nbf', 'iat']) {
+    if (payload[claim] !== undefined && !Number.isFinite(payload[claim])) {
+      throw new Error(`jwt ${claim} must be a numeric date`);
+    }
+  }
+  if (typeof payload.exp === 'number' && nowSec >= payload.exp + skew) {
     throw new Error('jwt expired');
   }
   if (typeof payload.nbf === 'number' && nowSec + skew < payload.nbf) {
@@ -91,10 +101,12 @@ export async function verifyOidcAccessToken(token, options) {
     (await options.fetchJwks?.(jwksUri)) ?? (await fetchJwksCached(jwksUri));
   const kid = typeof header.kid === 'string' ? header.kid : undefined;
   const candidates = keys.filter((key) => {
-    if (kid && key.kid && key.kid !== kid) return false;
+    if (kid !== undefined && key.kid !== kid) return false;
     if (key.use && key.use !== 'sig') return false;
+    if (key.alg && key.alg !== alg) return false;
+    if (key.key_ops && !key.key_ops.includes('verify')) return false;
     if (alg.startsWith('RS') && key.kty !== 'RSA') return false;
-    if (alg.startsWith('ES') && key.kty !== 'EC') return false;
+    if (alg === 'ES256' && (key.kty !== 'EC' || key.crv !== 'P-256')) return false;
     return true;
   });
 
@@ -119,6 +131,7 @@ export function verifyWithJwk(signingInput, signature, alg, jwk) {
     verifier.update(signingInput);
     verifier.end();
     if (alg === 'ES256') {
+      if (signature.length !== 64) return false;
       // node:crypto expects DER for ECDSA; jose-style JWTs use raw r||s.
       const der = joseEs256ToDer(signature);
       return verifier.verify(keyObject, der);
@@ -195,6 +208,9 @@ function base64UrlToUtf8(value) {
  * @param {string} value
  */
 function base64UrlToBuffer(value) {
+  if (!/^[A-Za-z0-9_-]+$/.test(value) || value.length % 4 === 1) {
+    throw new Error('jwt segments must use base64url encoding');
+  }
   const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((value.length + 3) % 4);
   return Buffer.from(padded, 'base64');
 }

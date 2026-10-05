@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
   categorizeChange,
@@ -90,6 +92,31 @@ test('generates root and package changelogs without contributor fragments', () =
   assert.match(readFileSync(join(root, 'sorrel-cli/CHANGELOG.md'), 'utf8'), /Add lanes/);
   assert.doesNotMatch(readFileSync(join(root, 'sorrel-cli/CHANGELOG.md'), 'utf8'), /Validate refs/);
   assert.match(readFileSync(join(root, 'sorrel-hub/CHANGELOG.md'), 'utf8'), /Validate refs/);
+});
+
+test('a malformed package changelog does not partially update earlier files', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'sorrel-changelog-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'release'));
+  mkdirSync(join(root, 'sorrel-cli'));
+  writeFileSync(join(root, 'release/manifest.json'), JSON.stringify({ modules: { 'sorrel-cli': true } }));
+  writeFileSync(join(root, 'CHANGELOG.md'), TEMPLATE);
+  writeFileSync(join(root, 'sorrel-cli/CHANGELOG.md'), '# Missing release sections\n');
+  assert.throws(() => generateChangelogs({
+    root, version: '0.2.0', date: '2026-09-01', repository: 'MGRAFF2006/sorrel', changes: []
+  }), /no \[Unreleased\] section/);
+  assert.equal(readFileSync(join(root, 'CHANGELOG.md'), 'utf8'), TEMPLATE);
+});
+
+test('release preparation rejects dates normalized into a different month', () => {
+  for (const date of ['2026-02-30', '2025-02-29']) {
+    const result = spawnSync(process.execPath, [
+      fileURLToPath(new URL('./prepare-changelogs.mjs', import.meta.url)),
+      '--version', '0.2.0', '--date', date, '--input', '/nonexistent-sorrel-changes.json'
+    ], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /invalid release date/);
+  }
 });
 
 function change(title, labels = [], files = [], number = null) {

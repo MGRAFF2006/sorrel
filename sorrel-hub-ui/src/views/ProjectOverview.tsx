@@ -1,6 +1,7 @@
 import { A, useParams } from '@solidjs/router';
-import { createMemo, createResource, createSignal, For, Show } from 'solid-js';
+import { createEffect, createMemo, createResource, createSignal, For, Show } from 'solid-js';
 import { apiGet, shortId, unwrapList } from '../api.ts';
+import { SourcePreview } from '../components/SourcePreview.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { MarkdownDocument } from '../components/MarkdownDocument.tsx';
 import { EmptyState, ErrorText, Loading, StatusPill } from '../components/ui.tsx';
@@ -29,7 +30,9 @@ export function ProjectOverview() {
   const projectId = () => decodeURIComponent(params.projectId);
   const base = () => `/projects/${encodeURIComponent(projectId())}`;
   const [path, setPath] = createSignal('');
+  const [selectedFile, setSelectedFile] = createSignal('');
   const [selectedRef, setSelectedRef] = createSignal('');
+  createEffect(() => { projectId(); setPath(''); setSelectedFile(''); setSelectedRef(''); });
 
   const [bundle] = createResource(projectId, async (id): Promise<ProjectBundle> => {
     const [projectPayload, repositoriesPayload, proposalsPayload, syncReposPayload] = await Promise.all([
@@ -104,6 +107,14 @@ export function ProjectOverview() {
     },
   );
 
+  const [file, { refetch: retryFile }] = createResource(() => {
+    const repoId = syncRepoId();
+    return repoId && selectedFile() ? { repoId, ref: activeRef(), path: selectedFile() } : null;
+  }, async source => {
+    if (!source) return null;
+    return await apiGet(`/${encodeURIComponent(source.repoId)}/files?ref=${encodeURIComponent(source.ref)}&path=${encodeURIComponent(source.path)}`) as TextFileResponse;
+  });
+
   const breadcrumbs = createMemo(() => path().split('/').filter(Boolean));
   const activeProposals = createMemo(() =>
     (bundle()?.proposals ?? []).filter((item) => ['draft', 'open', 'approved', 'rejected'].includes(item.status ?? '')),
@@ -124,7 +135,7 @@ export function ProjectOverview() {
                     <label class="branch-select">
                       <Icon name="branch" />
                       <span class="sr-only">Repository ref</span>
-                      <select value={activeRef()} onChange={(event) => { setSelectedRef(event.currentTarget.value); setPath(''); }}>
+                      <select value={activeRef()} onChange={(event) => { setSelectedRef(event.currentTarget.value); setPath(''); setSelectedFile(''); }}>
                         <For each={refs() ?? []}>{(ref) => <option value={ref.name}>{ref.name}</option>}</For>
                         <Show when={(refs() ?? []).length === 0}><option value={activeRef()}>{activeRef()}</option></Show>
                       </select>
@@ -159,12 +170,12 @@ export function ProjectOverview() {
                               <code>{shortId(currentTree().snapshot.id, 8)}</code>
                             </div>
                             <nav class="breadcrumbs" aria-label="Repository path">
-                              <button type="button" onClick={() => setPath('')}>{repository()?.name ?? data().project.name ?? 'repository'}</button>
+                              <button type="button" onClick={() => { setPath(''); setSelectedFile(''); }}>{repository()?.name ?? data().project.name ?? 'repository'}</button>
                               <For each={breadcrumbs()}>{(segment, index) => (
-                                <><span>/</span><button type="button" onClick={() => setPath(breadcrumbs().slice(0, index() + 1).join('/'))}>{segment}</button></>
+                                <><span>/</span><button type="button" onClick={() => { setPath(breadcrumbs().slice(0, index() + 1).join('/')); setSelectedFile(''); }}>{segment}</button></>
                               )}</For>
                             </nav>
-                            <div class="tree-list">
+                            <Show when={!selectedFile()}><div class="tree-list">
                               <Show when={path()}>
                                 <button class="tree-row" type="button" onClick={() => setPath(breadcrumbs().slice(0, -1).join('/'))}>
                                   <Icon name="folder" /><strong>..</strong><span>Parent directory</span><span />
@@ -174,8 +185,10 @@ export function ProjectOverview() {
                                 <button
                                   class={`tree-row ${entry.type === 'directory' ? 'directory' : 'file'}`}
                                   type="button"
-                                  disabled={entry.type !== 'directory'}
-                                  onClick={() => entry.type === 'directory' && setPath(joinPath(path(), entry.name))}
+                                  onClick={() => {
+                                    if (entry.type === 'directory') { setPath(joinPath(path(), entry.name)); setSelectedFile(''); }
+                                    else setSelectedFile(joinPath(path(), entry.name));
+                                  }}
                                 >
                                   <Icon name={entry.type === 'directory' ? 'folder' : 'code'} />
                                   <strong>{entry.name}</strong>
@@ -184,7 +197,7 @@ export function ProjectOverview() {
                                 </button>
                               )}</For>
                               <Show when={currentTree().entries.length === 0}><EmptyState title="This directory is empty" /></Show>
-                            </div>
+                            </div></Show>
                           </>
                         )}
                       </Show>
@@ -192,14 +205,27 @@ export function ProjectOverview() {
                   </Show>
                 </section>
 
+                <Show when={selectedFile()}>
+                  <section class="file-card surface">
+                    <header class="detail-head"><h2>{selectedFile()}</h2><button type="button" class="ghost" onClick={() => setSelectedFile('')}>Close file</button></header>
+                    <Show when={!file.loading} fallback={<Loading text="Reading file…" />}>
+                      <Show when={!file.error} fallback={<><ErrorText text={file.error instanceof Error ? file.error.message : String(file.error)} /><button type="button" class="ghost" onClick={() => void retryFile()}>Retry file</button></>}>
+                        <Show when={file()}>{current => <SourcePreview content={current().content} label={selectedFile()} />}</Show>
+                      </Show>
+                    </Show>
+                  </section>
+                </Show>
+
                 <section class="readme-card surface">
                   <header><Icon name="book" /><strong>{readmeEntry()?.name ?? 'README.md'}</strong><span>{path() || 'Project root'}</span></header>
                   <Show when={!readme.loading} fallback={<Loading text="Reading README…" />}>
+                    <Show when={!readme.error} fallback={<ErrorText text={readme.error instanceof Error ? readme.error.message : String(readme.error)} />}>
                     <Show
                       when={readme()?.content ?? metadataString(data().project.metadata, 'readme')}
                       fallback={<EmptyState title="No README in this directory" body="Add a README to the repository to give this project a narrative front page." />}
                     >
                       {(source) => <MarkdownDocument source={source()} />}
+                    </Show>
                     </Show>
                   </Show>
                 </section>

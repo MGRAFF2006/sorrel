@@ -280,17 +280,7 @@ pub fn push(
         }
     }
 
-    let mut batch: Vec<(ObjectId, Vec<u8>)> = Vec::with_capacity(upload_ids.len());
-    for id in &upload_ids {
-        let bytes = store.read(id).map_err(store_io)?;
-        batch.push((*id, bytes));
-    }
-    let upload_items: Vec<(&ObjectId, &[u8])> = batch
-        .iter()
-        .map(|(id, bytes)| (id, bytes.as_slice()))
-        .collect();
-    client.upload_objects(&upload_items)?;
-    let uploaded = upload_items.len();
+    let uploaded = upload_object_ids(&client, store, &upload_ids)?;
 
     client.advance_ref(ref_name, local_snapshot_id, false)?;
 
@@ -300,6 +290,35 @@ pub fn push(
         snapshot: local_snapshot_id.to_hex(),
         uploaded,
     })
+}
+
+/// Uploads an immutable comparison baseline without advancing or creating any ref.
+/// Content-addressed uploads are idempotent, including objects shared with the source.
+pub fn upload_snapshot_closure(
+    store: &FileObjectStore,
+    remote: &Remote,
+    snapshot_id: &ObjectId,
+) -> io::Result<usize> {
+    let client = SyncClient::new(remote);
+    let object_ids = local_closure(store, snapshot_id)?;
+    upload_object_ids(&client, store, &object_ids)
+}
+
+fn upload_object_ids(
+    client: &SyncClient,
+    store: &FileObjectStore,
+    object_ids: &[ObjectId],
+) -> io::Result<usize> {
+    let mut batch = Vec::with_capacity(object_ids.len());
+    for id in object_ids {
+        batch.push((*id, store.read(id).map_err(store_io)?));
+    }
+    let upload_items: Vec<(&ObjectId, &[u8])> = batch
+        .iter()
+        .map(|(id, bytes)| (id, bytes.as_slice()))
+        .collect();
+    client.upload_objects(&upload_items)?;
+    Ok(upload_items.len())
 }
 
 /// Pulls `ref_name` from `remote` and updates local HEAD to the remote snapshot.

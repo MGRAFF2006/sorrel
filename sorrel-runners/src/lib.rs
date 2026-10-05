@@ -761,6 +761,74 @@ impl LocalProcessRunner {
     }
 }
 
+impl LocalProcessRunner {
+    /// Execute an authorized bundle with environment values resolved by the trusted host.
+    /// Values stay out of the bundle and are redacted from results and log records.
+    pub fn run_with_env(
+        &self,
+        bundle: &JobBundle,
+        policy: &dyn CorePermissionEvaluator,
+        env: &BTreeMap<String, String>,
+    ) -> Result<BundleRunResult> {
+        bundle.validate()?;
+        authorize_job_bundle(bundle, &self.capabilities, policy)?;
+        for job in &bundle.jobs {
+            for (name, value) in &job.env {
+                if let EnvValue::SecretRef { secret } = value {
+                    if !env.contains_key(name) {
+                        return Err(RunnerError::SecretInjectionUnsupported(secret.id.clone()));
+                    }
+                }
+            }
+        }
+        let mut jobs = Vec::with_capacity(bundle.jobs.len());
+        for job in &bundle.jobs {
+            let mut result = run_process_job(bundle, job, env)?;
+            let mut secrets: Vec<_> = bundle
+                .jobs
+                .iter()
+                .flat_map(|job| &job.env)
+                .filter_map(|(name, value)| match value {
+                    EnvValue::SecretRef { secret } => Some((name, secret)),
+                    _ => None,
+                })
+                .collect();
+            secrets.sort_by_key(|(name, _)| std::cmp::Reverse(env[*name].len()));
+            for (name, secret) in secrets {
+                let value = &env[name];
+                if value.is_empty() {
+                    continue;
+                }
+                let marker = format!("<sorrel:redacted {}>", secret.id);
+                result.stdout = result.stdout.replace(value, &marker);
+                result.stderr = result.stderr.replace(value, &marker);
+                for record in &mut result.log.records {
+                    match record {
+                        LogRecord::Stream { text, .. } => *text = text.replace(value, &marker),
+                        LogRecord::Started { command, .. } => match command {
+                            CommandSpec::Shell { command, .. } => {
+                                *command = command.replace(value, &marker)
+                            }
+                            CommandSpec::Exec { argv } => {
+                                for arg in argv {
+                                    *arg = arg.replace(value, &marker);
+                                }
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+            }
+            let failed = result.status != RunStatus::Succeeded;
+            jobs.push(result);
+            if failed && bundle.workflow.is_some() {
+                break;
+            }
+        }
+        Ok(BundleRunResult::from_jobs(bundle.id.clone(), jobs))
+    }
+}
+
 impl Runner for LocalProcessRunner {
     fn capabilities(&self) -> &RunnerCapabilities {
         &self.capabilities
@@ -771,15 +839,7 @@ impl Runner for LocalProcessRunner {
         bundle: &JobBundle,
         policy: &dyn CorePermissionEvaluator,
     ) -> Result<BundleRunResult> {
-        bundle.validate()?;
-        authorize_job_bundle(bundle, &self.capabilities, policy)?;
-
-        let mut jobs = Vec::with_capacity(bundle.jobs.len());
-        for job in &bundle.jobs {
-            jobs.push(run_process_job(bundle, job)?);
-        }
-
-        Ok(BundleRunResult::from_jobs(bundle.id.clone(), jobs))
+        self.run_with_env(bundle, policy, &BTreeMap::new())
     }
 }
 
@@ -944,8 +1004,11 @@ pub enum OutputStream {
     Stderr,
 }
 
-fn run_process_job(bundle: &JobBundle, job: &Job) -> Result<JobRunResult> {
-    ensure_no_secret_injection(job)?;
+fn run_process_job(
+    bundle: &JobBundle,
+    job: &Job,
+    env: &BTreeMap<String, String>,
+) -> Result<JobRunResult> {
     let (program, args) = job.command.to_program_and_args()?;
     let mut command = Command::new(&program);
     command.args(args);
@@ -953,7 +1016,12 @@ fn run_process_job(bundle: &JobBundle, job: &Job) -> Result<JobRunResult> {
     if let Some(working_directory) = &job.working_directory {
         command.current_dir(working_directory);
     }
-    apply_literal_env(job, &mut command)?;
+    command.envs(env);
+    let mut resolved_job = job.clone();
+    resolved_job
+        .env
+        .retain(|_, value| !matches!(value, EnvValue::SecretRef { .. }));
+    apply_literal_env(&resolved_job, &mut command)?;
 
     let started_at = unix_millis();
     let output = command
@@ -1351,10 +1419,17 @@ fn redact_text(text: &str, redaction: &RedactionContext) -> String {
 }
 
 fn redact_env_assignments(text: &str, metadata: &RedactionMetadata) -> String {
-    text.lines()
+    text.split_inclusive('\n')
         .map(|line| {
+            let (line, ending) = if let Some(content) = line.strip_suffix("\r\n") {
+                (content, "\r\n")
+            } else if let Some(content) = line.strip_suffix('\n') {
+                (content, "\n")
+            } else {
+                (line, "")
+            };
             let Some((key, value)) = line.split_once('=') else {
-                return line.to_owned();
+                return format!("{line}{ending}");
             };
             if key
                 .chars()
@@ -1365,13 +1440,12 @@ fn redact_env_assignments(text: &str, metadata: &RedactionMetadata) -> String {
                     .is_some_and(|ch| ch == '_' || ch.is_ascii_alphabetic())
                 && should_redact_env_key(key, metadata)
             {
-                format!("{key}={}", redact_value(value, metadata))
+                format!("{key}={}{ending}", redact_value(value, metadata))
             } else {
-                line.to_owned()
+                format!("{line}{ending}")
             }
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect()
 }
 
 fn redact_value(value: &str, metadata: &RedactionMetadata) -> String {

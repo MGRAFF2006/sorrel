@@ -5,13 +5,14 @@ Sorrel module: `sorrel-runners`.
 > **Alpha status (`0.1.0-alpha.2`):** local process and local Docker/Podman
 > execution are experimental and intended only for development and testing.
 > Do not use either runner for production workloads or untrusted jobs. Secret
-> injection is unsupported: secret references are modeled for policy and
-> redaction, but this crate never resolves or injects secret values.
+> providers are not resolved by this crate. The local runner can inject
+> host-resolved values after policy authorization; container injection remains
+> unsupported.
 
 This package contains the first portable workflow runner prototype for Sorrel.
 It is intentionally user-owned execution only: local host processes and a
 minimal Docker/Podman adapter. It does not provide hosted compute, Kubernetes,
-SSH, or secret injection (SecretSpec injection lands in `sorrel-cli` first).
+SSH, or provider resolution. The CLI resolves SecretSpec values out of band.
 
 The alpha workflow-file contract and compatibility limits are documented in
 [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md). See
@@ -126,8 +127,9 @@ Secret dependency policy uses the shared capability names:
 
 - Declared SecretRef dependencies require `secret.read`.
 - `EnvValue::SecretRef` dependencies require `secret.inject`.
-- This prototype still rejects actual secret injection after authorization
-  because both bundled local runner presets advertise `secretHandling: none`.
+- `LocalProcessRunner::run_with_env` accepts trusted host-resolved values, checks
+  secret permissions, and redacts result/log records. Plain `run` and the
+  container runner reject unresolved secret references.
 
 ## Log redaction
 
@@ -140,7 +142,8 @@ scrubbed for:
 - literal env values whose keys match `TOKEN`, `SECRET`, `PASSWORD`, or `KEY`
   by default
 
-The raw values are not stored in `JobRunResult`.
+The raw values are not stored in `JobRunResult`. Redaction preserves the original
+line endings in captured output and logged commands.
 
 ## Describe runner capabilities
 

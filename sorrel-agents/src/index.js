@@ -2,8 +2,13 @@
  * Agent control plane — coordination only. Core decides permissions.
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import {
+  closeSync, existsSync, fsyncSync, mkdirSync, openSync,
+  readFileSync, renameSync, rmSync, writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export class AgentControlPlane {
   /**
@@ -31,15 +36,13 @@ export class AgentControlPlane {
   #load() {
     const path = this.#statePath();
     if (!path || !existsSync(path)) {
+      this.agents.clear();
+      this.claims.clear();
       return;
     }
     const raw = JSON.parse(readFileSync(path, 'utf8'));
-    for (const agent of raw.agents ?? []) {
-      this.agents.set(agent.id, agent);
-    }
-    for (const claim of raw.claims ?? []) {
-      this.claims.set(`${claim.agentId}:${claim.path}`, claim);
-    }
+    this.agents = new Map((raw.agents ?? []).map((agent) => [agent.id, agent]));
+    this.claims = new Map((raw.claims ?? []).map((claim) => [JSON.stringify([claim.agentId, claim.path]), claim]));
   }
 
   #persist() {
@@ -47,17 +50,59 @@ export class AgentControlPlane {
     if (!path) {
       return;
     }
-    writeFileSync(
-      path,
-      `${JSON.stringify(
-        {
+    const temporary = join(this.stateDir, `.state-${randomUUID()}.tmp`);
+    try {
+      const file = openSync(temporary, 'wx');
+      try {
+        writeFileSync(file, `${JSON.stringify({
           agents: [...this.agents.values()],
           claims: [...this.claims.values()],
-        },
-        null,
-        2,
-      )}\n`,
-    );
+        }, null, 2)}\n`);
+        fsyncSync(file);
+      } finally {
+        closeSync(file);
+      }
+      renameSync(temporary, path);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+  }
+
+  async #mutate(update) {
+    if (!this.stateDir) return update();
+    const lock = join(this.stateDir, 'state.lock');
+    const deadline = Date.now() + 5000;
+    let descriptor;
+    for (;;) {
+      try {
+        descriptor = openSync(lock, 'wx');
+        break;
+      } catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+        if (Date.now() >= deadline) {
+          throw new Error(`Agent state is busy: ${lock}. Retry after the writer finishes; remove the lock only after confirming no writer is running.`);
+        }
+        await delay(10);
+      }
+    }
+    try {
+      writeFileSync(descriptor, `${process.pid}\n`);
+      this.#load();
+      const agents = new Map(this.agents);
+      const claims = new Map(this.claims);
+      try {
+        const result = update();
+        this.#persist();
+        return result;
+      } catch (error) {
+        this.agents = agents;
+        this.claims = claims;
+        throw error;
+      }
+    } finally {
+      closeSync(descriptor);
+      rmSync(lock);
+    }
   }
 
   /**
@@ -73,9 +118,10 @@ export class AgentControlPlane {
       displayName: input.displayName ?? input.id,
       registeredAt: new Date().toISOString(),
     };
-    this.agents.set(agent.id, agent);
-    this.#persist();
-    return agent;
+    return this.#mutate(() => {
+      this.agents.set(agent.id, agent);
+      return agent;
+    });
   }
 
   /**
@@ -85,21 +131,23 @@ export class AgentControlPlane {
     if (!input?.agentId || !input?.path) {
       throw new Error('claimPath requires agentId and path');
     }
-    if (!this.agents.has(input.agentId)) {
-      throw new Error(`unknown agent ${input.agentId}`);
-    }
     const claim = {
       agentId: input.agentId,
       path: input.path,
       mode: input.mode ?? 'advisory',
       claimedAt: new Date().toISOString(),
     };
-    this.claims.set(`${claim.agentId}:${claim.path}`, claim);
-    this.#persist();
-    return claim;
+    return this.#mutate(() => {
+      if (!this.agents.has(input.agentId)) {
+        throw new Error(`unknown agent ${input.agentId}`);
+      }
+      this.claims.set(JSON.stringify([claim.agentId, claim.path]), claim);
+      return claim;
+    });
   }
 
   async activeWork() {
+    if (this.stateDir) this.#load();
     return {
       agents: [...this.agents.values()],
       claims: [...this.claims.values()],
