@@ -147,8 +147,8 @@ pub fn git_import(
     let mut git_to_snapshot: BTreeMap<String, ObjectId> = options.known_commits.clone();
     let mut git_to_change: BTreeMap<String, ObjectId> = BTreeMap::new();
     let mut commits = Vec::with_capacity(oids.len());
-    // Cache Git tree oid → Sorrel tree id within this import.
-    let mut tree_cache: BTreeMap<git2::Oid, ObjectId> = BTreeMap::new();
+    // Sorrel trees store repository-relative paths, so their identity includes the prefix.
+    let mut tree_cache: BTreeMap<(git2::Oid, PathBuf), ObjectId> = BTreeMap::new();
 
     for oid in oids {
         let git_sha = oid.to_string();
@@ -317,9 +317,10 @@ fn import_tree(
     repo: &git2::Repository,
     tree: &git2::Tree<'_>,
     prefix: &Path,
-    cache: &mut BTreeMap<git2::Oid, ObjectId>,
+    cache: &mut BTreeMap<(git2::Oid, PathBuf), ObjectId>,
 ) -> GitImportResult<Tree> {
-    if let Some(id) = cache.get(&tree.id()) {
+    let cache_key = (tree.id(), prefix.to_path_buf());
+    if let Some(id) = cache.get(&cache_key) {
         // Re-read so callers get a full Tree value; trees are small JSON objects.
         return Ok(crate::read_tree(store, id)?);
     }
@@ -398,7 +399,7 @@ fn import_tree(
     }
 
     let written = write_tree(store, entries)?;
-    cache.insert(tree.id(), written.id);
+    cache.insert(cache_key, written.id);
     Ok(written)
 }
 
@@ -444,6 +445,25 @@ mod tests {
         git(root, &["commit", "-m", "third"]);
 
         dir
+    }
+
+    #[test]
+    fn identical_git_subtrees_keep_their_distinct_paths() {
+        let dir = TempDir::new().unwrap();
+        git(dir.path(), &["init"]);
+        for name in ["left", "right"] {
+            std::fs::create_dir(dir.path().join(name)).unwrap();
+            std::fs::write(dir.path().join(name).join("file.txt"), b"same\n").unwrap();
+        }
+        git(dir.path(), &["add", "."]);
+        git(dir.path(), &["commit", "-m", "identical subtrees"]);
+        let store = InMemoryObjectStore::new();
+        let result = git_import(&store, GitImportOptions::new(dir.path(), "repo")).unwrap();
+        let files = read_snapshot_files(&store, &result.head_snapshot).unwrap();
+        assert_eq!(files.len(), 2);
+        for path in ["left/file.txt", "right/file.txt"] {
+            assert_eq!(files[Path::new(path)], b"same\n");
+        }
     }
 
     #[test]

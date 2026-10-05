@@ -4,7 +4,13 @@ All notable changes to `sorrel-core` are documented in this file.
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Preserve distinct paths when Git imports reuse identical subtrees under different directories.
+- Isolate concurrent object-store writes so identical objects cannot share or truncate a temporary file.
+- Merge adjacent text edits independently and preserve executable mode changes when the other side edits content, including binary files.
+- Reject file/directory merge collisions instead of silently dropping files.
+- Expose the tentative merged working snapshot so hosts can apply clean changes alongside unresolved conflicts.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

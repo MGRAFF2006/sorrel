@@ -4,7 +4,9 @@ All notable changes to `sorrel-cli` are documented here.
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Preserve clean additions, edits, deletions, and file modes during conflicted merges and subsequent `merge --continue`; `merge --abort` restores the original tree.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 
