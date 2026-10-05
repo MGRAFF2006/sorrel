@@ -21,8 +21,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    CAPABILITY_RUNNER_USE, CAPABILITY_WORKFLOW_RUN, CommandSpec, EnvValue, Job, JobBundle,
-    JobInput, ObjectRef, PrincipalContext, RunnerError, Shell, WORKFLOW_KIND,
+    CAPABILITY_RUNNER_USE, CAPABILITY_SECRET_INJECT, CAPABILITY_SECRET_READ,
+    CAPABILITY_WORKFLOW_RUN, CommandSpec, EnvValue, Job, JobBundle, JobInput, ObjectRef,
+    PrincipalContext, RunnerError, Shell, WORKFLOW_KIND,
 };
 
 /// Errors produced while parsing or converting a workflow file.
@@ -178,21 +179,36 @@ impl WorkflowFile {
         }
 
         let workflow_ref = ObjectRef::new(WORKFLOW_KIND, workflow_name);
+        let mut secret_refs = Vec::new();
+        for job in &jobs {
+            for secret in &job.secret_refs {
+                if !secret_refs.contains(secret) {
+                    secret_refs.push(secret.clone());
+                }
+            }
+        }
+        let mut required_capabilities = vec![
+            CAPABILITY_RUNNER_USE.to_owned(),
+            CAPABILITY_WORKFLOW_RUN.to_owned(),
+        ];
+        if !secret_refs.is_empty() {
+            required_capabilities.extend([
+                CAPABILITY_SECRET_READ.to_owned(),
+                CAPABILITY_SECRET_INJECT.to_owned(),
+            ]);
+        }
         let bundle = JobBundle {
             schema_version: crate::PROTOCOL_VERSION.to_owned(),
             kind: crate::BUNDLE_KIND.to_owned(),
             id: format!("workflow_{workflow_name}"),
             workflow: Some(workflow_ref.clone()),
-            required_capabilities: vec![
-                CAPABILITY_RUNNER_USE.to_owned(),
-                CAPABILITY_WORKFLOW_RUN.to_owned(),
-            ],
+            required_capabilities,
             principal: PrincipalContext {
                 workflow: Some(workflow_ref),
                 ..PrincipalContext::default()
             },
             runner_requirements: crate::RunnerRequirements::default(),
-            secret_refs: Vec::new(),
+            secret_refs,
             policy_decisions: Vec::new(),
             redaction: crate::RedactionMetadata::default(),
             jobs,

@@ -140,7 +140,8 @@ scrubbed for:
 - literal env values whose keys match `TOKEN`, `SECRET`, `PASSWORD`, or `KEY`
   by default
 
-The raw values are not stored in `JobRunResult`.
+The raw values are not stored in `JobRunResult`. Redaction preserves the original
+line endings in captured output and logged commands.
 
 ## Describe runner capabilities
 
