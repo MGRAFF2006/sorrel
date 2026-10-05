@@ -132,3 +132,43 @@ test("parseImports still detects calls inside template expressions", () => {
 function unresolvedKeys(manifest) {
   return manifest.unresolvedImports.map((item) => `${item.from}|${item.specifier}|${item.reason}`);
 }
+
+
+test("parseImports ignores regex braces inside template expressions", () => {
+  const sources = [
+    'const text = `${ /}/.test("}") ? require("./inside") : "none" }`; require("./outside");',
+    'const text = `${ /{/.test("{") ? require("./inside") : "none" }`; require("./outside");',
+    'const text = `${ /[{}]/.test("}") ? require("./inside") : "none" }`; require("./outside");'
+  ];
+  for (const source of sources) {
+    assert.doesNotThrow(() => new Function(source));
+    assert.deepEqual(parseImports(source), [
+      { kind: "static", syntax: "require", specifier: "./inside" },
+      { kind: "static", syntax: "require", specifier: "./outside" }
+    ]);
+  }
+});
+
+test("parseImports ignores dependency-like text inside regex literals", () => {
+  const source = String.raw`
+    const regular = /require("fake-common")/;
+    const escapes = /[}/]require\("fake-escaped"\)\/end/g;
+    if (condition) /import "fake-static";/.test(text);
+    function test() { return /export value from "fake-export";/; }
+    require("./real");
+  `;
+  assert.doesNotThrow(() => new Function(source));
+  assert.deepEqual(parseImports(source), [{ kind: "static", syntax: "require", specifier: "./real" }]);
+});
+
+test("parseImports distinguishes division from regex literals", () => {
+  for (const numerator of ['value', 'value++', 'value--', 'call()', '[value]', '({})',
+    '"value"', '`value`', 'object.return', 'object.if(value)', 'of', 'await', 'yield', 'π', '𝒜']) {
+    const source = `const quotient = ${numerator} / denominator; require("./real");`;
+    assert.doesNotThrow(() => new Function(source));
+    assert.deepEqual(parseImports(source), [{ kind: "static", syntax: "require", specifier: "./real" }], source);
+  }
+  const template = 'const text = `${value / denominator}-${require("./real")}`;';
+  assert.doesNotThrow(() => new Function(template));
+  assert.deepEqual(parseImports(template), [{ kind: "static", syntax: "require", specifier: "./real" }]);
+});

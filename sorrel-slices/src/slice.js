@@ -380,6 +380,11 @@ function maskCommentsAndStrings(source) {
   let result = "";
   let state = "code";
   let escaped = false;
+  let regexAllowed = true;
+  let regexCharacterClass = false;
+  let lastToken = "";
+  const controlParentheses = [];
+  const identifiers = /[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*/uy;
   const codePositions = new Set();
   const templateExpressions = [];
 
@@ -388,6 +393,8 @@ function maskCommentsAndStrings(source) {
     const next = source[index + 1];
 
     if (state === "code") {
+      identifiers.lastIndex = index;
+      const identifier = identifiers.exec(source);
       if (char === "/" && next === "/") {
         result += "  ";
         state = "lineComment";
@@ -396,6 +403,26 @@ function maskCommentsAndStrings(source) {
         result += "  ";
         state = "blockComment";
         index += 1;
+      } else if (char === "/" && regexAllowed) {
+        result += " ";
+        state = "regex";
+        escaped = false;
+        regexCharacterClass = false;
+      } else if (identifier) {
+        const word = identifier[0];
+        const end = index + word.length;
+        const property = lastToken === ".";
+        lastToken = property ? `.${word}` : word;
+        for (let position = index; position < end; position += 1) codePositions.add(position);
+        result += word;
+        regexAllowed = /^(return|throw|case|delete|void|typeof|instanceof|in|new|else|do)$/.test(lastToken);
+        index = end - 1;
+      } else if ((char === "+" || char === "-") && next === char) {
+        codePositions.add(index);
+        codePositions.add(index + 1);
+        result += char + next;
+        index += 1;
+        lastToken = char + next;
       } else {
         codePositions.add(index);
         result += char;
@@ -415,6 +442,17 @@ function maskCommentsAndStrings(source) {
         } else if (char === "`") {
           state = "template";
           escaped = false;
+        }
+        if (!/\s/.test(char)) {
+          if (char === "(") {
+            controlParentheses.push(/^(if|while|for|with|switch|catch)$/.test(lastToken));
+            regexAllowed = true;
+          } else if (char === ")") {
+            regexAllowed = controlParentheses.pop() ?? false;
+          } else {
+            regexAllowed = !/[\w$\].}'"`]/.test(char);
+          }
+          lastToken = char;
         }
       }
       continue;
@@ -441,6 +479,24 @@ function maskCommentsAndStrings(source) {
       continue;
     }
 
+    if (state === "regex") {
+      result += char === "\n" ? "\n" : " ";
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "[") {
+        regexCharacterClass = true;
+      } else if (char === "]") {
+        regexCharacterClass = false;
+      } else if (char === "/" && !regexCharacterClass) {
+        state = "code";
+        regexAllowed = false;
+        lastToken = "/";
+      }
+      continue;
+    }
+
     result += char;
 
     if (escaped) {
@@ -458,6 +514,8 @@ function maskCommentsAndStrings(source) {
       index += 1;
       templateExpressions.push(1);
       state = "code";
+      regexAllowed = true;
+      lastToken = "{";
       continue;
     }
 
@@ -467,6 +525,8 @@ function maskCommentsAndStrings(source) {
       (state === "template" && char === "`")
     ) {
       state = "code";
+      regexAllowed = false;
+      lastToken = char;
     }
   }
 
