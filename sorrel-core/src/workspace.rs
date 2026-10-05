@@ -83,6 +83,10 @@ impl WorkspaceSelection {
     }
 
     fn is_protected(&self, path: &Path) -> bool {
+        // Match conservatively on case-sensitive hosts too, so a workspace
+        // cannot expose credentials when moved to a case-insensitive filesystem.
+        let lowercase = path.to_string_lossy().to_ascii_lowercase();
+        let path = Path::new(&lowercase);
         path.file_name()
             .and_then(|name| name.to_str())
             .is_some_and(|name| {
@@ -150,6 +154,21 @@ impl WorkspaceSelection {
             let config: Value =
                 serde_yaml_ng::from_slice(&bytes).map_err(|error| config_error(&yaml, error))?;
             self.json_providers(&config)?;
+            if let Some(imports) = config.pointer("/localDev/import/envFiles") {
+                let imports = imports.as_array().ok_or_else(|| {
+                    config_error(&yaml, "localDev.import.envFiles must be an array")
+                })?;
+                for import in imports {
+                    let path = import
+                        .get("path")
+                        .and_then(Value::as_str)
+                        .filter(|path| !path.trim().is_empty())
+                        .ok_or_else(|| {
+                            config_error(&yaml, "localDev import requires a non-empty file path")
+                        })?;
+                    self.protect_path(self.root.join(path))?;
+                }
+            }
         }
         let registry = self.root.join(".sorrel/secrets");
         match fs::read_dir(&registry) {
@@ -231,12 +250,27 @@ impl WorkspaceSelection {
         } else {
             self.root.join(path)
         };
-        let path = normalize(&path);
-        if let Ok(relative) = path.strip_prefix(&self.root) {
-            if relative.as_os_str().is_empty() {
-                return Err(config_error(&path, "dotenv provider must name a file"));
+        self.protect_path(path)
+    }
+
+    fn protect_path(&mut self, path: PathBuf) -> SnapshotResult<()> {
+        let mut paths = vec![normalize(&path)];
+        // Providers follow symlinks. Protect both the configured spelling and
+        // its actual file, including platform-normalized absolute prefixes.
+        match fs::canonicalize(&path) {
+            Ok(actual) => paths.push(actual),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(config_io(&path, error)),
+        }
+        let lowercase_root = PathBuf::from(self.root.to_string_lossy().to_ascii_lowercase());
+        for path in paths {
+            let lowercase_path = PathBuf::from(path.to_string_lossy().to_ascii_lowercase());
+            if let Ok(relative) = lowercase_path.strip_prefix(&lowercase_root) {
+                if relative.as_os_str().is_empty() {
+                    return Err(config_error(&path, "secret provider must name a file"));
+                }
+                self.protected.insert(relative.to_owned());
             }
-            self.protected.insert(relative.to_owned());
         }
         Ok(())
     }

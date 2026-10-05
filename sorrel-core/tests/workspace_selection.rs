@@ -261,3 +261,90 @@ fn protects_absolute_encoded_and_example_provider_paths() {
         assert!(!store.has(&blob_id(value)).unwrap());
     }
 }
+
+#[test]
+fn protects_vault_import_paths_and_case_variants_before_writing_blobs() {
+    let root = TempDir::new().unwrap();
+    let store = InMemoryObjectStore::new();
+    write(root.path(), "sorrel.secrets.yml", "localDev:\n  import:\n    envFiles:\n      - path: private/credentials\n      - path: .env.example\n");
+    for (path, value) in [
+        ("private/credentials", "CUSTOM_IMPORT_SECRET"),
+        (".ENV.EXAMPLE", "CONFIGURED_EXAMPLE_SECRET"),
+        (".ENV", "CASE_VARIANT_SECRET"),
+        ("nested/.Env.Production", "NESTED_CASE_SECRET"),
+        ("nested/.ENV.EXAMPLE", "PUBLIC_PLACEHOLDER"),
+    ] {
+        write(root.path(), path, value);
+    }
+    let snapshot = materialize_workspace_snapshot(
+        &store,
+        root.path(),
+        None,
+        None,
+        SnapshotOptions::new("repo"),
+    )
+    .unwrap();
+    let files = read_snapshot_files(&store, &snapshot.id).unwrap();
+    assert!(files.contains_key(Path::new("nested/.ENV.EXAMPLE")));
+    for (path, value) in [
+        ("private/credentials", "CUSTOM_IMPORT_SECRET"),
+        (".ENV.EXAMPLE", "CONFIGURED_EXAMPLE_SECRET"),
+        (".ENV", "CASE_VARIANT_SECRET"),
+        ("nested/.Env.Production", "NESTED_CASE_SECRET"),
+    ] {
+        assert!(!files.contains_key(Path::new(path)));
+        assert!(!store.has(&blob_id(value)).unwrap());
+    }
+}
+
+#[test]
+fn malformed_vault_import_paths_fail_closed_before_writing_objects() {
+    for config in [
+        "localDev:\n  import:\n    envFiles: private/credentials\n",
+        "localDev:\n  import:\n    envFiles:\n      - path: 42\n",
+    ] {
+        let root = TempDir::new().unwrap();
+        let store = InMemoryObjectStore::new();
+        write(root.path(), "sorrel.secrets.yml", config);
+        write(root.path(), "public.txt", "public");
+        let error = materialize_workspace_snapshot(
+            &store,
+            root.path(),
+            None,
+            None,
+            SnapshotOptions::new("repo"),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            SnapshotError::WorkspaceConfiguration { .. }
+        ));
+        assert_eq!(store.len(), 0);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn protects_the_target_of_a_configured_provider_symlink() {
+    let root = TempDir::new().unwrap();
+    let store = InMemoryObjectStore::new();
+    write(root.path(), "actual-store", "PROVIDER_SYMLINK_SECRET");
+    std::os::unix::fs::symlink("actual-store", root.path().join("provider-store")).unwrap();
+    write(
+        root.path(),
+        "sorrel.secrets.yml",
+        "secretRefs:\n  - provider: dotenv:provider-store\n",
+    );
+    let snapshot = materialize_workspace_snapshot(
+        &store,
+        root.path(),
+        None,
+        None,
+        SnapshotOptions::new("repo"),
+    )
+    .unwrap();
+    assert!(!read_snapshot_files(&store, &snapshot.id)
+        .unwrap()
+        .contains_key(Path::new("actual-store")));
+    assert!(!store.has(&blob_id("PROVIDER_SYMLINK_SECRET")).unwrap());
+}
