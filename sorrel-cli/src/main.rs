@@ -495,7 +495,7 @@ struct PullArgs {
 
 fn main() -> ExitCode {
     match run(Cli::parse()) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(error) => {
             eprintln!("sorrel: {error}");
             ExitCode::FAILURE
@@ -503,7 +503,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli) -> io::Result<()> {
+fn run(cli: Cli) -> io::Result<ExitCode> {
     if let Commands::Secret {
         command: sorrel_cli::secret_cmd::SecretCommand::Run(args),
     } = cli.command
@@ -511,10 +511,10 @@ fn run(cli: Cli) -> io::Result<()> {
         return match sorrel_cli::secret_cmd::execute_run(args, cli.json)? {
             sorrel_cli::secret_cmd::SecretRunResult::Output(output) => {
                 if cli.json {
-                    write_json(io::stdout().lock(), &output.json)
+                    write_json(io::stdout().lock(), &output.json).map(|()| ExitCode::SUCCESS)
                 } else {
                     let mut stdout = io::stdout().lock();
-                    writeln!(stdout, "{}", output.human)
+                    writeln!(stdout, "{}", output.human).map(|()| ExitCode::SUCCESS)
                 }
             }
             sorrel_cli::secret_cmd::SecretRunResult::Exit(code) => {
@@ -523,14 +523,21 @@ fn run(cli: Cli) -> io::Result<()> {
         };
     }
 
+    let is_workflow = matches!(&cli.command, Commands::Workflow { .. });
     let output = execute(cli.command)?;
+    let code = if is_workflow {
+        workflow_cmd::exit_code(&output)
+    } else {
+        0
+    };
 
     if cli.json {
-        write_json(io::stdout().lock(), &output.json)
+        write_json(io::stdout().lock(), &output.json)?;
     } else {
         let mut stdout = io::stdout().lock();
-        writeln!(stdout, "{}", output.human)
+        writeln!(stdout, "{}", output.human)?;
     }
+    Ok(ExitCode::from(code))
 }
 
 fn execute(command: Commands) -> io::Result<CommandOutput> {

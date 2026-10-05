@@ -7,7 +7,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-No changes yet.
+### Changed
+
+- Accept legacy jobs alongside named workflows, preserve shell/env/secret declarations, and support authorized host-resolved local secret injection with redacted results and dependency failure stopping.
+
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

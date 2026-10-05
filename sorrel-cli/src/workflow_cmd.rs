@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::cli_policy::{Grant, PolicyContext, PrincipalId, ResourceScope};
-use crate::cli_runner::{parse_workflow_file, ParsedWorkflow, RunError, WorkflowError};
+use crate::cli_runner::{parse_workflow_file_selected, ParsedWorkflow, RunError, WorkflowError};
 use crate::cli_runner::{CorePermissionEvaluator, JobBundle, LocalProcessRunner, RunStatus};
 use crate::env_cmd::{select_backend, try_devenv_run, RunnerBackendKind};
 use crate::run_log::{self, RunManifest};
@@ -21,6 +21,10 @@ pub struct WorkflowFileArgs {
     /// Path to a workflow file. Defaults to ./sorrel.workflow.yml.
     #[arg(long)]
     pub file: Option<PathBuf>,
+
+    /// Named workflow in a canonical workflow file.
+    #[arg(long)]
+    pub workflow: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -31,10 +35,14 @@ pub struct WorkflowRunJobArgs {
     /// Path to a workflow file. Defaults to ./sorrel.workflow.yml.
     #[arg(long)]
     pub file: Option<PathBuf>,
+
+    /// Named workflow in a canonical workflow file.
+    #[arg(long)]
+    pub workflow: Option<String>,
 }
 
 pub fn workflow_validate_output(args: WorkflowFileArgs) -> CommandOutput {
-    match load_workflow(&args.file) {
+    match load_workflow(&args.file, args.workflow.as_deref()) {
         Ok(workflow) => CommandOutput {
             json: validation_success_json(&workflow),
             human: format!(
@@ -52,7 +60,7 @@ pub fn workflow_validate_output(args: WorkflowFileArgs) -> CommandOutput {
 }
 
 pub fn workflow_run_output(args: WorkflowRunJobArgs) -> CommandOutput {
-    let workflow = match load_workflow(&args.file) {
+    let workflow = match load_workflow(&args.file, args.workflow.as_deref()) {
         Ok(workflow) => workflow,
         Err(WorkflowError::FileNotFound { path }) => {
             return missing_workflow_file_output("workflow run", &path);
@@ -70,7 +78,15 @@ pub fn workflow_run_output(args: WorkflowRunJobArgs) -> CommandOutput {
 
     let principal =
         PrincipalId::parse(CLI_AGENT_PRINCIPAL).expect("CLI agent principal is well-formed");
-    let context = workflow_execution_context();
+    let context = match workflow_execution_context() {
+        Ok(context) => context,
+        Err(error) => {
+            return CommandOutput {
+                json: json!({"command": "workflow run", "mocked": false, "status": "failed", "error": {"kind": "policy_load_failed", "message": error.to_string()}}),
+                human: format!("Cannot load workflow policy: {error}"),
+            }
+        }
+    };
     let evaluator = CorePermissionEvaluator {
         context: &context,
         principal,
@@ -112,17 +128,45 @@ pub fn workflow_run_output(args: WorkflowRunJobArgs) -> CommandOutput {
         Ok(mut outcome) => {
             outcome.stdout = redact_text(&outcome.stdout, &secret_env);
             outcome.stderr = redact_text(&outcome.stderr, &secret_env);
-            let _ = persist_run(&workflow, &bundle, &outcome);
-            CommandOutput {
-                json: run_success_json(&workflow, &bundle, &outcome),
-                human: format!(
-                    "Workflow {} job {} {} (backend: {})",
-                    workflow.id,
-                    bundle.job_name,
-                    outcome.status.as_str(),
-                    outcome.backend
-                ),
+            let run_id = match persist_run(&workflow, &bundle, &outcome) {
+                Ok(id) => id,
+                Err(error) => {
+                    let mut json = run_success_json(&workflow, &bundle, &outcome);
+                    json["status"] = json!("failed");
+                    json["error"] = json!({"kind": "run_log_failed", "message": error.to_string()});
+                    return CommandOutput {
+                        json,
+                        human: format!(
+                            "Workflow {} job {} {}; failed to save run log: {error}",
+                            workflow.id,
+                            bundle.job_name,
+                            outcome.status.as_str()
+                        ),
+                    };
+                }
+            };
+            let mut json = run_success_json(&workflow, &bundle, &outcome);
+            let mut human = String::new();
+            for stream in [&outcome.stdout, &outcome.stderr] {
+                if !stream.is_empty() {
+                    human.push_str(stream);
+                    if !stream.ends_with('\n') {
+                        human.push('\n');
+                    }
+                }
             }
+            human.push_str(&format!(
+                "Workflow {} job {} {} (backend: {})",
+                workflow.id,
+                bundle.job_name,
+                outcome.status.as_str(),
+                outcome.backend
+            ));
+            if let Some(id) = run_id {
+                json["runId"] = json!(id);
+                human.push_str(&format!("\nLogs: sorrel run logs {id}"));
+            }
+            CommandOutput { json, human }
         }
         Err(RunError::PolicyDenied(denial)) => policy_denial_output(&workflow, &bundle, &denial),
         Err(RunError::SpawnFailed { message }) => CommandOutput {
@@ -183,7 +227,14 @@ fn run_job_with_backend(
 
     // Secret env injection into devenv is deferred: when secrets are required we
     // stay on the local runner so values stay in the child env only.
-    if secret_env.values.is_empty() && select_backend(&cwd) == RunnerBackendKind::Devenv {
+    let simple_job = bundle
+        .native
+        .as_ref()
+        .is_none_or(|native| native.jobs.len() == 1 && native.jobs[0].env.is_empty());
+    if simple_job
+        && secret_env.values.is_empty()
+        && select_backend(&cwd) == RunnerBackendKind::Devenv
+    {
         match try_devenv_run(&cwd, &bundle.command) {
             Ok(Some(devenv)) => {
                 return Ok(crate::cli_runner::RunOutcome {
@@ -218,21 +269,57 @@ fn run_job_with_backend(
         }
     }
 
-    LocalProcessRunner.run_with_env(bundle, evaluator, secret_env.values.clone())
+    let mut env = secret_env.values.clone();
+    let mut bundle = bundle.clone();
+    if let Some(native) = &mut bundle.native {
+        for job in &mut native.jobs {
+            for secret in &job.secret_refs {
+                if let Some(name) = secret_env.id_to_name.get(&secret.id) {
+                    job.env.entry(name.clone()).or_insert_with(|| {
+                        sorrel_runners::EnvValue::SecretRef {
+                            secret: secret.clone(),
+                        }
+                    });
+                }
+            }
+            for (name, value) in &job.env {
+                if let sorrel_runners::EnvValue::SecretRef { secret } = value {
+                    let provider_name = secret_env.id_to_name.get(&secret.id).unwrap_or(&secret.id);
+                    let value = secret_env.values.get(provider_name).ok_or_else(|| {
+                        RunError::SecretResolve {
+                            message: format!("missing resolved secret {}", secret.id),
+                        }
+                    })?;
+                    env.insert(name.clone(), value.clone());
+                }
+            }
+        }
+        if !env.is_empty()
+            && !native
+                .required_capabilities
+                .iter()
+                .any(|capability| capability == "secret.inject")
+        {
+            native
+                .required_capabilities
+                .push("secret.inject".to_owned());
+        }
+    }
+    LocalProcessRunner.run_with_env(&bundle, evaluator, env)
 }
 
 fn persist_run(
     workflow: &ParsedWorkflow,
     bundle: &JobBundle,
     outcome: &crate::cli_runner::RunOutcome,
-) -> std::io::Result<()> {
+) -> std::io::Result<Option<String>> {
     if !crate::repo::is_initialized() {
-        return Ok(());
+        return Ok(None);
     }
     let id = run_log::new_run_id();
     let mut manifest = RunManifest {
         schema_version: 1,
-        id,
+        id: id.clone(),
         started_at: run_log::now_rfc3339(),
         finished_at: None,
         backend: outcome.backend.clone(),
@@ -252,7 +339,7 @@ fn persist_run(
     }
     manifest.status = outcome.status.as_str().to_owned();
     run_log::finish_run(&dir, manifest)?;
-    Ok(())
+    Ok(Some(id))
 }
 
 fn resolve_job_secrets(
@@ -266,9 +353,12 @@ fn resolve_job_secrets(
     resolve_handles(&cwd, &handles, &bundle.secret_refs, None)
 }
 
-fn load_workflow(file: &Option<PathBuf>) -> Result<ParsedWorkflow, WorkflowError> {
+fn load_workflow(
+    file: &Option<PathBuf>,
+    selected: Option<&str>,
+) -> Result<ParsedWorkflow, WorkflowError> {
     let path = resolve_workflow_path(file)?;
-    parse_workflow_file(&path)
+    parse_workflow_file_selected(&path, selected)
 }
 
 fn resolve_workflow_path(file: &Option<PathBuf>) -> Result<PathBuf, WorkflowError> {
@@ -292,19 +382,26 @@ fn resolve_workflow_path(file: &Option<PathBuf>) -> Result<PathBuf, WorkflowErro
     Err(WorkflowError::FileNotFound { path: default_path })
 }
 
-fn workflow_execution_context() -> PolicyContext {
+fn workflow_execution_context() -> Result<PolicyContext, BridgeError> {
     if std::env::var_os("SORREL_WORKFLOW_POLICY").as_deref()
         == Some(std::ffi::OsStr::new("restrictive"))
     {
-        return PolicyContext {
+        return Ok(PolicyContext {
             repo_id: "repo_mock_local".to_owned(),
             authority_principals: vec![],
             grants: vec![],
             default_rules: vec![],
-        };
+        });
     }
 
-    let mut context = secret_policy_context().unwrap_or_else(|_| PolicyContext::headless_default());
+    let grants = crate::repo::registry_dir(crate::repo::GRANTS_DIR);
+    if grants.try_exists()? && !grants.is_dir() {
+        return Err(BridgeError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "workspace grant registry is not a directory",
+        )));
+    }
+    let mut context = secret_policy_context()?;
     context
         .default_rules
         .retain(|rule| rule.action != "workflow.run");
@@ -326,7 +423,21 @@ fn workflow_execution_context() -> PolicyContext {
         ],
         issued_by: None,
     });
-    context
+    Ok(context)
+}
+
+/// Process status for workflow commands, after their structured output is printed.
+pub fn exit_code(output: &CommandOutput) -> u8 {
+    if matches!(output.json["status"].as_str(), Some("valid" | "completed")) {
+        return 0;
+    }
+    output
+        .json
+        .pointer("/job/exitCode")
+        .and_then(Value::as_u64)
+        .and_then(|code| u8::try_from(code).ok())
+        .filter(|code| *code != 0)
+        .unwrap_or(1)
 }
 
 fn validation_success_json(workflow: &ParsedWorkflow) -> Value {
@@ -507,7 +618,7 @@ mod tests {
     #[test]
     fn restrictive_policy_mode_denies_without_grants() {
         std::env::set_var("SORREL_WORKFLOW_POLICY", "restrictive");
-        let context = workflow_execution_context();
+        let context = workflow_execution_context().unwrap();
         std::env::remove_var("SORREL_WORKFLOW_POLICY");
         assert!(context.grants.is_empty());
         assert!(context.default_rules.is_empty());

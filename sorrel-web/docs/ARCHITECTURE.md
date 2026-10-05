@@ -209,10 +209,20 @@ does not resolve values by itself.
 
 Runners expose serializable `JobBundle` objects, a versioned workflow parser,
 Core-shaped permission gates, local process execution, and an experimental
-Docker/Podman adapter. CLI workflow execution prefers devenv when detected,
-falls back to the local process runner, and records structured results under
-`.sorrel/runs/`. Execution logs redact resolved secret values and secret-like
-environment data; follow/Hub streaming is not implemented.
+Docker/Podman adapter. The CLI delegates parsing/execution to this library and
+uses a native Core policy adapter; its CLI-shaped JSON and policy-command
+compatibility surface remain intact. Both named `workflows` and legacy `jobs`
+YAML are accepted. Selected jobs include their dependency closure and stop on
+failure; literal environment values and authorized secret aliases are applied.
+
+The CLI resolves SecretSpec values out of band and gives them to the authorized
+local runner without adding values to `JobBundle`. Results and all log records
+redact secrets. Simple jobs can use detected devenv; jobs requiring environment
+injection or dependency execution use the shared local runner. Results persist
+under `.sorrel/runs/`; failures to persist are reported. Workflow commands print
+structured JSON before returning nonzero status for failure/denial/invalid or
+missing input. Human output includes redacted streams and a saved-log hint;
+follow/Hub streaming is not implemented.
 
 Slices compute deterministic TS/JS dependency closures for focused context.
 The agent package persists advisory agent/lane registrations and path claims;

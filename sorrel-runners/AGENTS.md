@@ -20,8 +20,10 @@ Portable workflow execution for Sorrel: the `JobBundle` model, a
 - Runners must not decide privilege from local config alone — always consult the
   Core permission evaluator before executing. Bundle-attached `policyDecisions`
   are audit metadata only, never trusted on their own.
-- Secret references stay as `SecretRef`; this prototype does not inject secret
-  values.
+- Secret references stay as `SecretRef`. Local `run_with_env` accepts host-resolved
+  values out of band after policy authorization and redacts results/logs. The
+  runner never resolves providers; the default and container paths reject
+  unresolved secret injection.
 
 ## Common checks
 

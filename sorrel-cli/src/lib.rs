@@ -3,9 +3,8 @@
 //! The CLI is primarily a binary (`src/main.rs`), but its modules live here so
 //! that integration tests (e.g. the protocol policy-conformance suite) can
 //! exercise them directly. The CLI-facing policy and runner modules
-//! (`cli_policy`, `cli_runner`) previously lived in `sorrel-core::cli_policy`
-//! and `sorrel-runners::cli_runner`; they now live in the CLI so the engine
-//! crates carry only their native, protocol-conformant APIs.
+//! (`cli_policy`, `cli_runner`) retain CLI-shaped contracts. Workflow adapters
+//! delegate parsing/execution to `sorrel-runners` and decisions to Core policy.
 
 pub mod cli_policy;
 pub mod cli_runner;

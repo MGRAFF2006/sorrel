@@ -56,7 +56,8 @@ The alpha ships upstream SecretSpec resolution/injection under Core grants,
 devenv detection with local fallback, and structured redacted logs under
 `.sorrel/runs/<id>/`. Remaining work: fuller workflow-to-devenv task mapping,
 log following and Hub streaming, an optional hosted/BYO provider binding, and
-then removal of the intentional `cli_policy` / `cli_runner` duplication.
+convergence of the remaining `cli_policy` command/authority compatibility API.
+Workflow parsing/execution now use shared runners and native Core evaluation.
 
 ### 7. Stable embedding surface (`sorrel-core`)
 

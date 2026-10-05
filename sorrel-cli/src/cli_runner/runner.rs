@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::process::Command as ProcessCommand;
 
 use super::bundle::JobBundle;
 use super::policy::{CorePermissionEvaluator, PolicyGateError};
@@ -89,18 +88,36 @@ impl LocalProcessRunner {
             .map_err(RunError::PolicyDenied)?;
 
         let injected_secrets: Vec<String> = env.keys().cloned().collect();
-        let mut command = ProcessCommand::new(&bundle.shell);
-        command.arg("-c").arg(&bundle.command);
-        for (key, value) in &env {
-            command.env(key, value);
-        }
-
-        let output = command.output().map_err(|error| RunError::SpawnFailed {
-            message: error.to_string(),
-        })?;
-
-        let exit_code = output.status.code();
-        let completed = output.status.success();
+        let mut native = bundle.native.clone().unwrap_or_else(|| {
+            let job = sorrel_runners::Job::exec(
+                &bundle.job_name,
+                [&bundle.shell, "-c", &bundle.command],
+                None,
+            );
+            sorrel_runners::JobBundle::single(&bundle.job_name, job)
+        });
+        native.principal.agent = Some(sorrel_runners::ObjectRef::new(
+            "Agent",
+            &evaluator.principal.id,
+        ));
+        let policy = evaluator.with_environment(bundle.environment.as_deref());
+        let result = sorrel_runners::LocalProcessRunner::default_local()
+            .run_with_env(&native, &policy, &env)
+            .map_err(|error| RunError::SpawnFailed {
+                message: error.to_string(),
+            })?;
+        let exit_code = result.jobs.last().and_then(|job| job.exit_code);
+        let completed = result.status == sorrel_runners::RunStatus::Succeeded;
+        let stdout = result
+            .jobs
+            .iter()
+            .map(|job| job.stdout.as_str())
+            .collect::<String>();
+        let stderr = result
+            .jobs
+            .iter()
+            .map(|job| job.stderr.as_str())
+            .collect::<String>();
 
         Ok(RunOutcome {
             status: if completed {
@@ -109,8 +126,8 @@ impl LocalProcessRunner {
                 RunStatus::Failed
             },
             exit_code,
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            stdout,
+            stderr,
             backend: "local-fallback".to_owned(),
             injected_secrets,
         })
@@ -167,6 +184,7 @@ mod tests {
             shell: "sh".to_owned(),
             secret_refs: vec![],
             environment: Some("dev".to_owned()),
+            native: None,
         };
         let context = granted_context();
         let evaluator = CorePermissionEvaluator {
@@ -195,6 +213,7 @@ mod tests {
             shell: "sh".to_owned(),
             secret_refs: vec![],
             environment: Some("dev".to_owned()),
+            native: None,
         };
         let context = granted_context();
         let evaluator = CorePermissionEvaluator {

@@ -32,7 +32,8 @@ merge). Registry helpers are in `src/repo.rs`.
   `CommandOutput`); `src/main.rs` is the thin binary. Integration tests consume
   the library (e.g. `sorrel_cli::cli_policy`).
 - `cli_policy` (CLI policy evaluator) and `cli_runner` (workflow parse + local
-  run + policy gate) now live **here**, not in `sorrel-core`/`sorrel-runners`.
+  adapters) live **here**. Workflow parsing/execution delegate to
+  `sorrel-runners`; workflow authorization delegates to native Core policy.
   `cli_policy` conforms to the protocol policy manifest
   (`tests/policy_conformance.rs`).
 - Every command supports `--json` and returns `CommandOutput { json, human }`.

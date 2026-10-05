@@ -2127,6 +2127,7 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "sorrel-core",
+ "sorrel-runners",
  "sorrel-sdk",
  "tempfile",
  "ureq",
