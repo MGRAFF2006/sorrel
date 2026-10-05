@@ -13,7 +13,7 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function installHubFetch(projects: unknown[] = [], proposals: unknown[] = [], options: { rejectPatch?: boolean; authenticatedPrincipal?: { type: string; id: string } } = {}) {
+function installHubFetch(projects: unknown[] = [], proposals: unknown[] = [], options: { rejectRefs?: boolean; rejectPatch?: boolean; authenticatedPrincipal?: { type: string; id: string } } = {}) {
   const calls: FetchCall[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -53,6 +53,8 @@ function installHubFetch(projects: unknown[] = [], proposals: unknown[] = [], op
     }
     if (url === '/api/admin/proposals?projectId=project_alpha') return json({ data: proposals });
     if (url === '/api/admin/sync-repos') return json({ repos: [{ id: 'repo_alpha', refCount: 1 }, { id: 'repo_beta', refCount: 1 }] });
+    if (url === '/api//refs') return json({error: {message: 'Repository required'}}, 404);
+    if (url === '/api/repo_alpha/refs' && options.rejectRefs) { options.rejectRefs = false; return json({error: {message: 'Refs unavailable'}}, 503); }
     if (url === '/api/repo_alpha/refs') return json({ refs: [{ name: 'main', snapshot: 'a'.repeat(64) }, { name: 'HEAD', snapshot: 'c'.repeat(64) }] });
     if (url === '/api/repo_alpha/tree?ref=main&path=') {
       return json({
@@ -179,6 +181,28 @@ describe('HubApp rendered behavior', () => {
     const request = calls.find(call => call.url === '/api/projects/project_alpha/repositories' && call.init?.method === 'POST');
     expect(JSON.parse(String(request?.init?.body))).toEqual({syncRepoId: 'repo_beta'});
     await waitFor(() => expect(document.querySelector('[data-repo-id="repo_beta"]')).toBeInTheDocument());
+  });
+
+  test('opens reviews without an empty repository request and preserves drafts after failed refs', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha/reviews');
+    const calls = installHubFetch([{id: 'project_alpha', name: 'Alpha', repositoryIds: ['repo_alpha']}], [], {rejectRefs: true});
+    render(() => <HubApp platform={createWebPlatform()} />);
+    await fireEvent.click(await screen.findByRole('button', {name: 'Open review'}));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(calls.some(call => call.url === '/api//refs')).toBe(false);
+    await fireEvent.input(screen.getByLabelText('Title'), {target: {value: 'Keep this draft'}});
+    await waitFor(() => expect(screen.getByLabelText(/Repository/).querySelector('option[value="repo_alpha"]')).toBeInTheDocument());
+    await fireEvent.change(screen.getByLabelText(/Repository/), {target: {value: 'repo_alpha'}});
+    expect(await screen.findByText(/Repository refs could not be loaded/)).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Title')).toHaveValue('Keep this draft');
+    expect(screen.getByLabelText(/Source lane/)).toBeDisabled();
+    await fireEvent.click(screen.getByRole('button', {name: 'Retry refs'}));
+    await waitFor(() => expect(screen.getByLabelText(/Source lane/).querySelector('option[value="HEAD"]')).toBeInTheDocument());
+    expect(screen.getByLabelText(/Source lane/)).toBeEnabled();
+    expect(screen.getByLabelText('Title')).toHaveValue('Keep this draft');
+    expect(calls.filter(call => call.url === '/api/repo_alpha/refs')).toHaveLength(2);
+    expect(calls.some(call => call.url === '/api//refs')).toBe(false);
   });
 
   test('captures selected source and target snapshots when creating a review', async () => {

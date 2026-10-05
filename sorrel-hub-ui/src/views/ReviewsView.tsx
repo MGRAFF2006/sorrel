@@ -67,7 +67,8 @@ export function ReviewsView() {
     const linked = new Set([...(project.repositoryIds ?? []), ...repositories.map(repo => repo.id), ...(proposals() ?? []).map(proposal => proposal.syncRepoId)]);
     return (unwrapList(syncPayload) as SyncRepo[]).filter(repo => repo.id && linked.has(repo.id));
   });
-  const [reviewRefs] = createResource(reviewRepoId, async id => unwrapList(await apiGet(`/${encodeURIComponent(id)}/refs`)) as SyncRef[]);
+  const [reviewRefs, { refetch: retryRefs }] = createResource(() => reviewRepoId() || false, async id => unwrapList(await apiGet(`/${encodeURIComponent(id)}/refs`)) as SyncRef[]);
+  const availableReviewRefs = () => reviewRefs.error ? [] : reviewRefs() ?? [];
   const [filter, setFilter] = createSignal('');
 
   createEffect(() => {
@@ -152,6 +153,11 @@ export function ReviewsView() {
     const form = event.currentTarget as HTMLFormElement;
     const data = Object.fromEntries(new FormData(form).entries());
     if (formStatus() === 'Creating…') return;
+    if (reviewRepoId() && (reviewRefs.loading || reviewRefs.error)) {
+      setFormError(true);
+      setFormStatus('Load repository refs before opening this review.');
+      return;
+    }
     setFormError(false);
     setFormStatus('Creating…');
     try {
@@ -161,8 +167,8 @@ export function ReviewsView() {
         syncRepoId: data.syncRepoId || undefined,
         sourceLane: data.sourceLane || undefined,
         targetLane: data.targetLane || undefined,
-        sourceSnapshot: reviewRefs()?.find(ref => ref.name === data.sourceLane)?.snapshot,
-        targetSnapshot: reviewRefs()?.find(ref => ref.name === data.targetLane)?.snapshot,
+        sourceSnapshot: availableReviewRefs().find(ref => ref.name === data.sourceLane)?.snapshot,
+        targetSnapshot: availableReviewRefs().find(ref => ref.name === data.targetLane)?.snapshot,
         description: data.description || undefined,
         authorPrincipal: getActingPrincipal(),
         status: 'open',
@@ -279,18 +285,18 @@ export function ReviewsView() {
               </label>
               <label>
                 <span>Source lane <i>optional</i></span>
-                <select name="sourceLane" disabled={!reviewRepoId() || reviewRefs.loading} required={!!reviewRepoId()}>
+                <select name="sourceLane" disabled={!reviewRepoId() || reviewRefs.loading || !!reviewRefs.error} required={!!reviewRepoId()}>
                   <option value="">Choose source ref</option>
-                  <For each={reviewRefs() ?? []}>{ref => <option value={ref.name}>{ref.name}</option>}</For>
+                  <For each={availableReviewRefs()}>{ref => <option value={ref.name}>{ref.name}</option>}</For>
                 </select>
               </label>
             </div>
             <Show when={reviewRepoId()}>
-              <label><span>Compare against</span><select name="targetLane">
+              <label><span>Compare against</span><select name="targetLane" disabled={reviewRefs.loading || !!reviewRefs.error}>
                 <option value="">No target snapshot</option>
-                <For each={reviewRefs() ?? []}>{ref => <option value={ref.name}>{ref.name}</option>}</For>
+                <For each={availableReviewRefs()}>{ref => <option value={ref.name}>{ref.name}</option>}</For>
               </select></label>
-              <Show when={reviewRefs.error}><ErrorText text="Repository refs could not be loaded. Try reopening this review." /></Show>
+              <Show when={reviewRefs.error}><ErrorText text="Repository refs could not be loaded. Your review draft is preserved." /><button type="button" class="ghost" disabled={reviewRefs.loading} onClick={() => void retryRefs()}>Retry refs</button></Show>
               <p class="muted">Source and target snapshots are captured now, so later pushes do not change this comparison.</p>
             </Show>
             <label>
