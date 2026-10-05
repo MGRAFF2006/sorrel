@@ -8,6 +8,10 @@ All notable changes to `sorrel-core` are documented in this file.
 
 - Add shared workspace snapshot selection with nested Git/Sorrel ignore rules, protected dotenv-provider files, and tracked-file preservation.
 
+- Give concurrent object writes separate temporary files so identical content
+  can be safely stored by multiple writers.
+
+
 ## [0.1.0-alpha.2] - 2026-09-01
 
 ### Removed

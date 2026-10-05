@@ -8,6 +8,11 @@ All notable changes to `sorrel-cli` are documented here.
 
 - Apply safe workspace selection consistently to status, diff, and change creation before storing file contents or reusing cached blobs.
 
+- Reject competing workspace commands with a retryable busy error, use unique
+  temporary files, and recover interrupted lane-head, HEAD, and change-index
+  publication without advancing HEAD on a failed preparation.
+
+
 ## [0.1.0-alpha.2] - 2026-09-01
 
 ### Changed

@@ -65,6 +65,34 @@ test('fs metadata store: createProject writes a JSON document under the collecti
   assert.equal(onDisk.slug, 'platform-collaboration');
 });
 
+test('failed persistence never publishes a created or updated record', (t) => {
+  const dir = tempDir(t);
+  const store = createFsMetadataStore(dir);
+  const project = store.createProject({ id: 'project', organizationId: 'org_local', name: 'Existing' });
+  const proposal = store.createProposal({ id: 'proposal', projectId: project.id, title: 'Existing', authorRef: 'user:local' });
+  const rename = t.mock.method(fs, 'renameSync', () => { throw new Error('simulated disk failure'); });
+  assert.throws(() => store.createProject({ id: 'failed', organizationId: 'org_local', name: 'Failed' }), /simulated disk failure/);
+  assert.equal(store.getProject('failed'), null);
+  assert.throws(() => store.updateProposal(proposal.id, { status: 'open' }), /simulated disk failure/);
+  assert.equal(store.getProposal(proposal.id), proposal);
+  assert.throws(() => store.linkProjectRepository(project.id, 'repo_sync'), /simulated disk failure/);
+  assert.equal(store.getProject(project.id), project);
+  rename.mock.restore();
+  const reopened = createFsMetadataStore(dir);
+  assert.equal(reopened.getProposal(proposal.id).status, 'draft');
+  assert.deepEqual(reopened.getProject(project.id).repositoryIds, []);
+});
+
+test('linking a synchronized repository is deduplicated and survives restart', (t) => {
+  const dir = tempDir(t);
+  const store = createFsMetadataStore(dir);
+  const project = store.createProject({ organizationId: 'org_local', name: 'Linked' });
+  store.linkProjectRepository(project.id, 'repo_sync');
+  store.linkProjectRepository(project.id, 'repo_sync');
+  assert.deepEqual(createFsMetadataStore(dir).getProject(project.id).repositoryIds, ['repo_sync']);
+  assert.throws(() => store.linkProjectRepository('missing', 'repo_sync'), /project missing not found/);
+});
+
 test('POST /projects survives a server restart over the same metadata directory', async (t) => {
   const metadataDir = tempDir(t);
   let projectId;

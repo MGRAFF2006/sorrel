@@ -534,6 +534,13 @@ fn run(cli: Cli) -> io::Result<()> {
 }
 
 fn execute(command: Commands) -> io::Result<CommandOutput> {
+    // Workflow processes can invoke Sorrel themselves; never hold a workspace
+    // mutation lock while waiting for arbitrary user commands.
+    let _workspace_lock = if matches!(&command, Commands::Workflow { .. }) {
+        None
+    } else {
+        Some(repo::WorkspaceLock::acquire(&repo::sorrel_dir())?)
+    };
     match command {
         Commands::Init => init_output(),
         Commands::Status => status_output(),
@@ -791,18 +798,17 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
         options
     }))?;
 
-    // Advance HEAD to the new snapshot on the current lane.
-    repo::write_head(&repo::Head {
-        lane: head.lane,
-        snapshot: new_snapshot.to_hex(),
-    })?;
-
-    // Record snapshot → change so `log` can resolve Change metadata later.
     let change_id = change.id.to_hex();
-    repo::append_changes_index(&repo::ChangesIndexEntry {
-        snapshot: new_snapshot.to_hex(),
-        change: change_id.clone(),
-    })?;
+    repo::write_head_and_change(
+        &repo::Head {
+            lane: head.lane,
+            snapshot: new_snapshot.to_hex(),
+        },
+        &repo::ChangesIndexEntry {
+            snapshot: new_snapshot.to_hex(),
+            change: change_id.clone(),
+        },
+    )?;
 
     let (changes, total) = diff_json(&change.diff);
 
@@ -2390,16 +2396,17 @@ fn merge_continue_output() -> io::Result<CommandOutput> {
     ))?;
 
     let result_hex = result_snapshot.to_hex();
-    repo::write_head(&repo::Head {
-        lane: head.lane,
-        snapshot: result_hex.clone(),
-    })?;
-
     let change_id = change.id.to_hex();
-    repo::append_changes_index(&repo::ChangesIndexEntry {
-        snapshot: result_hex.clone(),
-        change: change_id.clone(),
-    })?;
+    repo::write_head_and_change(
+        &repo::Head {
+            lane: head.lane,
+            snapshot: result_hex.clone(),
+        },
+        &repo::ChangesIndexEntry {
+            snapshot: result_hex.clone(),
+            change: change_id.clone(),
+        },
+    )?;
     repo::clear_merge_state()?;
 
     let (changes, total) = diff_json(&change.diff);
@@ -2600,16 +2607,17 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
     ))?;
 
     let result_hex = result_snapshot.to_hex();
-    repo::write_head(&repo::Head {
-        lane: head.lane,
-        snapshot: result_hex.clone(),
-    })?;
-
     let change_id = change.id.to_hex();
-    repo::append_changes_index(&repo::ChangesIndexEntry {
-        snapshot: result_hex.clone(),
-        change: change_id.clone(),
-    })?;
+    repo::write_head_and_change(
+        &repo::Head {
+            lane: head.lane,
+            snapshot: result_hex.clone(),
+        },
+        &repo::ChangesIndexEntry {
+            snapshot: result_hex.clone(),
+            change: change_id.clone(),
+        },
+    )?;
 
     let (changes, total) = diff_json(&change.diff);
 

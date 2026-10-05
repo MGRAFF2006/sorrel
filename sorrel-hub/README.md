@@ -170,6 +170,9 @@ ref under `<repo>/refs/`.
 Product metadata (organizations, projects, repositories, proposals, review
 comments, workflow runs, policies) is stored as one JSON document per record
 under `<metadataDir>/<collection>/<id>.json`, also written atomically.
+Filesystem-backed metadata becomes visible to requests only after persistence
+succeeds; failed creates, updates, and project/repository links leave the prior
+in-memory records intact.
 
 ## License
 

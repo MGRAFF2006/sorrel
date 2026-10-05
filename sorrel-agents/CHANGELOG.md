@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Preserve registrations and claims from concurrent local writers, refresh
+  readers from disk, and leave prior state intact after failed saves.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

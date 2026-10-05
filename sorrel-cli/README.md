@@ -30,6 +30,13 @@ ordinary file. Ignore negation cannot reinclude protected secret files.
 For legacy workspaces that already track secrets, see the
 [workspace selection and recovery contract](../docs/ARCHITECTURE.md#change-lane-and-merge-flow).
 
+Workspace commands acquire an advisory operating-system lock before reading
+or changing metadata. If another command is using the same workspace, retry
+after its busy error; the lock releases automatically when that process exits.
+Use separate workspaces for concurrent edits. Workflow child processes run
+outside the lock so they can invoke Sorrel. Head and change-index publication
+is journaled and an interrupted commit finishes on the next locked command.
+
 ## Features
 
 - Persistent repositories: `init`, `status`, `diff`, `log`, and

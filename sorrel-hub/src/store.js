@@ -40,9 +40,14 @@ export class InMemoryStore {
     this.sync = options.sync ?? createRepoSyncStore();
   }
 
+  /** Publish a validated record. Persistent stores write it before publication. */
+  storeRecord(collection, record) {
+    this[collection].set(record.id, record);
+  }
+
   createOrganization(attributes) {
     const organization = createOrganization(attributes);
-    this.organizations.set(organization.id, organization);
+    this.storeRecord('organizations', organization);
     return organization;
   }
 
@@ -64,12 +69,26 @@ export class InMemoryStore {
       throw new StoreConflictError('project slug already exists for organization');
     }
 
-    this.projects.set(project.id, project);
+    this.storeRecord('projects', project);
     return project;
   }
 
   getProject(id) {
     return this.projects.get(id) ?? null;
+  }
+
+  linkProjectRepository(projectId, syncRepoId) {
+    const project = this.getProject(projectId);
+    if (!project) {
+      throw new StoreNotFoundError(`project ${projectId} not found`);
+    }
+    const updated = {
+      ...project,
+      repositoryIds: [...new Set([...project.repositoryIds, syncRepoId])],
+      updatedAt: new Date().toISOString(),
+    };
+    this.storeRecord('projects', updated);
+    return updated;
   }
 
   listProjects(filters = {}) {
@@ -84,7 +103,7 @@ export class InMemoryStore {
 
   createRepository(attributes) {
     const repository = createRepository(attributes);
-    this.repositories.set(repository.id, repository);
+    this.storeRecord('repositories', repository);
     return repository;
   }
 
@@ -108,7 +127,7 @@ export class InMemoryStore {
 
   createProposal(attributes) {
     const proposal = createProposal(attributes);
-    this.proposals.set(proposal.id, proposal);
+    this.storeRecord('proposals', proposal);
     return proposal;
   }
 
@@ -122,7 +141,7 @@ export class InMemoryStore {
       throw new StoreNotFoundError(`proposal ${id} not found`);
     }
     const updated = updateProposal(existing, attributes);
-    this.proposals.set(id, updated);
+    this.storeRecord('proposals', updated);
     return updated;
   }
 
@@ -157,7 +176,7 @@ export class InMemoryStore {
     if (!this.getProposal(reviewComment.proposalId)) {
       throw new StoreNotFoundError(`proposal ${reviewComment.proposalId} not found`);
     }
-    this.reviewComments.set(reviewComment.id, reviewComment);
+    this.storeRecord('reviewComments', reviewComment);
     return reviewComment;
   }
 
@@ -171,7 +190,7 @@ export class InMemoryStore {
       throw new StoreNotFoundError(`review comment ${id} not found`);
     }
     const updated = updateReviewComment(existing, attributes);
-    this.reviewComments.set(id, updated);
+    this.storeRecord('reviewComments', updated);
     return updated;
   }
 
@@ -191,7 +210,7 @@ export class InMemoryStore {
 
   createWorkflowRun(attributes) {
     const workflowRun = createWorkflowRun(attributes);
-    this.workflowRuns.set(workflowRun.id, workflowRun);
+    this.storeRecord('workflowRuns', workflowRun);
     return workflowRun;
   }
 
@@ -205,7 +224,7 @@ export class InMemoryStore {
       throw new StoreNotFoundError(`workflow run ${id} not found`);
     }
     const updated = updateWorkflowRun(existing, attributes);
-    this.workflowRuns.set(id, updated);
+    this.storeRecord('workflowRuns', updated);
     return updated;
   }
 
@@ -229,7 +248,7 @@ export class InMemoryStore {
 
   createPolicy(attributes) {
     const policy = createPolicy(attributes);
-    this.policies.set(policy.id, policy);
+    this.storeRecord('policies', policy);
     return policy;
   }
 
