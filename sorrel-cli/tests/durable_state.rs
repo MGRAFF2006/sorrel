@@ -4,18 +4,52 @@ use sorrel_cli::repo::WorkspaceLock;
 use std::fs;
 
 #[test]
+fn headless_commands_do_not_create_workspace_metadata() {
+    let cases: &[(&[&str], bool)] = &[
+        (&["status"], true),
+        (&["diff"], false),
+        (&["log"], false),
+        (&["policy", "evaluate"], true),
+        (&["slice", "create"], true),
+        (&["grant", "create"], true),
+        (&["secret", "refs"], true),
+    ];
+    for (args, success) in cases {
+        let workspace = tempfile::tempdir().unwrap();
+        let output = Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(workspace.path())
+            .args(*args)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.success(),
+            *success,
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !workspace.path().join(".sorrel").exists(),
+            "{args:?} created metadata in an uninitialized workspace"
+        );
+    }
+}
+
+#[test]
 fn competing_command_fails_without_changing_workspace_and_can_retry() {
     let workspace = tempfile::tempdir().unwrap();
     let root = workspace.path().join(".sorrel");
     let guard = WorkspaceLock::acquire(&root).unwrap();
-    let output = Command::cargo_bin("sorrel")
-        .unwrap()
-        .current_dir(workspace.path())
-        .arg("init")
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("workspace is busy"));
+    for args in [&["init"][..], &["git", "import"][..]] {
+        let output = Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(workspace.path())
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("workspace is busy"));
+    }
     assert!(!root.join("manifest.json").exists());
     drop(guard);
     Command::cargo_bin("sorrel")

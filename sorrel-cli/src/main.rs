@@ -536,10 +536,23 @@ fn run(cli: Cli) -> io::Result<()> {
 fn execute(command: Commands) -> io::Result<CommandOutput> {
     // Workflow processes can invoke Sorrel themselves; never hold a workspace
     // mutation lock while waiting for arbitrary user commands.
+    let root = repo::sorrel_dir();
+    // Headless commands must not create metadata. Only init and Git import
+    // bootstrap a workspace; other writers require existing metadata.
+    let needs_workspace_lock = root.exists()
+        || matches!(
+            &command,
+            Commands::Init
+                | Commands::Git {
+                    command: GitCommand::Import(_)
+                }
+        );
     let _workspace_lock = if matches!(&command, Commands::Workflow { .. }) {
         None
+    } else if needs_workspace_lock {
+        Some(repo::WorkspaceLock::acquire(&root)?)
     } else {
-        Some(repo::WorkspaceLock::acquire(&repo::sorrel_dir())?)
+        None
     };
     match command {
         Commands::Init => init_output(),
