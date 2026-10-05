@@ -6,11 +6,17 @@ Notable changes to the shared Sorrel Hub UI (`sorrel-hub-ui`) are documented her
 
 ### Added
 
+- Add organization/repository/ref selection, populated CLI connection commands,
+  text-file previews, and bounded recorded review comparisons.
 - Add global Inbox and organization/profile routes, a proposal-backed Work
   board, safe README rendering, and repository tree browsing.
 
 ### Changed
 
+- Use native keyboard-accessible dialogs with pending, error, and retry states;
+  show server-authoritative proposal transitions and verified session identity.
+- Label the merged metadata transition “Mark as merged” and separate closed
+  reviews from integrated reviews.
 - Replace the dashboard-style Hub shell with repository-shaped project chrome,
   a Code-first project page, and a denser review workbench in Sorrel's Nord
   product theme.

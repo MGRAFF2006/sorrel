@@ -165,6 +165,22 @@ test('comparison traverses nested trees and bounds the changed-file count', asyn
   });
 });
 
+test('project linking through the SDK validates an existing repo and deduplicates links', async () => {
+  await withSyncServer(async (baseUrl, app) => {
+    const project = app.store.createProject({ name: 'Link repository', organizationId: 'org_test' });
+    app.store.sync.put(repoId, makeProtocolBlob('available').bytes);
+    const client = new HubClient({ baseUrl });
+    const linked = await client.linkProjectRepository(project.id, repoId);
+    assert.deepEqual(linked.data.repositoryIds, [repoId]);
+    assert.deepEqual((await client.linkProjectRepository(project.id, repoId)).data.repositoryIds, [repoId]);
+    await assert.rejects(client.linkProjectRepository('proj_missing', repoId), (error) => error.status === 404);
+    await assert.rejects(client.linkProjectRepository(project.id, 'repo_missing'), (error) => error.status === 404);
+    assert.equal((await postJson(`${baseUrl}/projects/${project.id}/repositories/extra`, { syncRepoId: repoId })).status, 404);
+    assert.equal((await postJson(`${baseUrl}/projects/${project.id}/repositories`, { syncRepoId: ' ' })).status, 400);
+    assert.deepEqual(app.store.getProject(project.id).repositoryIds, [repoId]);
+  });
+});
+
 test('push flow: missing -> upload -> advance ref', async () => {
   await withSyncServer(async (baseUrl) => {
     const blob = makeBlob('hello sorrel');

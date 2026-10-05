@@ -28,6 +28,9 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Guide Hub workspace connection and snapshot selection, show file contents and
+  recorded before/after review previews, distinguish closed reviews from merged
+  metadata, and make dialogs and mutations keyboard-safe and retryable.
 - Require verified sessions for non-development Hub mutations and bind review
   attribution to the session principal.
 - Rebuild Sorrel Hub around repository-shaped project pages, a global Inbox,
