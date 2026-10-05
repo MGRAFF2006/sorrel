@@ -6,6 +6,7 @@ All notable changes to `sorrel-core` are documented in this file.
 
 ### Fixed
 
+- Reject malformed Unicode and non-hexadecimal object IDs without panicking at text boundaries.
 - Preserve distinct paths when Git imports reuse identical subtrees under different directories.
 - Isolate concurrent object-store writes so identical objects cannot share or truncate a temporary file.
 - Merge adjacent text edits independently and preserve executable mode changes when the other side edits content, including binary files.
