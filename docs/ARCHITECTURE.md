@@ -107,9 +107,11 @@ contents. Existing ordinary tracked files remain tracked when a new ignore rule
 matches them; removing a tracked file from disk still records a deletion.
 
 Files named `.env` or `.env.*` are always protected, except `.env.example`, which
-follows ordinary ignore rules. Configured `dotenv:` / `dotenv://` file paths in
-`sorrel.secrets.yml`, `.sorrel/secrets/*.json`, and `secretspec.toml` are also
-protected, even when ignore rules try to reinclude them. Malformed provider
+follows ordinary ignore rules unless explicitly configured as a secret source.
+Configured `dotenv:` / `dotenv://` file paths in `sorrel.secrets.yml`,
+`.sorrel/secrets/*.json`, and `secretspec.toml`, plus Vault's declared local import
+files, are also protected. Protection includes case variants and canonical
+symlink targets, even when ignore rules try to reinclude them. Malformed provider
 configuration fails closed. Explicit provider overrides outside these project
 configs must be added to `.sorrelignore` before use. This selection runs before
 stat-cache lookup, and excluded paths are removed from a successfully saved
