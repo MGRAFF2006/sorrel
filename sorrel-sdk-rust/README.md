@@ -10,6 +10,11 @@ provides a `Workspace` helper for initializing local object storage and
 snapshotting a working tree. See [CHANGELOG.md](CHANGELOG.md) for the supported
 alpha surface and known limitations.
 
+`Workspace::init` uses the shared `.sorrel/objects` object-store layout. Older SDK
+versions wrote to `.sorrel/objects/objects`; those files remain untouched and are
+not automatically migrated. To read an older store directly, pass
+`.sorrel/objects` to `FileObjectStore::new`.
+
 ## Checks
 
 ```sh
