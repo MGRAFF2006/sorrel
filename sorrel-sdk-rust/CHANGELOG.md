@@ -4,7 +4,9 @@
 
 ### Fixed
 
-- Use the same protected workspace snapshot selection as the CLI and place objects directly under `.sorrel/objects`.
+- Use the same protected workspace snapshot selection as the CLI.
+
+- Store new workspace objects in `.sorrel/objects` so the CLI and core can read SDK snapshots. Previously created `.sorrel/objects/objects` directories remain untouched; existing objects are not automatically migrated.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

@@ -39,8 +39,10 @@
   "engines": {
     "node": ">=20"
   },
-  "devDependencies": {
-    "ajv": "^8.20.0",
+  "dependencies": {
     "js-yaml": "^5.1.0"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0"
   }
 }

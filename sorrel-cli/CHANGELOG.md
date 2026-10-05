@@ -20,6 +20,9 @@ All notable changes to `sorrel-cli` are documented here.
   temporary files, and recover interrupted lane-head, HEAD, and change-index
   publication without advancing HEAD on a failed preparation.
 
+- Preserve clean additions, edits, deletions, and file modes during conflicted merges and subsequent `merge --continue`; `merge --abort` restores the original tree.
+- Retain incoming tracked files during conflict resolution and remove them on abort even when the receiving lane ignores their paths.
+
 ## [0.1.0-alpha.2] - 2026-09-01
 
 ### Changed

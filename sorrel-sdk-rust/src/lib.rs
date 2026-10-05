@@ -34,9 +34,7 @@ impl Workspace {
     ) -> Result<(Self, Snapshot), SdkError> {
         let root = root.into();
         let repo_id = repo_id.into();
-        let objects = root.join(".sorrel");
-        std::fs::create_dir_all(&objects)?;
-        let store = FileObjectStore::new(&objects)?;
+        let store = FileObjectStore::new(root.join(".sorrel"))?;
         let mut options = SnapshotOptions::new(repo_id.clone());
         options.message = Some("initial snapshot".to_owned());
         let tree = write_tree(&store, Vec::new())?;
@@ -82,6 +80,25 @@ impl Workspace {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn workspace_snapshots_use_the_shared_sorrel_store_layout() {
+        let dir = TempDir::new().unwrap();
+        let (workspace, initial) = Workspace::init(dir.path(), "repo_sdk").unwrap();
+        std::fs::write(dir.path().join("hello.txt"), b"sdk\n").unwrap();
+        let next = workspace
+            .snapshot_working_tree(initial.id, "add hello")
+            .unwrap();
+        let shared_store = FileObjectStore::new(dir.path().join(".sorrel")).unwrap();
+        let files = sorrel_core::read_snapshot_files(&shared_store, &next.id).unwrap();
+        assert_eq!(files[Path::new("hello.txt")], b"sdk\n");
+        assert_eq!(
+            sorrel_core::read_snapshot(&shared_store, &initial.id)
+                .unwrap()
+                .id,
+            initial.id
+        );
+    }
 
     #[test]
     fn init_and_snapshot_round_trip() {

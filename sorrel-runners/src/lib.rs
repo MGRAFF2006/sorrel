@@ -1419,10 +1419,17 @@ fn redact_text(text: &str, redaction: &RedactionContext) -> String {
 }
 
 fn redact_env_assignments(text: &str, metadata: &RedactionMetadata) -> String {
-    text.lines()
+    text.split_inclusive('\n')
         .map(|line| {
+            let (line, ending) = if let Some(content) = line.strip_suffix("\r\n") {
+                (content, "\r\n")
+            } else if let Some(content) = line.strip_suffix('\n') {
+                (content, "\n")
+            } else {
+                (line, "")
+            };
             let Some((key, value)) = line.split_once('=') else {
-                return line.to_owned();
+                return format!("{line}{ending}");
             };
             if key
                 .chars()
@@ -1433,13 +1440,12 @@ fn redact_env_assignments(text: &str, metadata: &RedactionMetadata) -> String {
                     .is_some_and(|ch| ch == '_' || ch.is_ascii_alphabetic())
                 && should_redact_env_key(key, metadata)
             {
-                format!("{key}={}", redact_value(value, metadata))
+                format!("{key}={}{ending}", redact_value(value, metadata))
             } else {
-                line.to_owned()
+                format!("{line}{ending}")
             }
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect()
 }
 
 fn redact_value(value: &str, metadata: &RedactionMetadata) -> String {

@@ -867,6 +867,8 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
     command_json(temp_dir.path(), &["init", "--json"]);
 
     std::fs::write(temp_dir.path().join("a.txt"), b"base\n").expect("write");
+    std::fs::write(temp_dir.path().join("clean-edit.txt"), b"before\n").unwrap();
+    std::fs::write(temp_dir.path().join("clean-delete.txt"), b"remove\n").unwrap();
     command_json(
         temp_dir.path(),
         &["change", "create", "-m", "add a", "--json"],
@@ -882,6 +884,8 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
         .to_owned();
 
     std::fs::write(temp_dir.path().join("a.txt"), b"main-edit\n").expect("write");
+    // Incoming files stay tracked even when this lane's ignore rules exclude them.
+    std::fs::write(temp_dir.path().join(".sorrelignore"), b"clean-add.txt\n").unwrap();
     let main_change = command_json(
         temp_dir.path(),
         &["change", "create", "-m", "main edits a", "--json"],
@@ -893,6 +897,9 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
 
     command_json(temp_dir.path(), &["lane", "switch", &feature_id, "--json"]);
     std::fs::write(temp_dir.path().join("a.txt"), b"feature-edit\n").expect("write");
+    std::fs::write(temp_dir.path().join("clean-edit.txt"), b"after\n").unwrap();
+    std::fs::write(temp_dir.path().join("clean-add.txt"), b"added\n").unwrap();
+    std::fs::remove_file(temp_dir.path().join("clean-delete.txt")).unwrap();
     command_json(
         temp_dir.path(),
         &["change", "create", "-m", "feature edits a", "--json"],
@@ -954,6 +961,15 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
         std::fs::read_to_string(temp_dir.path().join("a.txt")).expect("read a"),
         "main-edit\n"
     );
+    assert_eq!(
+        std::fs::read(temp_dir.path().join("clean-edit.txt")).unwrap(),
+        b"before\n"
+    );
+    assert_eq!(
+        std::fs::read(temp_dir.path().join("clean-delete.txt")).unwrap(),
+        b"remove\n"
+    );
+    assert!(!temp_dir.path().join("clean-add.txt").exists());
     let status = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(status["status"], "clean");
     assert_eq!(status["headSnapshot"]["id"], main_snapshot);
@@ -965,6 +981,8 @@ fn merge_continue_after_manual_resolution() {
     command_json(temp_dir.path(), &["init", "--json"]);
 
     std::fs::write(temp_dir.path().join("a.txt"), b"base\n").expect("write");
+    std::fs::write(temp_dir.path().join("clean-edit.txt"), b"before\n").unwrap();
+    std::fs::write(temp_dir.path().join("clean-delete.txt"), b"remove\n").unwrap();
     command_json(
         temp_dir.path(),
         &["change", "create", "-m", "add a", "--json"],
@@ -980,6 +998,7 @@ fn merge_continue_after_manual_resolution() {
         .to_owned();
 
     std::fs::write(temp_dir.path().join("a.txt"), b"main-edit\n").expect("write");
+    std::fs::write(temp_dir.path().join(".sorrelignore"), b"clean-add.txt\n").unwrap();
     command_json(
         temp_dir.path(),
         &["change", "create", "-m", "main edits a", "--json"],
@@ -987,6 +1006,9 @@ fn merge_continue_after_manual_resolution() {
 
     command_json(temp_dir.path(), &["lane", "switch", &feature_id, "--json"]);
     std::fs::write(temp_dir.path().join("a.txt"), b"feature-edit\n").expect("write");
+    std::fs::write(temp_dir.path().join("clean-edit.txt"), b"after\n").unwrap();
+    std::fs::write(temp_dir.path().join("clean-add.txt"), b"added\n").unwrap();
+    std::fs::remove_file(temp_dir.path().join("clean-delete.txt")).unwrap();
     command_json(
         temp_dir.path(),
         &["change", "create", "-m", "feature edits a", "--json"],
@@ -1001,6 +1023,16 @@ fn merge_continue_after_manual_resolution() {
         .output()
         .expect("run merge");
     assert!(!output.status.success());
+
+    assert_eq!(
+        std::fs::read(temp_dir.path().join("clean-edit.txt")).unwrap(),
+        b"after\n"
+    );
+    assert_eq!(
+        std::fs::read(temp_dir.path().join("clean-add.txt")).unwrap(),
+        b"added\n"
+    );
+    assert!(!temp_dir.path().join("clean-delete.txt").exists());
 
     let merge_state_path = temp_dir.path().join(".sorrel/MERGE_STATE");
     let merge_state: Value =
@@ -1031,6 +1063,15 @@ fn merge_continue_after_manual_resolution() {
         std::fs::read_to_string(temp_dir.path().join("a.txt")).expect("read"),
         "resolved\n"
     );
+    assert_eq!(
+        std::fs::read(temp_dir.path().join("clean-edit.txt")).unwrap(),
+        b"after\n"
+    );
+    assert_eq!(
+        std::fs::read(temp_dir.path().join("clean-add.txt")).unwrap(),
+        b"added\n"
+    );
+    assert!(!temp_dir.path().join("clean-delete.txt").exists());
     let status = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(status["status"], "clean");
 }

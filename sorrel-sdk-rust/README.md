@@ -15,8 +15,9 @@ use Core's shared CLI/SDK selection: nested `.gitignore`/`.sorrelignore`, ordina
 tracked-file preservation, and protected dotenv files. The parent snapshot is
 the tracked baseline. `.env.example` follows ordinary ignore rules. See the
 [workspace selection contract](../docs/ARCHITECTURE.md#change-lane-and-merge-flow).
-Previously initialized SDK stores under `.sorrel/objects/objects` are not migrated
-automatically; keep them backed up when changing to the corrected layout.
+Older SDK stores under `.sorrel/objects/objects` remain untouched and are not
+automatically migrated. To read an older store directly, pass `.sorrel/objects`
+to `FileObjectStore::new`.
 
 ## Checks
 

@@ -4,7 +4,11 @@ Notable changes to the Sorrel public website are documented here.
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Ignore stale documentation responses and failures so rapid document changes keep the selected page and history consistent.
+- Keep escaped table pipes inside their Markdown cell instead of creating extra columns.
+
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

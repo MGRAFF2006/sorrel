@@ -4,7 +4,10 @@ Notable changes to the Sorrel Hub desktop companion are documented here.
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Include the brand image requested by the shared Hub shell in desktop builds.
+
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

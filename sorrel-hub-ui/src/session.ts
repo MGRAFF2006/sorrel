@@ -27,17 +27,24 @@ function readStoredPrincipal(): Principal {
 }
 
 const [actingPrincipal, setActingPrincipalSignal] = createSignal<Principal>(readStoredPrincipal());
+const [sessionPrincipal, setSessionPrincipal] = createSignal<Principal | null>(null);
 
-const [authenticatedPrincipal, setAuthenticatedPrincipal] = createSignal<Principal | null>(null);
-export { setAuthenticatedPrincipal };
-const effectivePrincipal = () => authenticatedPrincipal() ?? actingPrincipal();
+export { setSessionPrincipal };
+
+export function getEffectivePrincipal(): Principal {
+  return sessionPrincipal() ?? actingPrincipal();
+}
+
+export function useEffectivePrincipal() {
+  return getEffectivePrincipal;
+}
 
 export function getActingPrincipal(): Principal {
-  return effectivePrincipal();
+  return actingPrincipal();
 }
 
 export function useActingPrincipal() {
-  return effectivePrincipal;
+  return actingPrincipal;
 }
 
 export function setActingPrincipal(principal: Principal) {

@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_import, is_descendant,
-    materialize_workspace_snapshot, merge_base, merge_snapshots, parse_object_id_hex,
+    materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree, parse_object_id_hex,
     read_conflict, read_snapshot, read_snapshot_files, read_stack, restore_snapshot_to_directory,
     snapshot_diff, write_snapshot, write_tree, ChangeOptions, ConflictType, FileObjectStore,
     GitExportOptions, GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions,
@@ -2600,7 +2600,7 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
     let mut merge_options =
         MergeOptions::new(Principal::system(), repo_id.clone(), message.clone());
     merge_options.created_at = repo::now_rfc3339();
-    let merge_result = to_io(merge_snapshots(
+    let (merge_result, working_snapshot) = to_io(merge_snapshots_with_worktree(
         &store,
         &base_id,
         &ours_id,
@@ -2609,8 +2609,8 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
     ))?;
 
     let Some(result_snapshot) = merge_result.merged_snapshot else {
-        // Conflicted: write marker-annotated content into the worktree for
-        // each conflicted path; do not advance HEAD.
+        // Apply clean changes before overlaying conflict markers; HEAD stays at ours.
+        restore_worktree_to_snapshot(&store, &ours_id, &working_snapshot)?;
         let paths = write_conflict_markers(&store, &merge_result, &base_id, &ours_id, &theirs_id)?;
         repo::write_merge_state_record(&repo::MergeState {
             merge_result: merge_result.id.to_hex(),
@@ -2618,6 +2618,7 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
             base_snapshot: base_id.to_hex(),
             ours_snapshot: ours_id.to_hex(),
             theirs_snapshot: theirs_id.to_hex(),
+            working_snapshot: Some(working_snapshot.to_hex()),
             message,
         })?;
 
@@ -2682,8 +2683,8 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
 /// Writes marker-annotated content into the working tree for every conflicted
 /// path of `merge_result` and returns the sorted list of those paths.
 ///
-/// The working tree equals `ours` when this runs (merges require a clean
-/// tree), so only conflicted paths are touched: content/add-add conflicts get
+/// The working tree already contains clean merged changes, so only conflicted
+/// paths are touched: content/add-add conflicts get
 /// `merge3` marker output, modify/delete keeps whichever side still has the
 /// file, and binary conflicts keep ours untouched.
 fn write_conflict_markers(
@@ -3413,10 +3414,15 @@ fn materialize_worktree(
     // Snapshot the working tree in place, excluding the on-disk object store
     // (`.sorrel/`) and a colocated Git metadata dir (`.git/`) at the root.
     // No copy-to-scratch. The stat cache lets unchanged files skip re-hashing.
-    let baseline = repo::load_head()?
-        .map(|head| head_snapshot_id(&head))
-        .transpose()?
-        .flatten();
+    let baseline = match repo::load_merge_state_record()?.and_then(|state| state.working_snapshot) {
+        Some(snapshot) => Some(snapshot.parse::<ObjectId>().map_err(|error| {
+            io::Error::other(format!("invalid tentative merge snapshot id: {error}"))
+        })?),
+        None => repo::load_head()?
+            .map(|head| head_snapshot_id(&head))
+            .transpose()?
+            .flatten(),
+    };
     let snapshot = to_io(materialize_workspace_snapshot(
         store,
         Path::new("."),

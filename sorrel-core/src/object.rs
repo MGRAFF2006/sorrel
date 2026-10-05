@@ -74,6 +74,13 @@ impl FromStr for ObjectId {
             });
         }
 
+        if let Some((index, character)) = hex.char_indices().find(|(_, c)| !c.is_ascii_hexdigit()) {
+            return Err(ObjectIdParseError::InvalidHex {
+                index,
+                value: character.to_string(),
+            });
+        }
+
         let mut bytes = [0; OBJECT_ID_BYTES];
         for (index, byte) in bytes.iter_mut().enumerate() {
             let offset = index * 2;
@@ -106,7 +113,7 @@ pub enum ObjectIdParseError {
     InvalidHex {
         /// Byte index where invalid hex started.
         index: usize,
-        /// Two-character slice that could not be decoded.
+        /// Invalid character or byte pair that could not be decoded.
         value: String,
     },
 }
@@ -135,6 +142,22 @@ mod tests {
         let id = ObjectId::for_bytes(b"round trip");
         let parsed = parse_object_id_hex(&id.to_hex()).unwrap();
         assert_eq!(parsed, id);
+    }
+
+    #[test]
+    fn object_id_parse_rejects_unicode_and_non_hex_characters_without_panicking() {
+        for invalid in [
+            format!("aé{}", "0".repeat(61)),
+            "😀".repeat(16),
+            "+a".repeat(32),
+            "g".repeat(64),
+        ] {
+            assert_eq!(invalid.len(), OBJECT_ID_HEX_LEN);
+            assert!(matches!(
+                parse_object_id_hex(&invalid),
+                Err(ObjectIdParseError::InvalidHex { .. })
+            ));
+        }
     }
 
     #[test]

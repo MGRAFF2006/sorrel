@@ -21,8 +21,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    CAPABILITY_RUNNER_USE, CAPABILITY_WORKFLOW_RUN, CommandSpec, EnvValue, Job, JobBundle,
-    JobInput, ObjectRef, PrincipalContext, RunnerError, Shell, WORKFLOW_KIND,
+    CAPABILITY_RUNNER_USE, CAPABILITY_SECRET_INJECT, CAPABILITY_SECRET_READ,
+    CAPABILITY_WORKFLOW_RUN, CommandSpec, EnvValue, Job, JobBundle, JobInput, ObjectRef,
+    PrincipalContext, RunnerError, Shell, WORKFLOW_KIND,
 };
 
 /// Errors produced while parsing or converting a workflow file.
@@ -165,6 +166,12 @@ impl WorkflowFile {
         }
         let document: Document = serde_yaml_ng::from_str(source)
             .map_err(|error| RunnerError::WorkflowParse(error.to_string()))?;
+        if document.version != 1 {
+            return Err(RunnerError::WorkflowParse(format!(
+                "unsupported workflow version {} (expected 1)",
+                document.version
+            )));
+        }
         let mut file = WorkflowFile {
             version: document.version,
             workflows: document.workflows,
@@ -236,12 +243,12 @@ impl WorkflowFile {
         if !bundle.secret_refs.is_empty() {
             bundle
                 .required_capabilities
-                .push(crate::CAPABILITY_SECRET_READ.to_owned());
+                .push(CAPABILITY_SECRET_READ.to_owned());
         }
         if !crate::secret_inject_dependencies(&bundle).is_empty() {
             bundle
                 .required_capabilities
-                .push(crate::CAPABILITY_SECRET_INJECT.to_owned());
+                .push(CAPABILITY_SECRET_INJECT.to_owned());
         }
         bundle.validate()?;
         Ok(bundle)
@@ -422,4 +429,22 @@ fn topological_order(
     }
 
     Ok(order)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parser_rejects_unsupported_versions_for_both_document_shapes() {
+        for source in [
+            "version: 2\njobs:\n  test: {command: 'echo test'}",
+            "version: 2\nworkflows:\n  test:\n    jobs:\n      test: {command: 'echo test'}",
+        ] {
+            assert!(matches!(
+                WorkflowFile::from_yaml(source),
+                Err(RunnerError::WorkflowParse(_))
+            ));
+        }
+    }
 }

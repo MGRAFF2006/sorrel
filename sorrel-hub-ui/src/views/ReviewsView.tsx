@@ -4,7 +4,7 @@ import { apiGet, apiPatch, apiPost, fetchCapabilities, unwrapList } from '../api
 import { ReviewChanges } from '../components/ReviewChanges.tsx';
 import type { Project, Repository, SyncRef, SyncRepo } from '../domain.ts';
 import { createAction } from '../action.ts';
-import { getActingPrincipal } from '../session.ts';
+import { getEffectivePrincipal } from '../session.ts';
 import {
   EmptyState,
   ErrorText,
@@ -73,8 +73,8 @@ export function ReviewsView() {
 
   createEffect(() => {
     const fromQuery = search.proposal;
+    setSelectedProposalId(typeof fromQuery === 'string' && fromQuery.length > 0 ? fromQuery : null);
     if (typeof fromQuery === 'string' && fromQuery.length > 0) {
-      setSelectedProposalId(fromQuery);
       setTab('proposals');
     }
   });
@@ -170,7 +170,7 @@ export function ReviewsView() {
         sourceSnapshot: availableReviewRefs().find(ref => ref.name === data.sourceLane)?.snapshot,
         targetSnapshot: availableReviewRefs().find(ref => ref.name === data.targetLane)?.snapshot,
         description: data.description || undefined,
-        authorPrincipal: getActingPrincipal(),
+        authorPrincipal: getEffectivePrincipal(),
         status: 'open',
       })) as { data: { id: string } };
       setFormStatus(`Created ${created.data.id}`);
@@ -596,7 +596,7 @@ function DetailCommentForm(props: { proposalId: string; onPosted: () => void }) 
         proposalId: props.proposalId,
         body: data.body,
         path: data.path || undefined,
-        authorPrincipal: getActingPrincipal(),
+        authorPrincipal: getEffectivePrincipal(),
       });
       setStatus('Posted');
       form.reset();

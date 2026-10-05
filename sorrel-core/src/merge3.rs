@@ -89,7 +89,7 @@ pub fn merge3(base: &[u8], ours: &[u8], theirs: &[u8]) -> MergeOutcome {
             }
             Some(_) => {
                 // Grow an unstable region while either side has a change that
-                // starts at or before the current region end (adjacent/overlapping).
+                // overlaps it. Adjacent half-open ranges remain independent.
                 let mut region_a0 = base_i;
                 let mut region_a1 = base_i;
                 let mut saw_ours = false;
@@ -97,7 +97,9 @@ pub fn merge3(base: &[u8], ours: &[u8], theirs: &[u8]) -> MergeOutcome {
 
                 loop {
                     let mut grew = false;
-                    if oi < our_changes.len() && our_changes[oi].a0 <= region_a1 {
+                    if oi < our_changes.len()
+                        && (our_changes[oi].a0 == region_a0 || our_changes[oi].a0 < region_a1)
+                    {
                         let c = our_changes[oi];
                         region_a0 = region_a0.min(c.a0);
                         region_a1 = region_a1.max(c.a1);
@@ -105,7 +107,9 @@ pub fn merge3(base: &[u8], ours: &[u8], theirs: &[u8]) -> MergeOutcome {
                         oi += 1;
                         grew = true;
                     }
-                    if ti < their_changes.len() && their_changes[ti].a0 <= region_a1 {
+                    if ti < their_changes.len()
+                        && (their_changes[ti].a0 == region_a0 || their_changes[ti].a0 < region_a1)
+                    {
                         let c = their_changes[ti];
                         region_a0 = region_a0.min(c.a0);
                         region_a1 = region_a1.max(c.a1);
@@ -377,6 +381,18 @@ fn lcs_opcodes(base: &[String], side: &[String]) -> Vec<Op> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merges_adjacent_line_edits_without_a_conflict() {
+        assert_eq!(
+            merge3(b"a\nb\nc\n", b"A\nb\nc\n", b"a\nB\nc\n"),
+            MergeOutcome::Merged(b"A\nB\nc\n".to_vec())
+        );
+        assert_eq!(
+            merge3(b"a\nb\n", b"A\nb\n", b"a\ninserted\nb\n"),
+            MergeOutcome::Merged(b"A\ninserted\nb\n".to_vec())
+        );
+    }
 
     fn merged_identity(bytes: &[u8]) -> Vec<u8> {
         match merge3(bytes, bytes, bytes) {

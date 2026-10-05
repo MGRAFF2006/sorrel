@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { HubApp } from '../src/App.tsx';
-import { setActingPrincipal, setAuthenticatedPrincipal } from '../src/session.ts';
+import { setActingPrincipal, setSessionPrincipal } from '../src/session.ts';
 import { createWebPlatform } from '../src/platform.ts';
+import { LOCAL_PRINCIPAL } from '../src/api.ts';
 
 type FetchCall = { url: string; init?: RequestInit };
 
@@ -13,7 +14,9 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function installHubFetch(projects: unknown[] = [], proposals: unknown[] = [], options: { rejectRefs?: boolean; rejectPatch?: boolean; authenticatedPrincipal?: { type: string; id: string } } = {}) {
+function installHubFetch(projects: unknown[] = [], proposals: unknown[] = [], options: { rejectRefs?: boolean; rejectPatch?: boolean; authenticatedPrincipal?: { type: string; id: string }; authenticated?: boolean; developmentSession?: boolean; rejectedMutation?: boolean } = {}) {
+  const authenticatedPrincipal = options.authenticatedPrincipal ?? (options.authenticated ? { type: 'user', id: 'signed-in' } : null);
+  if (options.rejectedMutation) proposals.push({ id: 'proposal_alpha', projectId: 'project_alpha', title: 'Review Alpha', status: 'open' });
   const calls: FetchCall[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -23,7 +26,7 @@ function installHubFetch(projects: unknown[] = [], proposals: unknown[] = [], op
       return json({
         data: {
           modules: { core: true, actions: false, agents: true, secrets: true, objectStorage: 'fs' },
-          auth: { mode: options.authenticatedPrincipal ? 'oidc' : 'dev', session: options.authenticatedPrincipal ? 'bearer' : 'none' },
+          auth: { mode: authenticatedPrincipal ? 'oidc' : 'dev', session: authenticatedPrincipal ? 'bearer' : 'none' },
           convex: { enabled: false },
           collaboration: { proposalTransitions: { draft: ['open', 'closed'], open: ['approved', 'merged', 'closed'], approved: ['merged', 'open', 'closed'], closed: ['open'] } },
           deploy: 'dev',
@@ -31,7 +34,10 @@ function installHubFetch(projects: unknown[] = [], proposals: unknown[] = [], op
       });
     }
     if (url === '/api/session') {
-      return json({ data: { auth: { mode: options.authenticatedPrincipal ? 'oidc' : 'dev', session: options.authenticatedPrincipal ? 'bearer' : 'none' }, session: options.authenticatedPrincipal ? {principal: options.authenticatedPrincipal} : null } });
+      return json({ data: {
+        auth: { mode: authenticatedPrincipal ? 'oidc' : 'dev', session: authenticatedPrincipal ? 'bearer' : 'none' },
+        session: authenticatedPrincipal ? { principal: authenticatedPrincipal } : options.developmentSession ? { principal: { type: 'user', id: 'maintainer' } } : null,
+      } });
     }
     if (url === '/api/healthz') return json({ status: 'ok' });
     if (url === '/api/admin/proposals?status=open') return json({ data: [] });
@@ -74,6 +80,7 @@ function installHubFetch(projects: unknown[] = [], proposals: unknown[] = [], op
       return json({data: proposal}, 201);
     }
     if (url === '/api/admin/proposals/proposal_alpha' && init?.method === 'PATCH') {
+      if (options.rejectedMutation) return json({ error: { message: 'Proposal permission denied' } }, 403);
       if (options.rejectPatch) { options.rejectPatch = false; return json({error: {message: 'Policy denied'}}, 403); }
       Object.assign(proposals[0] as object, JSON.parse(String(init.body)));
       return json({data: proposals[0]});
@@ -94,9 +101,85 @@ function installHubFetch(projects: unknown[] = [], proposals: unknown[] = [], op
   return calls;
 }
 
-afterEach(() => { vi.unstubAllGlobals(); setAuthenticatedPrincipal(null); setActingPrincipal({type: 'user', id: 'local'}); });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  setSessionPrincipal(null);
+  setActingPrincipal(LOCAL_PRINCIPAL);
+  localStorage.clear();
+});
 
 describe('HubApp rendered behavior', () => {
+  test('development session hints do not pin the identity selector or write headers', async () => {
+    window.history.pushState({}, '', '/profile');
+    const calls = installHubFetch([], [], { developmentSession: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+    await screen.findByRole('heading', { level: 1 });
+    await waitFor(() => expect(calls.filter((call) => call.url === '/api/session')).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const identity = await screen.findByRole('combobox', { name: 'Acting principal' });
+    await fireEvent.change(identity, { target: { value: 'user:reviewer' } });
+    expect(identity).toHaveValue('user:reviewer');
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'reviewer' })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('link', { name: /^Projects$/ }));
+    await screen.findByText('No projects yet');
+    await fireEvent.click((await screen.findAllByRole('button', { name: 'Create project' }))[0]);
+    await fireEvent.change(screen.getByLabelText('Organization'), { target: { value: 'org_local' } });
+    await fireEvent.input(screen.getByLabelText('Project name'), { target: { value: 'Platform' } });
+    await fireEvent.submit(screen.getByRole('button', { name: 'Create and continue' }).closest('form')!);
+    await waitFor(() => expect(calls.some((call) => call.url === '/api/projects' && call.init?.method === 'POST')).toBe(true));
+    const create = calls.find((call) => call.url === '/api/projects' && call.init?.method === 'POST');
+    expect(create?.init?.headers).toMatchObject({
+      'x-sorrel-acting-principal': JSON.stringify({ type: 'user', id: 'reviewer' }),
+    });
+  });
+
+  test('uses the authenticated Hub principal without persisting it as a development hint', async () => {
+    window.history.pushState({}, '', '/profile');
+    installHubFetch([], [], { authenticated: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'signed-in' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Acting principal' })).not.toBeInTheDocument();
+    expect(localStorage.getItem('sorrel.hub.actingPrincipal')).toBeNull();
+  });
+
+  test('shows rejected proposal mutations instead of leaving an unhandled rejection', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha/reviews?proposal=proposal_alpha');
+    installHubFetch([{ id: 'project_alpha', name: 'Alpha' }], [], { rejectedMutation: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'approved' }));
+    expect(await screen.findByText('Proposal permission denied')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Review Alpha' })).toBeInTheDocument();
+  });
+
+  test('attributes submitted comments to the effective Hub session principal', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha/reviews?proposal=proposal_alpha');
+    const calls = installHubFetch([{ id: 'project_alpha', name: 'Alpha' }], [], { authenticated: true, rejectedMutation: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+    await screen.findByRole('button', { name: 'approved' });
+    await waitFor(() => expect(document.querySelector('.avatar-link')).toHaveAttribute('title', 'user:signed-in'));
+    await fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'Review feedback' } });
+    await fireEvent.submit(screen.getByRole('button', { name: 'Post comment' }).closest('form')!);
+    await waitFor(() => expect(calls.some((call) => call.url === '/api/admin/review-comments' && call.init?.method === 'POST')).toBe(true));
+    const create = calls.find((call) => call.url === '/api/admin/review-comments' && call.init?.method === 'POST');
+    expect(JSON.parse(String(create?.init?.body))).toMatchObject({ authorPrincipal: { type: 'user', id: 'signed-in' } });
+    expect(create?.init?.headers).toMatchObject({ 'x-sorrel-acting-principal': JSON.stringify({ type: 'user', id: 'signed-in' }) });
+  });
+
+  test('clears the selected review when history removes its proposal query', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha/reviews?proposal=proposal_alpha');
+    installHubFetch([{ id: 'project_alpha', name: 'Alpha' }], [], { rejectedMutation: true });
+    render(() => <HubApp platform={createWebPlatform()} />);
+    expect(await screen.findByRole('button', { name: 'approved' })).toBeInTheDocument();
+
+    window.history.replaceState({}, '', '/projects/project_alpha/reviews');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'approved' })).not.toBeInTheDocument());
+    expect(screen.getByText('Select a review')).toBeInTheDocument();
+  });
+
   test('renders API health and the empty-project action from live responses', async () => {
     installHubFetch();
     render(() => <HubApp platform={createWebPlatform()} />);

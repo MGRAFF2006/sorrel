@@ -324,6 +324,8 @@ pub struct MergeState {
     pub ours_snapshot: String,
     /// Incoming (theirs) snapshot id when the merge started.
     pub theirs_snapshot: String,
+    /// Tentative merged snapshot used to preserve incoming tracked paths.
+    pub working_snapshot: Option<String>,
     /// Commit message used when finalizing the merge.
     pub message: String,
 }
@@ -366,6 +368,10 @@ pub fn load_merge_state_record() -> io::Result<Option<MergeState>> {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_owned(),
+        working_snapshot: value
+            .get("workingSnapshot")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         message: value
             .get("message")
             .and_then(Value::as_str)
@@ -389,6 +395,7 @@ pub fn write_merge_state_record(state: &MergeState) -> io::Result<()> {
             "baseSnapshot": state.base_snapshot,
             "oursSnapshot": state.ours_snapshot,
             "theirsSnapshot": state.theirs_snapshot,
+            "workingSnapshot": state.working_snapshot,
             "message": state.message,
         }),
     )
@@ -404,6 +411,7 @@ pub fn write_merge_state(merge_result_id: &str) -> io::Result<()> {
         base_snapshot: String::new(),
         ours_snapshot: String::new(),
         theirs_snapshot: String::new(),
+        working_snapshot: None,
         message: String::new(),
     })
 }

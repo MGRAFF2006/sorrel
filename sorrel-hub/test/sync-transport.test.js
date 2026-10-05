@@ -677,3 +677,46 @@ test('uppercase object ids and malformed repo ids are rejected', async () => {
     assert.equal(badRepoBody.error.code, 'invalid_request');
   });
 });
+
+
+test('ref updates reject malformed closure objects without changing the ref', async () => {
+  await withSyncServer(async (baseUrl, app) => {
+    const validTree = makeTree([]);
+    app.store.sync.put(repoId, validTree.bytes);
+    const malformed = [
+      Buffer.from('sorrel.blob.v0\nnot a snapshot'),
+      Buffer.from(JSON.stringify({ kind: 'Snapshot', parents: [] })),
+      Buffer.from(JSON.stringify({ kind: 'Snapshot', tree: validTree.id, parents: 'bad' })),
+      Buffer.from(JSON.stringify({ kind: 'Snapshot', tree: validTree.id, parents: [null] })),
+      Buffer.from(JSON.stringify({ kind: 42 })),
+    ];
+    const invalidTree = makeTree([null]);
+    app.store.sync.put(repoId, invalidTree.bytes);
+    malformed.push(makeSnapshot(invalidTree.id).bytes);
+    const wrongTree = makeBlob('not a tree');
+    app.store.sync.put(repoId, wrongTree.bytes);
+    malformed.push(makeSnapshot(wrongTree.id).bytes);
+    for (const bytes of malformed) {
+      const snapshot = app.store.sync.put(repoId, bytes);
+      const response = await postJson(`${baseUrl}/${repoId}/refs/main`,
+        grantBody({ snapshot, force: true }), principalHeader);
+      const body = await response.json();
+      assert.equal(response.status, 422, JSON.stringify(body));
+      assert.equal(body.error.code, 'invalid_sync_object');
+      assert.equal(app.store.sync.getRef(repoId, 'main'), undefined);
+    }
+  });
+});
+
+test('object upload rejects invalid base64 instead of silently stripping bytes', async () => {
+  await withSyncServer(async (baseUrl, app) => {
+    const bytes = Buffer.from('valid content');
+    const id = objectId(bytes);
+    const response = await postJson(`${baseUrl}/${repoId}/objects`, grantBody({
+      objects: [{ id, bytes: `${bytes.toString('base64')}!` }],
+    }), principalHeader);
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, 'invalid_request');
+    assert.equal(app.store.sync.has(repoId, id), false);
+  });
+});

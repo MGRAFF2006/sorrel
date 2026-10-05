@@ -39,6 +39,31 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Hub metadata only after successful persistence, and protect CLI workspace
   mutations with recoverable head/index commits and unique object-store writes.
 
+- Preserve clean incoming changes during conflicted merges, executable modes
+  during content merges, adjacent line edits, and distinct identical Git
+  subtrees; refuse file/directory collisions instead of dropping files.
+- Isolate concurrent object writes, reject malformed object IDs without panics,
+  and initialize Rust SDK storage in the shared workspace layout.
+- Carry workflow secret declarations into validated job bundles and preserve
+  redacted log line endings.
+- Correct Hub sync closure validation, deep-history traversal, missing-object
+  negotiation, JSON-shaped file blobs, corrupt-object repair, and immutable
+  object reads.
+- Scope lane-submission reuse correctly, protect metadata from duplicate IDs
+  and failed writes, and reject malformed HTTP/JWT inputs deliberately.
+- Correct authenticated UI identity, rejected mutations, stale review/doc
+  selection, mobile credential reuse and partial storage writes, static-file
+  traversal, malformed-URL crashes, proxy credential disclosure, and the missing
+  desktop brand asset.
+- Correct Vault dotenv parsing, fallback precedence, redaction masks, special
+  environment keys, binding-key collisions, and production CLI dependencies;
+  preserve agent claims and state when writes fail.
+- Ignore false slice dependencies inside strings and regex literals; reject
+  invalid release dates and avoid partially rewriting changelogs after
+  validation failures.
+- Repair documentation table separators and align mobile Expo patches; refresh
+  vulnerable YAML/URI parser and brace-expansion lockfile entries.
+
 ## [0.1.0-alpha.2] - 2026-09-01
 
 Second developer preview focused on installability, a more complete Hub

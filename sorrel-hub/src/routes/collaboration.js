@@ -49,7 +49,11 @@ async function laneSubmit(request, response, context) {
   const sourceLane = body.sourceLane;
   const sourceSnapshot = body.sourceSnapshot;
   const title = body.title;
-  const syncRepoId = body.syncRepoId ?? body.repositoryId;
+  const rawSyncRepoId = body.syncRepoId ?? body.repositoryId;
+  if (rawSyncRepoId !== undefined && typeof rawSyncRepoId !== 'string') {
+    throw new HttpError(400, 'syncRepoId must be a string', 'invalid_request_body');
+  }
+  const syncRepoId = rawSyncRepoId?.trim();
 
   if (typeof projectId !== 'string' || !projectId.trim()) {
     throw new HttpError(400, 'projectId is required', 'invalid_request_body');
@@ -68,11 +72,12 @@ async function laneSubmit(request, response, context) {
   const existing = store
     .listProposals({
       projectId: projectId.trim(),
-      syncRepoId: typeof syncRepoId === 'string' ? syncRepoId : undefined,
+      syncRepoId,
       sourceLane: sourceLane.trim(),
     })
     .find(
       (proposal) =>
+        proposal.syncRepoId === syncRepoId &&
         proposal.sourceSnapshot === sourceSnapshot.trim() &&
         (proposal.status === 'open' || proposal.status === 'draft'),
     );
@@ -91,7 +96,7 @@ async function laneSubmit(request, response, context) {
     proposal = createProposal({
       projectId: projectId.trim(),
       repositoryId: body.repositoryId,
-      syncRepoId: typeof syncRepoId === 'string' ? syncRepoId.trim() : undefined,
+      syncRepoId,
       title: title.trim(),
       description: body.description,
       authorPrincipal:
@@ -128,7 +133,7 @@ async function laneSubmit(request, response, context) {
       reused: false,
     },
     {
-      location: `/admin/proposals/${proposal.id}`,
+      location: `/admin/proposals/${encodeURIComponent(proposal.id)}`,
     },
   );
 }

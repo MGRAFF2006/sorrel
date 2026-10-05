@@ -7,6 +7,10 @@
 - Preserve registrations and claims from concurrent local writers, refresh
   readers from disk, and leave prior state intact after failed saves.
 
+- Keep distinct path claims when agent IDs or paths contain colons.
+- Write coordination state atomically and roll back rejected mutations when
+  persistence fails, cleaning temporary files after errors.
+
 ## [0.1.0-alpha.2] - 2026-09-01
 
 ### Removed

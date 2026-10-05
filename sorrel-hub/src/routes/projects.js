@@ -1,16 +1,16 @@
-import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
+import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
 import { bindSessionPrincipal } from '../policy-guard.js';
 
 export async function handleProjectsRoute(request, response, context) {
   const { url, store } = context;
   const segments = url.pathname.split('/').filter(Boolean);
   // /projects or /projects/:id
-  const projectId = segments.length >= 2 ? decodeURIComponent(segments[1]) : null;
+  const projectId = segments.length >= 2 ? decodePathComponent(segments[1]) : null;
 
   if (segments.length === 3 && segments[2] === 'repositories') {
     if (request.method !== 'POST') return sendMethodNotAllowed(response, ['POST']);
     const body = await readJsonBody(request);
-    if (!body || typeof body !== 'object' || typeof body.syncRepoId !== 'string' || !body.syncRepoId.trim()) {
+    if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.syncRepoId !== 'string' || !body.syncRepoId.trim()) {
       throw new HttpError(400, 'syncRepoId is required', 'invalid_request_body');
     }
     const syncRepoId = body.syncRepoId.trim();
@@ -70,7 +70,7 @@ async function createProject(request, response, context) {
       data: project,
     },
     {
-      location: `/projects/${project.id}`,
+      location: `/projects/${encodeURIComponent(project.id)}`,
     },
   );
 }

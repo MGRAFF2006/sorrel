@@ -18,6 +18,24 @@ Notable changes to Sorrel Hub are documented here.
 - Add read-only tree and UTF-8 file browsing endpoints over synchronized
   Sorrel snapshots, with path validation and bounded text previews.
 
+### Fixed
+
+- Keep lane submission reuse scoped to its project and normalized repository,
+  including submissions without a repository.
+- Reject malformed request bodies, URL parameters, extra route segments, and
+  invalid metadata IDs (including dot segments and lone surrogates) with client
+  errors before persistence; encode IDs in creation locations.
+- Reject duplicate metadata IDs instead of overwriting records, and roll back
+  in-memory metadata after a failed disk write so requests can safely retry.
+- Include missing descendants in sync negotiation, walk deep snapshot histories
+  without overflowing the stack, and reject malformed snapshot/tree closures
+  before advancing refs. Treat typed file blobs as terminal content even when
+  their JSON resembles structural objects. Reject invalid base64 uploads.
+- Keep object bytes immutable on in-memory reads and repair corrupt filesystem
+  objects when verified original bytes are uploaded again.
+- Respect JWT date claim types, expiration boundaries, key IDs, algorithms,
+  key operations, and ES256 signature encoding; reject non-string subjects.
+
 ## [0.1.0-alpha.2] - 2026-09-01
 
 ### Added

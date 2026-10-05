@@ -55,7 +55,10 @@ is journaled and an interrupted commit finishes on the next locked command.
   `change create` / `change list`.
 - Parallel work and integration: `lane create` / `list` / `switch` / `submit`,
   `stack create` / `list` / `show`, and three-way `merge` with
-  `--continue` / `--abort`.
+  `--continue` / `--abort`. Conflicted merges apply clean changes alongside
+  conflict markers; continuing preserves those changes, and aborting restores
+  the original tree. Incoming tracked files remain included even when the
+  receiving lane's ignore rules exclude them.
 - Git bridge: history `git import`, `git export`, and bidirectional,
   fast-forward-oriented `git sync` for colocated or separate mirrors. See
   [`GIT.md`](GIT.md).

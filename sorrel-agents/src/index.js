@@ -42,7 +42,7 @@ export class AgentControlPlane {
     }
     const raw = JSON.parse(readFileSync(path, 'utf8'));
     this.agents = new Map((raw.agents ?? []).map((agent) => [agent.id, agent]));
-    this.claims = new Map((raw.claims ?? []).map((claim) => [`${claim.agentId}:${claim.path}`, claim]));
+    this.claims = new Map((raw.claims ?? []).map((claim) => [JSON.stringify([claim.agentId, claim.path]), claim]));
   }
 
   #persist() {
@@ -141,7 +141,7 @@ export class AgentControlPlane {
       if (!this.agents.has(input.agentId)) {
         throw new Error(`unknown agent ${input.agentId}`);
       }
-      this.claims.set(`${claim.agentId}:${claim.path}`, claim);
+      this.claims.set(JSON.stringify([claim.agentId, claim.path]), claim);
       return claim;
     });
   }

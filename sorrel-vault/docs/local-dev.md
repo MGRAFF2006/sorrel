@@ -22,6 +22,9 @@ await backend.importEnvFiles();
 
 The backend reads files declared in `localDev.import.envFiles`, parses
 `KEY=VALUE` pairs, then stores values by `localDev.bindings[].storeKey`.
+Quoted values may contain `#` and have trailing comments. Malformed quoted
+values fail with a file/line diagnostic that omits the value. Process-environment
+fallback fills only stores not already populated by declared files.
 
 ## Resolve
 
@@ -93,7 +96,7 @@ Common causes:
 
 ## CLI
 
-`scripts/vault-cli.mjs` is a small, dependency-free CLI that composes the library
+`scripts/vault-cli.mjs` is a small CLI that composes the library
 modules above. It never prints or persists raw secret values. Run it via the
 `vault` npm script or directly with `node`:
 

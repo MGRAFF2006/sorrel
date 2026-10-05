@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Ignore import-like examples inside strings, template text, and regex literals
+  while retaining dependency calls in template expressions and division operands.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

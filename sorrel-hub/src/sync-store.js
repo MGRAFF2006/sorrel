@@ -39,7 +39,7 @@ export class RepoSyncStore {
     if (!bytes) {
       throw new SyncObjectNotFoundError();
     }
-    return bytes;
+    return Buffer.from(bytes);
   }
 
   /**

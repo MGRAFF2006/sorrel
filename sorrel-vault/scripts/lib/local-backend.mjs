@@ -38,11 +38,11 @@ export class LocalDevSecretBackend {
     }
 
     if (this.spec.localDev.import.allowProcessEnvFallback) {
-      this.importValues(process.env, "*");
+      this.importValues(process.env, "*", { overwrite: false });
     }
   }
 
-  importValues(values, environment) {
+  importValues(values, environment, { overwrite = true } = {}) {
     const lookup = values instanceof Map ? values : new Map(Object.entries(values));
 
     for (const binding of this.spec.localDev.bindings) {
@@ -50,7 +50,7 @@ export class LocalDevSecretBackend {
         continue;
       }
 
-      if (!lookup.has(binding.envKey)) {
+      if (!lookup.has(binding.envKey) || (!overwrite && this.valuesByStoreKey.has(binding.storeKey))) {
         continue;
       }
 
@@ -116,14 +116,10 @@ export class LocalDevSecretBackend {
   }
 
   materializeEnv(requests) {
-    const env = {};
-
-    for (const request of requests) {
+    return Object.fromEntries(requests.map((request) => {
       const resolved = this.resolve({ ...request, action: request.action ?? "materialize" });
-      env[resolved.secretRef.name] = resolved.value ?? "";
-    }
-
-    return env;
+      return [resolved.secretRef.name, resolved.value ?? ""];
+    }));
   }
 
   getAuditEvents() {
@@ -152,7 +148,7 @@ export class LocalDevSecretBackend {
   }
 
   getBinding(secretId, environment) {
-    const binding = this.bindingsBySecret.get(`${secretId}:${environment}`);
+    const binding = this.bindingsBySecret.get(JSON.stringify([secretId, environment]));
 
     if (!binding) {
       throw new Error(`No local binding for ${secretId} in ${environment}`);
@@ -163,7 +159,7 @@ export class LocalDevSecretBackend {
 }
 
 function indexBindings(bindings) {
-  return new Map(bindings.map((binding) => [`${binding.secret.id}:${binding.environment}`, binding]));
+  return new Map(bindings.map((binding) => [JSON.stringify([binding.secret.id, binding.environment]), binding]));
 }
 
 function secretAuditEvent({ request, secretRef, decision, grant, redaction }) {
