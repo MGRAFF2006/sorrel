@@ -1,5 +1,6 @@
 import { A, useNavigate } from '@solidjs/router';
 import { createResource, createSignal, For, Show } from 'solid-js';
+import type { Organization } from '../domain.ts';
 import { apiGet, apiPost, unwrapList } from '../api.ts';
 import {
   EmptyState,
@@ -37,6 +38,14 @@ export function ProjectsHome() {
       return unwrapList(data) as Project[];
     },
   );
+
+  const [organizations] = createResource(async () => unwrapList(await apiGet('/admin/organizations')) as Organization[]);
+  const organizationOptions = () => {
+    const options = new Map<string, string>([['org_local', 'Local workspace']]);
+    for (const org of organizations() ?? []) if (org.id) options.set(org.id, org.name ?? org.id);
+    for (const project of projects() ?? []) if (project.organizationId && !options.has(project.organizationId)) options.set(project.organizationId, project.organizationId);
+    return [...options];
+  };
 
   function openProject(id: string) {
     navigate(`/projects/${encodeURIComponent(id)}`);
@@ -114,7 +123,10 @@ export function ProjectsHome() {
             <div class="form-grid two">
             <label>
               <span>Organization</span>
-              <input name="organizationId" required placeholder="Your team" autocomplete="off" />
+              <select name="organizationId" required>
+                <For each={organizationOptions()}>{([id, name]) => <option value={id}>{name}</option>}</For>
+              </select>
+              <Show when={organizations.error}><span class="error">Organizations could not be loaded. Local workspace remains available.</span></Show>
             </label>
             <label>
               <span>Project name</span>

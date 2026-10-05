@@ -31,3 +31,9 @@ adapters; see `sorrel-hub-desktop`.
 The UI presents Hub/Core state without creating a parallel permission or issue
 model. Project repository ids, repository records, or submitted proposal sync
 ids connect the Code page to a synchronized repository.
+
+The repository page provides CLI commands populated with the current Hub URL
+and project id. `lane submit` pushes and associates the current workspace;
+already pushed repositories can be linked explicitly. Project creation offers
+known organizations and a local-workspace default. Review creation selects
+repository refs and captures their snapshot ids for stable comparisons.

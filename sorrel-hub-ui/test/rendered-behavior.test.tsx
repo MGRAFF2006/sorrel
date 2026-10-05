@@ -36,6 +36,11 @@ function installHubFetch(projects: unknown[] = []) {
     if (url === '/api/projects' && (init?.method ?? 'GET') === 'GET') {
       return json({ data: projects });
     }
+    if (url === '/api/projects/project_alpha/repositories' && init?.method === 'POST') {
+      const project = projects.find(item => (item as {id?: string}).id === 'project_alpha') as { repositoryIds?: string[] };
+      project.repositoryIds = [JSON.parse(String(init.body)).syncRepoId];
+      return json({data: project});
+    }
     if (url.startsWith('/api/projects/') && (init?.method ?? 'GET') === 'GET') {
       const id = decodeURIComponent(url.slice('/api/projects/'.length));
       const project = projects.find((item) => (item as { id?: string }).id === id);
@@ -45,7 +50,7 @@ function installHubFetch(projects: unknown[] = []) {
       return json({ data: [{ id: 'repo_alpha', name: 'alpha', owner: 'acme', provider: 'sorrel', defaultBranch: 'main' }] });
     }
     if (url === '/api/admin/proposals?projectId=project_alpha') return json({ data: [] });
-    if (url === '/api/admin/sync-repos') return json({ repos: [{ id: 'repo_alpha', refCount: 1 }] });
+    if (url === '/api/admin/sync-repos') return json({ repos: [{ id: 'repo_alpha', refCount: 1 }, { id: 'repo_beta', refCount: 1 }] });
     if (url === '/api/repo_alpha/refs') return json({ refs: [{ name: 'main', snapshot: 'a'.repeat(64) }] });
     if (url === '/api/repo_alpha/tree?ref=main&path=') {
       return json({
@@ -117,7 +122,7 @@ describe('HubApp rendered behavior', () => {
     render(() => <HubApp platform={createWebPlatform()} />);
 
     await fireEvent.click((await screen.findAllByRole('button', { name: 'Create project' }))[0]);
-    await fireEvent.input(screen.getByLabelText('Organization'), {
+    await fireEvent.change(screen.getByLabelText('Organization'), {
       target: { value: 'org_local' },
     });
     await fireEvent.input(screen.getByLabelText('Project name'), { target: { value: 'Platform' } });
@@ -136,6 +141,19 @@ describe('HubApp rendered behavior', () => {
       organizationId: 'org_local',
       name: 'Platform',
     });
+  });
+
+  test('shows project-specific connection commands and links an existing pushed repository', async () => {
+    window.history.pushState({}, '', '/projects/project_alpha/sync');
+    const calls = installHubFetch([{ id: 'project_alpha', name: 'Alpha', organizationId: 'org_local' }]);
+    render(() => <HubApp platform={createWebPlatform()} />);
+    expect(await screen.findByText(/sorrel remote add origin/)).toHaveTextContent("sorrel lane submit --project-id 'project_alpha'");
+    const button = await screen.findByRole('button', {name: 'Connect repository'});
+    await fireEvent.click(button);
+    await waitFor(() => expect(calls.some(call => call.url === '/api/projects/project_alpha/repositories' && call.init?.method === 'POST')).toBe(true));
+    const request = calls.find(call => call.url === '/api/projects/project_alpha/repositories' && call.init?.method === 'POST');
+    expect(JSON.parse(String(request?.init?.body))).toEqual({syncRepoId: 'repo_beta'});
+    await waitFor(() => expect(document.querySelector('[data-repo-id="repo_beta"]')).toBeInTheDocument());
   });
 
   test('renders the real repository tree and README on a project route', async () => {

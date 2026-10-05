@@ -104,6 +104,11 @@ export async function apiRequest(method: string, path: string, body?: unknown) {
   return payload;
 }
 
+/** The same configured transport endpoint is usable by CLI remotes. */
+export function getApiBaseUrl(): string {
+  return new URL(apiBase, globalThis.location?.href ?? 'http://localhost').href.replace(/\/$/, '');
+}
+
 export function apiGet(path: string) {
   return apiRequest('GET', path);
 }

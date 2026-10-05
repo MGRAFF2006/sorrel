@@ -454,3 +454,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
 .native-dialog::backdrop { background: rgba(8,10,14,.8); backdrop-filter: blur(5px); }
 .native-dialog .form-card { margin: 0; padding: 20px; }
 .mutation-content { border: 0; padding: 0; margin: 0; min-width: 0; }
+
+.connection-guide { padding: 18px; margin-bottom: 18px; }
+.connection-guide pre { overflow: auto; padding: 12px; background: var(--bg-deep); }
+.connection-guide form { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }

@@ -1,6 +1,7 @@
 import { useParams, useSearchParams } from '@solidjs/router';
 import { createEffect, createMemo, createResource, createSignal, For, Show } from 'solid-js';
 import { apiGet, apiPatch, apiPost, unwrapList } from '../api.ts';
+import type { Project, Proposal, Repository, SyncRef, SyncRepo } from '../domain.ts';
 import { createAction } from '../action.ts';
 import { getActingPrincipal } from '../session.ts';
 import {
@@ -58,6 +59,17 @@ export function ReviewsView() {
   const [formError, setFormError] = createSignal(false);
   const [creating, setCreating] = createSignal(false);
   const mutation = createAction();
+  const [reviewRepoId, setReviewRepoId] = createSignal('');
+  const [reviewRepositories] = createResource(() => ({ id: projectId(), token: reloadToken() }), async ({ id }) => {
+    const [projectPayload, repositoriesPayload, syncPayload] = await Promise.all([
+      apiGet(`/projects/${encodeURIComponent(id)}`), apiGet(`/admin/repositories?projectId=${encodeURIComponent(id)}`), apiGet('/admin/sync-repos'),
+    ]);
+    const project = (projectPayload as { data: Project }).data;
+    const repositories = unwrapList(repositoriesPayload) as Repository[];
+    const linked = new Set([...(project.repositoryIds ?? []), ...repositories.map(repo => repo.id), ...(proposals() ?? []).map(proposal => proposal.syncRepoId)]);
+    return (unwrapList(syncPayload) as SyncRepo[]).filter(repo => repo.id && linked.has(repo.id));
+  });
+  const [reviewRefs] = createResource(reviewRepoId, async id => unwrapList(await apiGet(`/${encodeURIComponent(id)}/refs`)) as SyncRef[]);
   const [filter, setFilter] = createSignal('');
 
   createEffect(() => {
@@ -150,6 +162,9 @@ export function ReviewsView() {
         title: data.title,
         syncRepoId: data.syncRepoId || undefined,
         sourceLane: data.sourceLane || undefined,
+        targetLane: data.targetLane || undefined,
+        sourceSnapshot: reviewRefs()?.find(ref => ref.name === data.sourceLane)?.snapshot,
+        targetSnapshot: reviewRefs()?.find(ref => ref.name === data.targetLane)?.snapshot,
         description: data.description || undefined,
         authorPrincipal: getActingPrincipal(),
         status: 'open',
@@ -259,13 +274,27 @@ export function ReviewsView() {
             <div class="form-grid two">
               <label>
                 <span>Repository <i>optional</i></span>
-                <input name="syncRepoId" placeholder="repo_…" autocomplete="off" />
+                <select name="syncRepoId" value={reviewRepoId()} onChange={event => setReviewRepoId(event.currentTarget.value)}>
+                  <option value="">Review notes only</option>
+                  <For each={reviewRepositories() ?? []}>{repo => <option value={repo.id}>{repo.id}</option>}</For>
+                </select>
               </label>
               <label>
                 <span>Source lane <i>optional</i></span>
-                <input name="sourceLane" placeholder="lane_feature" autocomplete="off" />
+                <select name="sourceLane" disabled={!reviewRepoId() || reviewRefs.loading} required={!!reviewRepoId()}>
+                  <option value="">Choose source ref</option>
+                  <For each={reviewRefs() ?? []}>{ref => <option value={ref.name}>{ref.name}</option>}</For>
+                </select>
               </label>
             </div>
+            <Show when={reviewRepoId()}>
+              <label><span>Compare against</span><select name="targetLane">
+                <option value="">No target snapshot</option>
+                <For each={reviewRefs() ?? []}>{ref => <option value={ref.name}>{ref.name}</option>}</For>
+              </select></label>
+              <Show when={reviewRefs.error}><ErrorText text="Repository refs could not be loaded. Try reopening this review." /></Show>
+              <p class="muted">Source and target snapshots are captured now, so later pushes do not change this comparison.</p>
+            </Show>
             <label>
               <span>Description <i>optional</i></span>
               <textarea name="description" rows={4} placeholder="What changed, and what should reviewers focus on?" />
