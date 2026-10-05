@@ -2,7 +2,8 @@
  * Agent control plane — coordination only. Core decides permissions.
  */
 
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 export class AgentControlPlane {
@@ -38,7 +39,7 @@ export class AgentControlPlane {
       this.agents.set(agent.id, agent);
     }
     for (const claim of raw.claims ?? []) {
-      this.claims.set(`${claim.agentId}:${claim.path}`, claim);
+      this.claims.set(JSON.stringify([claim.agentId, claim.path]), claim);
     }
   }
 
@@ -47,17 +48,35 @@ export class AgentControlPlane {
     if (!path) {
       return;
     }
-    writeFileSync(
-      path,
-      `${JSON.stringify(
-        {
-          agents: [...this.agents.values()],
-          claims: [...this.claims.values()],
-        },
-        null,
-        2,
-      )}\n`,
-    );
+    const temporary = join(this.stateDir, `.state-${randomUUID()}.tmp`);
+    try {
+      writeFileSync(
+        temporary,
+        `${JSON.stringify(
+          {
+            agents: [...this.agents.values()],
+            claims: [...this.claims.values()],
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      renameSync(temporary, path);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+  }
+
+  #setAndPersist(map, key, value) {
+    const previous = map.get(key);
+    map.set(key, value);
+    try {
+      this.#persist();
+    } catch (error) {
+      if (previous === undefined) map.delete(key);
+      else map.set(key, previous);
+      throw error;
+    }
   }
 
   /**
@@ -73,8 +92,7 @@ export class AgentControlPlane {
       displayName: input.displayName ?? input.id,
       registeredAt: new Date().toISOString(),
     };
-    this.agents.set(agent.id, agent);
-    this.#persist();
+    this.#setAndPersist(this.agents, agent.id, agent);
     return agent;
   }
 
@@ -94,8 +112,7 @@ export class AgentControlPlane {
       mode: input.mode ?? 'advisory',
       claimedAt: new Date().toISOString(),
     };
-    this.claims.set(`${claim.agentId}:${claim.path}`, claim);
-    this.#persist();
+    this.#setAndPersist(this.claims, JSON.stringify([claim.agentId, claim.path]), claim);
     return claim;
   }
 

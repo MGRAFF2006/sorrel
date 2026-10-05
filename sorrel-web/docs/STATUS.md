@@ -32,7 +32,7 @@ production AuthAdapter and network controls. See the root
 | --- | --- |
 | **Protocol** | Canonical object schemas, examples, sync-transport spec, policy conformance manifest + checksum drift guards. |
 | **Engine (`sorrel-core`)** | Content-addressed object store, snapshots, changes, path/line-level diff helpers, lanes/stacks, policy/authority spine, sync closure helpers, stat-cache, three-way merge + protocol-aligned conflict/merge-result objects, **incremental `git_import` / `git_export`**. |
-| **CLI (`sorrel-cli`)** | Persistent `.sorrel/` workspace: `init`, `status`, `change create`/`list`, `diff`, `log`, `lane create`/`list`/`switch`/`submit`, `stack create`/`list`/`show`, `merge` / `merge --abort` / **`merge --continue`**, **`git import` / `git export` / `git sync`**, `grant`, `slice create`, `workflow validate`/`run`, **`secret list|sync|check|get|set|run`**, **`env init|ensure|info|shell`**, **`run list|show|logs`**, `remote add`/`list`, `push`, `pull`. |
+| **CLI (`sorrel-cli`)** | Persistent `.sorrel/` workspace: `init`, `status`, `change create`/`list`, `diff`, `log`, `lane create`/`list`/`switch`/`submit`, `stack create`/`list`/`show`, `merge` / `merge --abort` / **`merge --continue`**, **`git import` / `git export` / `git sync`**, `grant`, `slice create`, `workflow validate`/`run`, **`secret list\|sync\|check\|get\|set\|run`**, **`env init\|ensure\|info\|shell`**, **`run list\|show\|logs`**, `remote add`/`list`, `push`, `pull`. |
 | **Git bridge** | `sorrel git import`, `git export`, and colocated `git sync`; incremental fast-forwards in either direction, divergence parked on a normal Sorrel lane, `.sorrel/git-map.json` links SHAs ↔ snapshots. See `sorrel-cli/GIT.md`. |
 | **Sync** | CLI ↔ Hub over HTTP sync transport; Hub FS-backed object/ref store; isolated demos can opt into `user:local` bootstrap grants with `SORREL_HUB_BOOTSTRAP_GRANTS=1`. |
 | **Vault** | Secrets schema + local Node backend for tests. **Primary UX:** `sorrel secret *` resolves via upstream SecretSpec (`keyring` / `dotenv` / `env`) under Core grants; workflow jobs can inject authorized `secretRefs` with log redaction. |
@@ -58,7 +58,7 @@ production AuthAdapter and network controls. See the root
 | **App embedding** | Desktop and mobile ship as thin Hub companions only; neither embeds Core or operates a local workspace until the stable embedding surface exists. Desktop remote-Hub selection, keychain use, and deep links are not yet shipped. |
 | **Hub secret backend** | Optional hosted / BYO provider binding (Phase 4) not shipped; local keyring/dotenv remain default. |
 | **devenv task mapping** | Prefer devenv when present; full `sorrel.workflow.yml` → devenv tasks shim and remote runners are still thin. |
-| **Run log follow / Hub stream** | Local `.sorrel/runs/` + `run show|logs` shipped; unsupported `--follow` requests now fail explicitly, and Hub streaming is not implemented. |
+| **Run log follow / Hub stream** | Local `.sorrel/runs/` + `run show\|logs` shipped; unsupported `--follow` requests now fail explicitly, and Hub streaming is not implemented. |
 
 ## Module map
 

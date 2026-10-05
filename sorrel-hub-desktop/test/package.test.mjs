@@ -16,6 +16,13 @@ test('desktop host mounts the shared UI with native transport and platform adapt
   assert.match(source, /sendNotification/);
 });
 
+test('desktop assets include the brand image requested by the shared Hub shell', async () => {
+  const app = await readFile(new URL('../../sorrel-hub-ui/src/App.tsx', import.meta.url), 'utf8');
+  const image = /<img src="([^"]+)"/.exec(app)?.[1];
+  assert.ok(image?.startsWith('/'));
+  assert.match(await readFile(new URL(`../public${image}`, import.meta.url), 'utf8'), /<svg/);
+});
+
 test('Tauri capability limits Hub HTTP access to loopback', async () => {
   const capability = JSON.parse(
     await readFile(

@@ -1,5 +1,5 @@
 import { evaluateWithTrustedGrants } from '../core-policy.js';
-import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
+import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
 import { resolveActingPrincipal } from '../policy-guard.js';
 import { browseTextFile, browseTree } from '../sync-browser.js';
 import {
@@ -88,7 +88,7 @@ export async function handleSyncRoute(request, response, context) {
 
 /** Validates the repo scope segment against the protocol RepositoryId pattern. */
 function parseRepoId(rawSegment) {
-  const repoId = decodeURIComponent(rawSegment);
+  const repoId = decodePathComponent(rawSegment);
   if (!REPO_ID_PATTERN.test(repoId)) {
     throw new HttpError(400, `repo id ${repoId} is not a valid RepositoryId`, 'invalid_request');
   }
@@ -102,7 +102,7 @@ function parseRepoId(rawSegment) {
  * literal slashes (`refs/lane/main`, several segments).
  */
 function parseRefName(rawSegments) {
-  const name = rawSegments.map((segment) => decodeURIComponent(segment)).join('/');
+  const name = rawSegments.map(decodePathComponent).join('/');
   const segments = name.split('/');
   const valid =
     segments.length > 0 &&
@@ -219,7 +219,7 @@ async function advanceRef(request, response, context, repoId, refName) {
     }
   }
 
-  const { incomplete, missingIds } = walkClosure(repoId, [snapshot], context.store.sync);
+  const { incomplete, missingIds } = walkClosure(repoId, [snapshot], context.store.sync, 'snapshot');
   if (incomplete) {
     throw new HttpError(
       409,
@@ -304,6 +304,9 @@ function decodeObjectBytes(entry, index) {
 
   try {
     const bytes = Buffer.from(data, 'base64');
+    if (bytes.toString('base64') !== data) {
+      throw new Error('non-canonical base64');
+    }
     if (bytes.length === 0) {
       throw new Error('empty');
     }

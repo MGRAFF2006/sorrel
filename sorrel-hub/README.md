@@ -170,6 +170,8 @@ ref under `<repo>/refs/`.
 Product metadata (organizations, projects, repositories, proposals, review
 comments, workflow runs, policies) is stored as one JSON document per record
 under `<metadataDir>/<collection>/<id>.json`, also written atomically.
+Duplicate record IDs return `409`; failed disk writes preserve the previously
+visible metadata so a failed request can be retried.
 
 ## License
 
@@ -251,7 +253,7 @@ Proposal records may carry lane-submit fields: `syncRepoId`, `sourceLane`,
 - `POST /collaboration/lane-submit` — create (or reuse) an open proposal for a
   lane tip. Required: `projectId`, `title`, `sourceLane`, `sourceSnapshot`.
   Optional: `syncRepoId`, `targetLane`, `authorPrincipal`, Core refs.
-  Idempotent for the same `syncRepoId` + `sourceLane` + `sourceSnapshot` while
+  Idempotent for the same `projectId` + `syncRepoId` + `sourceLane` + `sourceSnapshot` while
   status is `open` or `draft` (`{ data, reused }`).
 - `GET /collaboration/proposal-summary?projectId=&syncRepoId=` — counts by
   status plus open/draft list.
@@ -294,6 +296,8 @@ The wire contract is the `sorrel-protocol` sync-transport spec
 (`docs/sync-transport.md` there); error envelopes carry `code`, `message`, and
 code-specific fields (`missing` for `closure_incomplete`, `current` for
 `non_fast_forward` / `expected` mismatches).
+Ref updates reject non-snapshot targets and malformed snapshot/tree links with
+`422 invalid_sync_object` before changing the ref.
 
 Tree and file reads reject absolute paths, traversal segments, backslashes,
 non-protocol object kinds, non-Blob payloads, invalid UTF-8, and oversized text

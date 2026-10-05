@@ -75,8 +75,8 @@ function renderMarkdown(src) {
       const parseRow = (row) =>
         row
           .replace(/^\||\|$/g, "")
-          .split("|")
-          .map((cell) => cell.trim());
+          .split(/(?<!\\)\|/)
+          .map((cell) => cell.trim().replace(/\\\|/g, "|"));
       const header = parseRow(rows[0]);
       const body = rows.slice(2).map(parseRow);
       html.push("<table><thead><tr>");
@@ -306,7 +306,10 @@ function setActive(doc) {
   });
 }
 
+let docGeneration = 0;
+
 async function loadDoc(name, historyMode = "replace") {
+  const generation = ++docGeneration;
   const doc = ALLOWED.has(name) ? name : "STATUS.md";
   setActive(doc);
   if (contentEl) {
@@ -317,6 +320,7 @@ async function loadDoc(name, historyMode = "replace") {
     const response = await fetch(`./${doc}`, { headers: { accept: "text/plain,text/markdown,*/*" } });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const text = await response.text();
+    if (generation !== docGeneration) return;
     if (contentEl) {
       contentEl.innerHTML = renderMarkdown(text);
       contentEl.removeAttribute("aria-busy");
@@ -329,6 +333,7 @@ async function loadDoc(name, historyMode = "replace") {
     if (historyMode === "push") history.pushState({ doc }, "", url);
     else if (historyMode === "replace") history.replaceState({ doc }, "", url);
   } catch (error) {
+    if (generation !== docGeneration) return;
     if (contentEl) {
       contentEl.removeAttribute("aria-busy");
       contentEl.innerHTML = `<p class="muted">Could not load <code>${escapeHtml(doc)}</code>: ${escapeHtml(error.message)}. Open the <a href="./${escapeHtml(doc)}">raw markdown</a> instead.</p>`;

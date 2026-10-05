@@ -25,7 +25,9 @@ vendored `sorrel-protocol` conformance manifest.
   `change create` / `change list`.
 - Parallel work and integration: `lane create` / `list` / `switch` / `submit`,
   `stack create` / `list` / `show`, and three-way `merge` with
-  `--continue` / `--abort`.
+  `--continue` / `--abort`. Conflicted merges apply clean changes alongside
+  conflict markers; continuing preserves those changes, and aborting restores
+  the original tree.
 - Git bridge: history `git import`, `git export`, and bidirectional,
   fast-forward-oriented `git sync` for colocated or separate mirrors. See
   [`GIT.md`](GIT.md).

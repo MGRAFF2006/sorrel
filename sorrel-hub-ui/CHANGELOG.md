@@ -4,6 +4,11 @@ Notable changes to the shared Sorrel Hub UI (`sorrel-hub-ui`) are documented her
 
 ## [Unreleased]
 
+### Fixed
+
+- Use the verified Hub session principal for profiles and authored review data without replacing saved development identities.
+- Surface failed review, comment, and workflow mutations, and clear review selection when browser history removes its query parameter.
+
 ### Added
 
 - Add global Inbox and organization/profile routes, a proposal-backed Work

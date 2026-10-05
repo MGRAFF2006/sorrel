@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Keep distinct path claims when agent IDs or paths contain colons.
+- Write coordination state atomically and roll back rejected mutations when
+  persistence fails, cleaning temporary files after errors.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

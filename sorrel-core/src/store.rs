@@ -4,8 +4,13 @@ use std::{
     fs,
     io::{self, Write},
     path::PathBuf,
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
 };
+
+static NEXT_TEMP_FILE: AtomicU64 = AtomicU64::new(0);
 
 /// Result type used by Sorrel object stores.
 pub type ObjectStoreResult<T> = Result<T, ObjectStoreError>;
@@ -161,7 +166,9 @@ impl FileObjectStore {
     }
 
     fn tmp_path(&self, id: &ObjectId) -> PathBuf {
-        self.tmp_dir().join(format!("{id}.tmp"))
+        let sequence = NEXT_TEMP_FILE.fetch_add(1, Ordering::Relaxed);
+        self.tmp_dir()
+            .join(format!("{id}.{}.{sequence}.tmp", std::process::id()))
     }
 }
 
@@ -198,10 +205,19 @@ impl ObjectStore for FileObjectStore {
         fs::create_dir_all(&shard_dir)
             .map_err(|source| ObjectStoreError::io(&shard_dir, source))?;
 
-        let tmp_path = self.tmp_path(&id);
+        let (tmp_path, mut tmp_file) = loop {
+            let tmp_path = self.tmp_path(&id);
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&tmp_path)
+            {
+                Ok(file) => break (tmp_path, file),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(ObjectStoreError::io(tmp_path, error)),
+            }
+        };
         {
-            let mut tmp_file = fs::File::create(&tmp_path)
-                .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
             tmp_file
                 .write_all(bytes)
                 .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
@@ -209,6 +225,7 @@ impl ObjectStore for FileObjectStore {
                 .sync_all()
                 .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
         }
+        drop(tmp_file);
 
         match fs::rename(&tmp_path, &path) {
             Ok(()) => Ok(id),
@@ -237,6 +254,29 @@ impl ObjectStore for FileObjectStore {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn concurrent_same_object_writes_all_succeed() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(dir.path()).unwrap();
+        let bytes = vec![b'x'; 1024 * 1024];
+        let expected = ObjectId::for_bytes(&bytes);
+        let barrier = std::sync::Barrier::new(8);
+        std::thread::scope(|scope| {
+            let handles = (0..8)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        store.write(&bytes)
+                    })
+                })
+                .collect::<Vec<_>>();
+            for handle in handles {
+                assert_eq!(handle.join().unwrap().unwrap(), expected);
+            }
+        });
+        assert_eq!(store.read(&expected).unwrap(), bytes);
+    }
 
     fn assert_content_addressed_store(store: &impl ObjectStore) {
         let bytes = b"hello from sorrel";

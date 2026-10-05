@@ -1,7 +1,7 @@
 import { useParams, useSearchParams } from '@solidjs/router';
 import { createEffect, createMemo, createResource, createSignal, For, Show } from 'solid-js';
 import { apiGet, apiPatch, apiPost, unwrapList } from '../api.ts';
-import { getActingPrincipal } from '../session.ts';
+import { getEffectivePrincipal } from '../session.ts';
 import {
   EmptyState,
   ErrorText,
@@ -56,11 +56,12 @@ export function ReviewsView() {
   const [formError, setFormError] = createSignal(false);
   const [creating, setCreating] = createSignal(false);
   const [filter, setFilter] = createSignal('');
+  const [mutationError, setMutationError] = createSignal('');
 
   createEffect(() => {
     const fromQuery = search.proposal;
+    setSelectedProposalId(typeof fromQuery === 'string' && fromQuery.length > 0 ? fromQuery : null);
     if (typeof fromQuery === 'string' && fromQuery.length > 0) {
-      setSelectedProposalId(fromQuery);
       setTab('proposals');
     }
   });
@@ -113,19 +114,26 @@ export function ReviewsView() {
   const proposalComments = () =>
     (comments() ?? []).filter((c) => c.proposalId === selectedProposalId());
 
-  async function patchProposalStatus(id: string, status: string) {
-    await apiPatch(`/admin/proposals/${encodeURIComponent(id)}`, { status });
-    setReloadToken((n) => n + 1);
+  async function patchItem(path: string, body: unknown) {
+    setMutationError('');
+    try {
+      await apiPatch(path, body);
+      setReloadToken((n) => n + 1);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : String(error));
+    }
   }
 
-  async function resolveComment(id: string) {
-    await apiPatch(`/admin/review-comments/${encodeURIComponent(id)}`, { state: 'resolved' });
-    setReloadToken((n) => n + 1);
+  function patchProposalStatus(id: string, status: string) {
+    return patchItem(`/admin/proposals/${encodeURIComponent(id)}`, { status });
   }
 
-  async function patchWorkflow(id: string, status: string) {
-    await apiPatch(`/admin/workflow-runs/${encodeURIComponent(id)}`, { status });
-    setReloadToken((n) => n + 1);
+  function resolveComment(id: string) {
+    return patchItem(`/admin/review-comments/${encodeURIComponent(id)}`, { state: 'resolved' });
+  }
+
+  function patchWorkflow(id: string, status: string) {
+    return patchItem(`/admin/workflow-runs/${encodeURIComponent(id)}`, { status });
   }
 
   async function onOpenProposal(event: Event) {
@@ -141,7 +149,7 @@ export function ReviewsView() {
         syncRepoId: data.syncRepoId || undefined,
         sourceLane: data.sourceLane || undefined,
         description: data.description || undefined,
-        authorPrincipal: getActingPrincipal(),
+        authorPrincipal: getEffectivePrincipal(),
         status: 'open',
       })) as { data: { id: string } };
       setFormStatus(`Created ${created.data.id}`);
@@ -183,6 +191,8 @@ export function ReviewsView() {
           </>
         }
       />
+
+      <Show when={mutationError()}><ErrorText text={mutationError()} /></Show>
 
       <div class="toolbar">
         <div class="segmented" role="tablist" aria-label="Review sections">
@@ -545,7 +555,7 @@ function DetailCommentForm(props: { proposalId: string; onPosted: () => void }) 
         proposalId: props.proposalId,
         body: data.body,
         path: data.path || undefined,
-        authorPrincipal: getActingPrincipal(),
+        authorPrincipal: getEffectivePrincipal(),
       });
       setStatus('Posted');
       form.reset();

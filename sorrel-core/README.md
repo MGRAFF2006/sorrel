@@ -107,6 +107,7 @@ for diverging file edits:
 
 - a path changed on only one side takes that side's version;
 - identical changes on both sides collapse;
+- executable mode changes merge independently of content edits, including binary content;
 - both-modified text merges cleanly when regions do not overlap; otherwise a
   `Conflict` (`conflictType` `content` or `binary`) is stored and OURS is kept
   in the candidate tree;
@@ -117,6 +118,12 @@ for diverging file edits:
 - clean merges write a snapshot with parents `[ours, theirs]` and a `MergeResult`
   with status `clean`; any conflicts omit the merged snapshot and return a
   conflicted `MergeResult` listing stored conflict ids.
+
+`merge_snapshots_with_worktree` additionally returns a stored tentative snapshot
+containing all clean changes and the retained versions of conflicted files.
+Hosts can restore this snapshot before adding conflict markers; the conflicted
+`MergeResult` still omits `mergedSnapshot`. File/directory path collisions return
+`MergeError::PathCollision` rather than discarding one side's files.
 
 Stored `Conflict` / `MergeResult` JSON follows the protocol object schema:
 conflicts carry `repoId`, `{ "object": "<64-hex>" }` refs for `base` / `ours` /

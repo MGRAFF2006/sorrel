@@ -7,6 +7,7 @@ import { Image, KeyboardAvoidingView, Platform, View } from 'react-native';
 import { Body, Button, Content, Eyebrow, Field, Notice, Page, Title } from '@/components/ui';
 import { useHub } from '@/context/hub-context';
 import { formatError, isInsecureConnection, normalizeBaseUrl } from '@/lib/domain';
+import { connectionAccessToken } from '@/lib/storage';
 
 export default function ConnectScreen() {
   const router = useRouter();
@@ -34,10 +35,14 @@ export default function ConnectScreen() {
         type: principalType.trim() || 'user',
         id: principalId.trim() || 'local',
       };
+      const candidateToken = await connectionAccessToken(candidateUrl, {
+        accessToken: accessToken.trim() || undefined,
+        preserveAccessToken: Boolean(connection && hasAccessToken && !accessToken.trim()),
+      });
       const candidate = new HubClient({
         baseUrl: candidateUrl,
         principal,
-        accessToken: accessToken.trim() || undefined,
+        accessToken: candidateToken,
       });
       await candidate.health();
       await candidate.capabilities();
@@ -45,8 +50,7 @@ export default function ConnectScreen() {
       await save({
         baseUrl: candidateUrl,
         principal,
-        accessToken: accessToken.trim() || undefined,
-        preserveAccessToken: Boolean(connection && hasAccessToken && !accessToken.trim()),
+        accessToken: candidateToken,
       });
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/projects');

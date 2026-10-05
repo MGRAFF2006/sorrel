@@ -5,10 +5,10 @@ import { Icon } from '../components/Icon.tsx';
 import { EmptyState, ErrorText, Loading, StatusPill } from '../components/ui.tsx';
 import type { Project, Proposal } from '../domain.ts';
 import { initials, relativeTime } from '../domain.ts';
-import { useActingPrincipal } from '../session.ts';
+import { useEffectivePrincipal } from '../session.ts';
 
 export function ProfileView() {
-  const principal = useActingPrincipal();
+  const principal = useEffectivePrincipal();
   const [data] = createResource(async () => {
     const [projectsPayload, proposalsPayload] = await Promise.all([
       apiGet('/projects'),

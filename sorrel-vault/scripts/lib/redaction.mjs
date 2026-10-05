@@ -27,7 +27,7 @@ export function redactText(text, secretValues, policy = DEFAULT_POLICY, { secret
       continue;
     }
 
-    redacted = redacted.replaceAll(secret, redactValue(secret, mergedPolicy));
+    redacted = redacted.replaceAll(secret, () => redactValue(secret, mergedPolicy));
   }
 
   return redactEnvAssignments(redactSecretReferences(redacted, secretRefs, mergedPolicy), mergedPolicy);
@@ -44,7 +44,7 @@ export function redactSecretReferences(text, secretRefs, policy = DEFAULT_POLICY
       continue;
     }
 
-    redacted = redacted.replaceAll(secretRef, redactValue(secretRef, mergedPolicy));
+    redacted = redacted.replaceAll(secretRef, () => redactValue(secretRef, mergedPolicy));
   }
 
   return redacted;

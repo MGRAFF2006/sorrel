@@ -290,3 +290,40 @@ test('list proposals filters by status and sourceLane', async () => {
     assert.equal(laneB.data[0].title, 'B');
   });
 });
+
+
+test('lane-submit reuse is scoped to project and normalized repository', async () => {
+  await withServer(async (baseUrl) => {
+    const payload = {
+      projectId: 'proj_a', syncRepoId: 'repo_shared', title: 'Tip',
+      sourceLane: 'lane_feature', sourceSnapshot: 'dd'.repeat(32),
+    };
+    const first = await postJson(`${baseUrl}/collaboration/lane-submit`, payload);
+    const initial = (await first.json()).data;
+    assert.equal(first.status, 201);
+
+    const otherProject = await postJson(`${baseUrl}/collaboration/lane-submit`, {
+      ...payload, projectId: 'proj_b',
+    });
+    assert.equal(otherProject.status, 201);
+    assert.equal((await otherProject.json()).data.projectId, 'proj_b');
+
+    const repeated = await postJson(`${baseUrl}/collaboration/lane-submit`, {
+      ...payload, projectId: ' proj_a ', syncRepoId: ' repo_shared ',
+    });
+    assert.equal(repeated.status, 200);
+    assert.equal((await repeated.json()).data.id, initial.id);
+
+    const withoutRepository = await postJson(`${baseUrl}/collaboration/lane-submit`, {
+      ...payload, syncRepoId: undefined,
+    });
+    assert.equal(withoutRepository.status, 201);
+    const noRepo = (await withoutRepository.json()).data;
+    assert.notEqual(noRepo.id, initial.id);
+    const repeatedNoRepo = await postJson(`${baseUrl}/collaboration/lane-submit`, {
+      ...payload, syncRepoId: undefined,
+    });
+    assert.equal(repeatedNoRepo.status, 200);
+    assert.equal((await repeatedNoRepo.json()).data.id, noRepo.id);
+  });
+});

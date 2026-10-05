@@ -123,3 +123,61 @@ test('OIDC AuthAdapter rejects expired tokens', async () => {
   });
   assert.equal(session, null);
 });
+
+
+test('JWT date claims cannot disable expiry checks through incorrect types', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = publicKey.export({ format: 'jwk' });
+  const nowMs = 2000000;
+  for (const claims of [{ exp: '0' }, { exp: null }, { nbf: '99999999' }, { iat: {} }, { exp: 2000 }]) {
+    const token = signRs256Jwt(privateKey, { alg: 'RS256' }, { sub: 'alice', iss: ISSUER, ...claims });
+    await assert.rejects(verifyOidcAccessToken(token, {
+      issuer: ISSUER, fetchJwks: async () => [jwk], nowMs, clockSkewSec: 0,
+    }), /jwt (?:exp|nbf|iat|expired)/);
+  }
+});
+
+test('JWT verification respects key IDs, algorithms, and allowed operations', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = publicKey.export({ format: 'jwk' });
+  for (const [header, key] of [
+    [{ alg: 'RS256', kid: 'required-key' }, jwk],
+    [{ alg: 'RS256' }, { ...jwk, alg: 'RS512' }],
+    [{ alg: 'RS256' }, { ...jwk, key_ops: ['sign'] }],
+  ]) {
+    const token = signRs256Jwt(privateKey, header, { sub: 'alice', iss: ISSUER });
+    await assert.rejects(verifyOidcAccessToken(token, {
+      issuer: ISSUER, fetchJwks: async () => [key],
+    }), /signature verification failed/);
+  }
+});
+
+test('ES256 accepts JOSE signatures and rejects DER-encoded JWT signatures', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const jwk = publicKey.export({ format: 'jwk' });
+  const signingInput = `${base64Url(JSON.stringify({ alg: 'ES256' }))}.${base64Url(JSON.stringify({ iss: ISSUER, sub: 'alice' }))}`;
+  for (const dsaEncoding of ['ieee-p1363', 'der']) {
+    const signer = createSign('SHA256');
+    signer.update(signingInput);
+    signer.end();
+    const signature = signer.sign({ key: privateKey, dsaEncoding });
+    const promise = verifyOidcAccessToken(`${signingInput}.${base64Url(signature)}`, {
+      issuer: ISSUER, fetchJwks: async () => [jwk],
+    });
+    if (dsaEncoding === 'ieee-p1363') {
+      assert.equal((await promise).sub, 'alice');
+    } else {
+      await assert.rejects(promise, /signature verification failed/);
+    }
+  }
+});
+
+test('OIDC principals cannot be created from non-string subject claims', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = publicKey.export({ format: 'jwk' });
+  const adapter = createOidcAdapter({ issuer: ISSUER, fetchJwks: async () => [jwk] });
+  for (const sub of [{ id: 'alice' }, 42, ['alice'], ' ']) {
+    const token = signRs256Jwt(privateKey, { alg: 'RS256' }, { sub, iss: ISSUER });
+    assert.equal(await adapter.resolveSession({ headers: { authorization: `Bearer ${token}` } }), null);
+  }
+});
