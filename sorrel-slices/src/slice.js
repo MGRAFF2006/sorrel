@@ -270,6 +270,9 @@ function resolveImport(projectRoot, fromAbs, specifier) {
   if (!resolved) {
     return { resolved: false, reason: "not_found" };
   }
+  if (!isRealPathInside(projectRoot, resolved)) {
+    return { resolved: false, reason: "outside_project_root" };
+  }
 
   return { resolved: true, path: toProjectPath(projectRoot, resolved) };
 }
@@ -456,7 +459,7 @@ function isLocalSpecifier(specifier) {
 }
 
 function toProjectPath(projectRoot, absPath) {
-  if (!isInside(projectRoot, absPath)) {
+  if (!isInside(projectRoot, absPath) || (fs.existsSync(absPath) && !isRealPathInside(projectRoot, absPath))) {
     throw new SliceError(`Path is outside project root: ${absPath}`);
   }
 
@@ -470,7 +473,11 @@ function normalizeProjectPath(value) {
 
 function isInside(parent, candidate) {
   const relative = path.relative(parent, candidate);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+function isRealPathInside(projectRoot, candidate) {
+  return isInside(fs.realpathSync(projectRoot), fs.realpathSync(candidate));
 }
 
 function samePath(left, right) {

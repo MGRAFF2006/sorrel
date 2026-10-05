@@ -2,7 +2,12 @@
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Reject entrypoints and package metadata that resolve through symlinks outside
+  the project root, and report such imports as `outside_project_root` without
+  reading their contents. Preserve links within the project and symlinked roots.
+- Accept valid project paths whose names begin with `..`.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 
