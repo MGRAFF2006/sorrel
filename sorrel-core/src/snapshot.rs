@@ -77,6 +77,14 @@ pub enum SnapshotError {
         path: PathBuf,
     },
 
+    /// A secret-provider file is already present in the tracked snapshot.
+    #[error("protected secret file {} is already tracked; back up the workspace, rotate exposed credentials, and create a clean workspace before snapshotting", path.display())]
+    TrackedSecret { path: PathBuf },
+
+    /// Ignore rules or secret-provider configuration could not be loaded safely.
+    #[error("invalid workspace configuration at {}: {message}", path.display())]
+    WorkspaceConfiguration { path: PathBuf, message: String },
+
     /// Materialization encountered a filesystem object this first model does not support.
     #[error("unsupported filesystem object at {}", path.display())]
     UnsupportedFileType {
@@ -463,11 +471,20 @@ where
                 &excluded,
                 Some(cache),
                 Some(&mut paths_seen),
+                None,
             )?;
             cache.retain(&paths_seen);
             Ok(tree)
         }
-        None => write_tree_from_dir(store, root.as_ref(), Path::new(""), &excluded, None, None),
+        None => write_tree_from_dir(
+            store,
+            root.as_ref(),
+            Path::new(""),
+            &excluded,
+            None,
+            None,
+            None,
+        ),
     }
 }
 
@@ -640,13 +657,14 @@ fn blob_bytes(content: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn write_tree_from_dir(
+pub(crate) fn write_tree_from_dir(
     store: &impl ObjectStore,
     root: &Path,
     relative_dir: &Path,
     excluded_root_names: &BTreeSet<std::ffi::OsString>,
     mut stat_cache: Option<&mut StatCache>,
     mut paths_seen: Option<&mut BTreeSet<String>>,
+    mut selection: Option<&mut crate::workspace::WorkspaceSelection>,
 ) -> SnapshotResult<Tree> {
     let directory = root.join(relative_dir);
     let is_root = relative_dir.as_os_str().is_empty();
@@ -672,6 +690,12 @@ fn write_tree_from_dir(
             .file_type()
             .map_err(|source| SnapshotError::io(&child_path, source))?;
 
+        if let Some(selection) = selection.as_deref_mut() {
+            if !selection.allows(&relative_path, file_type.is_dir())? {
+                continue;
+            }
+        }
+
         if file_type.is_dir() {
             let child_tree = write_tree_from_dir(
                 store,
@@ -680,6 +704,7 @@ fn write_tree_from_dir(
                 excluded_root_names,
                 stat_cache.as_deref_mut(),
                 paths_seen.as_deref_mut(),
+                selection.as_deref_mut(),
             )?;
             entries.push(TreeEntry {
                 name,

@@ -19,6 +19,17 @@ providers under Core grants (see root `ROADMAP.md`).
 `tests/policy_conformance.rs` checks the CLI policy evaluator against the
 vendored `sorrel-protocol` conformance manifest.
 
+## Workspace file selection
+
+`status`, `diff`, and `change create` honor nested `.gitignore` and
+`.sorrelignore` rules. Ordinary files already tracked at HEAD remain tracked even
+when ignored later. `.env`, `.env.*`, and configured local dotenv-provider paths
+are protected before contents enter the object store; `.env.example` remains an
+ordinary file. Ignore negation cannot reinclude protected secret files.
+
+For legacy workspaces that already track secrets, see the
+[workspace selection and recovery contract](../docs/ARCHITECTURE.md#change-lane-and-merge-flow).
+
 ## Features
 
 - Persistent repositories: `init`, `status`, `diff`, `log`, and

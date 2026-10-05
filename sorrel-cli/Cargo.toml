@@ -20,6 +20,7 @@ sorrel-core = { path = "../sorrel-core" }
 ureq = { version = "2.12.1", default-features = false, features = ["json"] }
 
 [dev-dependencies]
+sorrel-sdk = { path = "../sorrel-sdk-rust" }
 assert_cmd = "=2.0.16"
 tempfile = "3.27.0"
 

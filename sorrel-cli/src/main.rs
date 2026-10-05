@@ -12,12 +12,12 @@ use serde_json::{json, Value};
 use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_import, is_descendant,
-    materialize_snapshot_excluding_with_stat_cache, merge_base, merge_snapshots,
-    parse_object_id_hex, read_conflict, read_snapshot, read_snapshot_files, read_stack,
-    restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree, ChangeOptions,
-    ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
-    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
-    PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
+    materialize_workspace_snapshot, merge_base, merge_snapshots, parse_object_id_hex,
+    read_conflict, read_snapshot, read_snapshot_files, read_stack, restore_snapshot_to_directory,
+    snapshot_diff, write_snapshot, write_tree, ChangeOptions, ConflictType, FileObjectStore,
+    GitExportOptions, GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions,
+    ObjectId, ObjectKind, ObjectRef, ObjectStore, PathChangeKind, Principal, SnapshotOptions,
+    StackOptions, StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -3374,10 +3374,14 @@ fn materialize_worktree(
     // Snapshot the working tree in place, excluding the on-disk object store
     // (`.sorrel/`) and a colocated Git metadata dir (`.git/`) at the root.
     // No copy-to-scratch. The stat cache lets unchanged files skip re-hashing.
-    let snapshot = to_io(materialize_snapshot_excluding_with_stat_cache(
+    let baseline = repo::load_head()?
+        .map(|head| head_snapshot_id(&head))
+        .transpose()?
+        .flatten();
+    let snapshot = to_io(materialize_workspace_snapshot(
         store,
         Path::new("."),
-        [repo::SORREL_DIR, ".git"],
+        baseline.as_ref(),
         stat_cache,
         options,
     ))?;

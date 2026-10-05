@@ -4,7 +4,7 @@ pub use sorrel_core::{
     FileObjectStore, ObjectId, ObjectKind, ObjectRef, ObjectStore, Snapshot, SnapshotOptions,
 };
 
-use sorrel_core::{materialize_snapshot_excluding, write_snapshot, write_tree};
+use sorrel_core::{materialize_workspace_snapshot, write_snapshot, write_tree};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -34,7 +34,7 @@ impl Workspace {
     ) -> Result<(Self, Snapshot), SdkError> {
         let root = root.into();
         let repo_id = repo_id.into();
-        let objects = root.join(".sorrel").join("objects");
+        let objects = root.join(".sorrel");
         std::fs::create_dir_all(&objects)?;
         let store = FileObjectStore::new(&objects)?;
         let mut options = SnapshotOptions::new(repo_id.clone());
@@ -60,12 +60,8 @@ impl Workspace {
         let mut options = SnapshotOptions::new(self.repo_id.clone());
         options.message = Some(message.into());
         options.parents = vec![ObjectRef::new(ObjectKind::Snapshot, parent)];
-        let snap = materialize_snapshot_excluding(
-            &self.store,
-            &self.root,
-            [Path::new(".sorrel")],
-            options,
-        )?;
+        let snap =
+            materialize_workspace_snapshot(&self.store, &self.root, Some(&parent), None, options)?;
         Ok(snap)
     }
 

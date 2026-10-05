@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Use the same protected workspace snapshot selection as the CLI and place objects directly under `.sorrel/objects`.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

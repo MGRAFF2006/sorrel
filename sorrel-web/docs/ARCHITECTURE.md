@@ -93,8 +93,28 @@ must be backed up before upgrading.
 
 ## Change, lane, and merge flow
 
-`status`, `diff`, and `change create` materialize the working tree while
-excluding `.sorrel/`. A size/mtime stat cache avoids rehashing unchanged files.
+`status`, `diff`, and `change create` use Core's `materialize_workspace_snapshot`,
+shared with the Rust SDK. It excludes root `.sorrel/` and `.git/`, applies nested
+`.gitignore` and `.sorrelignore` rules (Sorrel rules take precedence in the same
+directory), and skips ignored untracked files before reading or storing their
+contents. Existing ordinary tracked files remain tracked when a new ignore rule
+matches them; removing a tracked file from disk still records a deletion.
+
+Files named `.env` or `.env.*` are always protected, except `.env.example`, which
+follows ordinary ignore rules. Configured `dotenv:` / `dotenv://` file paths in
+`sorrel.secrets.yml`, `.sorrel/secrets/*.json`, and `secretspec.toml` are also
+protected, even when ignore rules try to reinclude them. Malformed provider
+configuration fails closed. Explicit provider overrides outside these project
+configs must be added to `.sorrelignore` before use. This selection runs before
+stat-cache lookup, and excluded paths are removed from a successfully saved
+cache. A size/mtime stat cache avoids rehashing unchanged selected files.
+
+A HEAD that already tracks a protected secret path causes an error before any
+new objects are written. This does not purge previously stored secret blobs or
+rewrite history. Back up the workspace, rotate exposed credentials, and rebuild
+a clean workspace from source files without the protected paths before syncing
+it. Core's low-level directory materialization APIs remain unfiltered for callers
+that deliberately import arbitrary trees.
 Each lane has an independent head, so parallel work can advance without sharing
 one mutable branch pointer.
 

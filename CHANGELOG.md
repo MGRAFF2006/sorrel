@@ -9,6 +9,10 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep local dotenv secrets and ignored untracked files out of workspace snapshots, with shared CLI/Rust SDK selection and protection before stat-cache reuse.
+
 ### Added
 
 - Add read-only Hub APIs for browsing synchronized repository trees and UTF-8

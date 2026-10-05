@@ -4,7 +4,9 @@ All notable changes to `sorrel-cli` are documented here.
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Apply safe workspace selection consistently to status, diff, and change creation before storing file contents or reusing cached blobs.
 
 ## [0.1.0-alpha.2] - 2026-09-01
 

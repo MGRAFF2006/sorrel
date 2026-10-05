@@ -48,7 +48,7 @@ merge). Registry helpers are in `src/repo.rs`.
 ## Stat cache
 
 Working-tree snapshots use the engine's
-`materialize_snapshot_excluding_with_stat_cache`. The CLI loads
+`materialize_workspace_snapshot`. The CLI loads
 `.sorrel/stat-cache.json` (size+mtime → blob id) before snapshotting and saves
 it atomically (temp file + rename) after `status` and `change create` succeed;
 unchanged files skip re-hashing. `diff` snapshots read-only and does not persist
