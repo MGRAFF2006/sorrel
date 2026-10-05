@@ -24,8 +24,8 @@ export function ReviewChanges(props: { proposalId: string }) {
               return <details class="changed-file" open={expanded()} onToggle={event => setExpanded(event.currentTarget.open)}>
               <summary><strong>{change.path}</strong><span class="pill">{change.status}</span></summary>
               <Show when={expanded()}><div class="comparison-panes">
-                <section><h3>Before</h3><SourcePreview content={change.before.content} reason={change.before.reason} label={`Before ${change.path}`} /></section>
-                <section><h3>After</h3><SourcePreview content={change.after.content} reason={change.after.reason} label={`After ${change.path}`} /></section>
+                <section><h3>Before<Show when={change.before.mode}> · {change.before.mode}</Show></h3><SourcePreview content={change.before.content} reason={change.before.reason} label={`Before ${change.path}`} /></section>
+                <section><h3>After<Show when={change.after.mode}> · {change.after.mode}</Show></h3><SourcePreview content={change.after.content} reason={change.after.reason} label={`After ${change.path}`} /></section>
               </div></Show>
             </details>;
             }}</For>

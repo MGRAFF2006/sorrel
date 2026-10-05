@@ -14,3 +14,9 @@ test('does not display binary or excessive file content', () => {
   expect(screen.queryByLabelText('Binary')).toBeNull();
   expect(screen.queryByLabelText('Large')).toBeNull();
 });
+
+test('explains unavailable comparison previews without displaying transport codes', () => {
+  render(() => <SourcePreview content={null} reason="preview_limit" label="Omitted" />);
+  expect(screen.getByText(/comparison preview limit was reached/)).toBeInTheDocument();
+  expect(screen.queryByText('preview_limit')).toBeNull();
+});

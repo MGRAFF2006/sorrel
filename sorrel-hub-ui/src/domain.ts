@@ -160,7 +160,7 @@ export type ProposalChanges = {
   changes: {
     path: string;
     status: 'added' | 'modified' | 'deleted';
-    before: { content: string | null; reason?: string; objectId?: string };
-    after: { content: string | null; reason?: string; objectId?: string };
+    before: { content: string | null; reason?: string; objectId?: string; mode?: string | number | null };
+    after: { content: string | null; reason?: string; objectId?: string; mode?: string | number | null };
   }[];
 };
