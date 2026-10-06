@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { atomicWrite, decodePathSegment, encodePathSegment, initializeStoreDirectory, PublishedWriteDurabilityError } from './fs-sync-store.js';
+import { atomicWrite, decodePathSegment, encodePathSegment, filesystemName, initializeStoreDirectory, PublishedWriteDurabilityError } from './fs-sync-store.js';
 import { InMemoryStore } from './store.js';
 
 /**
@@ -58,7 +58,7 @@ export class FsMetadataStore extends InMemoryStore {
   }
 
   #recordPath(collection, id) {
-    return path.join(this.rootDir, collection, `${encodePathSegment(id)}.json`);
+    return path.join(this.rootDir, collection, filesystemName(`${encodePathSegment(id)}.json`));
   }
 
   #persist(collection, record) {

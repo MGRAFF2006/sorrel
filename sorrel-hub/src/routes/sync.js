@@ -1,4 +1,5 @@
 import { evaluateWithTrustedGrants } from '../core-policy.js';
+import { FilesystemNameTooLongError } from '../fs-sync-store.js';
 import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
 import { resolveActingPrincipal } from '../policy-guard.js';
 import { browseTextFile, browseTree } from '../sync-browser.js';
@@ -319,6 +320,9 @@ function decodeObjectBytes(entry, index) {
 }
 
 export function mapSyncStoreError(error) {
+  if (error instanceof FilesystemNameTooLongError || error?.code === 'ENAMETOOLONG') {
+    return new HttpError(400, 'identifier or ref name exceeds filesystem component limits', 'filesystem_name_too_long');
+  }
   if (error instanceof SyncObjectIdMismatchError) {
     return new HttpError(400, error.message, error.code);
   }
