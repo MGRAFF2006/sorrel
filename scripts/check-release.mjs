@@ -10,6 +10,8 @@ const manifest = JSON.parse(
 );
 const expectedVersion = manifest.release.replace(/^v/, '');
 const requestedTag = process.argv[2];
+const workspacePackage = read('Cargo.toml').split(/^\[workspace\.package\]\s*$/m)[1]?.split(/^\[/m)[0];
+const workspaceVersion = workspacePackage?.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
 
 function read(path) {
   return readFileSync(join(ROOT, path), 'utf8');
@@ -27,7 +29,7 @@ function cargoVersion(module) {
   const text = readFileSync(path, 'utf8');
   return (
     text.match(/^version\s*=\s*"([^"]+)"/m)?.[1] ??
-    (text.includes('version.workspace = true') ? expectedVersion : undefined)
+    (text.includes('version.workspace = true') ? workspaceVersion : undefined)
   );
 }
 
@@ -43,6 +45,10 @@ function check(condition, message) {
   if (!condition) errors.push(message);
 }
 
+check(
+  workspaceVersion === expectedVersion,
+  `root Cargo workspace version ${workspaceVersion} != ${expectedVersion}`,
+);
 check(
   JSON.parse(read('package.json')).version === expectedVersion,
   `root package version must be ${expectedVersion}`,
