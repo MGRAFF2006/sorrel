@@ -108,7 +108,11 @@ access control. Development-mode anonymous metadata callers remain compatible.
 
 ### Trusted grants (sync push/pull)
 
-Mutating sync routes evaluate Core policy against a trusted grant map. The
+Mutating sync routes and privileged repository/policy administration evaluate
+authorization through the packaged `sorrel-core-policy` Rust executable. Hub has
+no JavaScript policy evaluator. The adapter calls Core `evaluate_policy` with all
+configured trusted grants and policies, including denies omitted from request
+references. Only a native Core `allow` decision authorizes the operation. The
 server has no local bootstrap grants by default. For local development only,
 the explicit opt-in below lets the CLI acting principal
 `{"type":"user","id":"local"}` push/pull without a separate grant service:
@@ -122,6 +126,31 @@ Environment:
   repo-wide bootstrap grants. No other value enables them.
 - `SORREL_HUB_TRUSTED_GRANTS_FILE` — path to a JSON object of extra
   `id → grant` records merged on top of bootstrap grants.
+- `SORREL_HUB_TRUSTED_POLICIES_FILE` — path to a JSON object of native Core
+  `id → policy` records. Every configured policy participates in evaluation.
+- `SORREL_HUB_CORE_POLICY_BIN` — explicit executable path when using a packaged
+  or separately built adapter. Local runs default to the workspace debug binary
+  under `CARGO_TARGET_DIR` (or `target`); `npm run setup` and Hub `npm test` build it.
+
+Trusted grants use native Core shapes: `schemaVersion: "sorrel.protocol.v0"`,
+`kind: "Grant"`, `principal: { kind, id }`, string `capabilities`, a concrete
+`resource: { kind, id }`, and an explicit `effect`. Concrete plural `resources`
+are also supported. Older `action` / `principal.type` records require explicit
+`effect` and `resource`; omitted effects or universal missing resources are rejected.
+Grant `status`, `issuedAt`, `expiresAt`, and `revokedAt` are enforced in the
+Core-owned adapter. Invalid dates/versions, unresolved protocol object references,
+nonempty conditions, unsupported fields, and path-scoped resources fail closed.
+Native policies use Core `resource`, `rules`, and optional `defaultDecision`.
+Service IDs map to `service:<id>` and workflow IDs to `workflow:<id>` in Core's
+service domain, consistently for native and legacy inputs, keeping them distinct.
+
+The configured files are an operator trust boundary; Hub does not verify their
+authority-chain signatures. Request `authorityRootRef` is metadata, not proof of
+verified authority. Request policy references must resolve to configured policies;
+request grant/policy payloads never supply authority. Each subprocess has a
+five-second timeout and one-MiB request/response limit; at most 16 run concurrently.
+An unavailable, invalid, overloaded, or timed-out adapter fails closed with
+`503 policy_evaluation_failed`. Denials carry a native Core `PolicyDecision`.
 
 The CLI sends matching `grantRefs` on `POST /objects` and `POST /refs/*`.
 Because the bootstrap grants match every repository id, never enable them for
@@ -145,7 +174,7 @@ for the verified download and hosting flow.
 To build the API image from the current checkout instead:
 
 ```sh
-docker build -t sorrel-hub .
+docker build -t sorrel-hub --file Dockerfile ..
 docker run --rm -p 3000:3000 \
   -e HOST=0.0.0.0 \
   -v hub-data:/app/data \

@@ -20,7 +20,9 @@
 
 services:
   hub:
-    build: ./sorrel-hub
+    build:
+      context: .
+      dockerfile: sorrel-hub/Dockerfile
     ports:
       - "${SORREL_HUB_PORT:-3000}:3000"
     environment:

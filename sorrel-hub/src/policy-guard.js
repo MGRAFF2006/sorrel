@@ -58,7 +58,7 @@ export function parseActingPrincipal(request) {
   }
 }
 
-export function assertPrivilegedAdminAccess(request, body, collectionName, context) {
+export async function assertPrivilegedAdminAccess(request, body, collectionName, context) {
   if (!PRIVILEGED_ADMIN_COLLECTIONS.has(collectionName)) {
     return undefined;
   }
@@ -67,13 +67,14 @@ export function assertPrivilegedAdminAccess(request, body, collectionName, conte
   const grantRefs = body.grantRefs ?? [];
   const resource = resolveAdminResource(collectionName, body);
   const policyContext = {
+    trustedPoliciesById: context.trustedPoliciesById ?? {},
     policyRef: body.policyRef,
     authorityRootRef: body.authorityRootRef,
     policyRefs: body.policyRefs ?? [],
   };
 
   try {
-    return evaluateWithTrustedGrants(
+    return await evaluateWithTrustedGrants(
       actingPrincipal,
       POLICY_ACTION_GRANT,
       resource,
@@ -83,7 +84,7 @@ export function assertPrivilegedAdminAccess(request, body, collectionName, conte
     );
   } catch (error) {
     if (error instanceof PolicyEvaluationError) {
-      throw new HttpError(400, error.message, error.code);
+      throw new HttpError(error.statusCode ?? 400, error.message, error.code);
     }
     throw error;
   }

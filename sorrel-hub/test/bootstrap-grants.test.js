@@ -29,8 +29,8 @@ test('resolveTrustedGrants defaults to no local bootstrap grants', () => {
 test('resolveTrustedGrants enables local bootstrap grants only with explicit 1', () => {
   const grants = resolveTrustedGrants({ SORREL_HUB_BOOTSTRAP_GRANTS: '1' });
   assert.equal(Object.keys(grants).length, 2);
-  assert.equal(grants[BOOTSTRAP_OBJECT_WRITE_GRANT_ID].action, 'repo.object.write');
-  assert.equal(grants[BOOTSTRAP_REF_WRITE_GRANT_ID].action, 'repo.ref.write');
+  assert.deepEqual(grants[BOOTSTRAP_OBJECT_WRITE_GRANT_ID].capabilities, ['repo.object.write']);
+  assert.deepEqual(grants[BOOTSTRAP_REF_WRITE_GRANT_ID].capabilities, ['repo.ref.write']);
 });
 
 test('resolveTrustedGrants does not enable bootstrap for other values', () => {
