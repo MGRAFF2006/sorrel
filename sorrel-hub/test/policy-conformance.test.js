@@ -25,6 +25,7 @@ function hubGrant(manifestGrant) {
     source: 'core',
     principal: manifestGrant.principal,
     action: manifestGrant.capability,
+    effect: manifestGrant.effect,
     resource: manifestGrant.resource,
   };
 }
@@ -35,7 +36,7 @@ test('Hub guard agrees with permission decision vectors', async () => {
 
   for (const testCase of manifest.permissionDecisions) {
     const { request, grants = [], expected, id } = testCase;
-    const result = evaluate({
+    const result = await evaluate({
       principal: request.principal,
       action: request.capability,
       resource: request.resource,
@@ -44,10 +45,10 @@ test('Hub guard agrees with permission decision vectors', async () => {
 
     if (expected === 'allow') {
       assert.equal(result.allowed, true, `case ${id}: expected allow`);
-      assert.equal(result.decision.outcome, 'allow', `case ${id}: outcome`);
+      assert.equal(result.decision.decision, 'allow', `case ${id}: outcome`);
     } else {
       assert.equal(result.allowed, false, `case ${id}: expected not-allowed (${expected})`);
-      assert.equal(result.decision.outcome, 'deny', `case ${id}: outcome`);
+      assert.ok(['deny', 'needs_grant'].includes(result.decision.decision), `case ${id}: outcome`);
     }
   }
 });
@@ -76,7 +77,7 @@ test('Hub guard agrees with grant-authority policy-change vectors', async () => 
     // The actor must hold `operation` authority on the proposed resource under
     // the previous effective policy (its previousGrants). Hub never counts the
     // proposed grant itself as authority.
-    const result = evaluate({
+    const result = await evaluate({
       principal: actor,
       action: operation,
       resource: proposedGrant ? proposedGrant.resource : undefined,
@@ -87,7 +88,7 @@ test('Hub guard agrees with grant-authority policy-change vectors', async () => 
     assert.equal(
       result.allowed,
       expectAllowed,
-      `case ${id}: expected ${expected.outcome}, got ${result.decision.outcome} (${result.decision.reason})`,
+      `case ${id}: expected ${expected.outcome}, got ${result.decision.decision} (${result.decision.reason})`,
     );
   }
 });

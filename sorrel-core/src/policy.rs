@@ -82,6 +82,8 @@ pub enum ResourceKind {
 pub struct ResourceRef {
     pub kind: ResourceKind,
     pub id: String,
+    /// Exact authority restriction. None permits any path; Some requires an
+    /// identical requested path. No wildcard or path normalization is applied.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
@@ -451,8 +453,10 @@ fn capability_matches(allowed: &[Capability], requested: &Capability) -> bool {
         .any(|capability| capability.0 == requested.0 || capability.0 == "*")
 }
 
-fn resource_matches(allowed: &ResourceRef, requested: &ResourceRef) -> bool {
-    allowed.kind == requested.kind && (allowed.id == requested.id || allowed.id == "*")
+pub(crate) fn resource_matches(allowed: &ResourceRef, requested: &ResourceRef) -> bool {
+    allowed.kind == requested.kind
+        && (allowed.id == requested.id || allowed.id == "*")
+        && (allowed.path.is_none() || allowed.path == requested.path)
 }
 
 fn reason_for(decision: DecisionKind) -> &'static str {
@@ -590,6 +594,73 @@ mod tests {
             redacted.redactions[0].marker,
             "<sorrel:redacted secret_npm_token>"
         );
+    }
+
+    #[test]
+    fn path_restricts_grants_policy_defaults_and_rules() {
+        let mut scoped = ResourceRef::new(ResourceKind::Repo, "*");
+        scoped.path = Some("src/private.rs".to_owned());
+        for (path, matches) in [
+            (Some("src/private.rs"), true),
+            (None, false),
+            (Some("src/private.rs/child"), false),
+            (Some("src/public.rs"), false),
+            (Some("src/./private.rs"), false),
+        ] {
+            let mut request = request("repo.read", ResourceKind::Repo, "repo_main");
+            request.resource.path = path.map(str::to_owned);
+            for effect in [
+                GrantEffect::Allow,
+                GrantEffect::Deny,
+                GrantEffect::Redact,
+                GrantEffect::Review,
+            ] {
+                let mut grant = grant("scoped", effect, "repo.read", ResourceKind::Repo, "*");
+                grant.resource = scoped.clone();
+                let expected = if matches {
+                    match effect {
+                        GrantEffect::Allow => DecisionKind::Allow,
+                        GrantEffect::Deny => DecisionKind::Deny,
+                        GrantEffect::Redact => DecisionKind::Redact,
+                        GrantEffect::Review => DecisionKind::NeedsReview,
+                    }
+                } else {
+                    DecisionKind::NeedsGrant
+                };
+                assert_eq!(evaluate_policy(&request, &[grant], &[]).decision, expected);
+            }
+            let expected = if matches {
+                DecisionKind::Allow
+            } else {
+                DecisionKind::NeedsGrant
+            };
+            let mut policy = Policy::new("scoped_default", scoped.clone());
+            policy.default_decision = Some(DecisionKind::Allow);
+            assert_eq!(evaluate_policy(&request, &[], &[policy]).decision, expected);
+
+            let mut policy = Policy::new("scoped_rule", ResourceRef::new(ResourceKind::Repo, "*"));
+            policy.rules.push(PolicyRule {
+                id: "rule".to_owned(),
+                effect: GrantEffect::Allow,
+                principal: None,
+                capabilities: vec![Capability::new("repo.read")],
+                resources: vec![scoped.clone()],
+                reason: None,
+            });
+            assert_eq!(evaluate_policy(&request, &[], &[policy]).decision, expected);
+
+            let unrestricted = grant(
+                "unrestricted",
+                GrantEffect::Allow,
+                "repo.read",
+                ResourceKind::Repo,
+                "*",
+            );
+            assert_eq!(
+                evaluate_policy(&request, &[unrestricted], &[]).decision,
+                DecisionKind::Allow
+            );
+        }
     }
 
     fn assert_decision(effect: GrantEffect, expected: DecisionKind) {

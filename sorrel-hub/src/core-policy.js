@@ -1,12 +1,19 @@
-import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const POLICY_ACTION_GRANT = 'policy.grant';
+const MAX_BYTES = 1024 * 1024;
+const MAX_CONCURRENT = 16;
+const TIMEOUT_MS = 5000;
+let active = 0;
 
 export class PolicyEvaluationError extends Error {
-  constructor(message) {
+  constructor(message, statusCode) {
     super(message);
     this.name = 'PolicyEvaluationError';
     this.code = 'policy_evaluation_failed';
+    this.statusCode = statusCode;
   }
 }
 
@@ -23,182 +30,115 @@ function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function principalKey(principal) {
-  return `${principal.type}:${principal.id}`;
-}
-
-function resourceKey(resource) {
-  if (!resource) {
-    return undefined;
-  }
-  return `${resource.kind}:${resource.id}`;
-}
-
-function principalsMatch(grantPrincipal, actingPrincipal) {
-  return principalKey(grantPrincipal) === principalKey(actingPrincipal);
-}
-
-function resourcesMatch(grantResource, targetResource) {
-  if (!grantResource) {
-    return true;
-  }
-  if (!targetResource) {
-    return false;
-  }
-  return resourceKey(grantResource) === resourceKey(targetResource);
-}
-
-/**
- * Hydrate Core grant records referenced by Hub grantRefs.
- * Hub stores only references; evaluation requires trusted Core grant payloads.
- *
- * @param {import('./models.js').CoreRecordRef[]} grantRefs
- * @param {Record<string, CoreGrant>} trustedGrantsById
- * @returns {CoreGrant[]}
- */
+/** Validate references without letting caller-selected IDs remove effective denies. */
 export function hydrateTrustedGrants(grantRefs, trustedGrantsById = {}) {
-  if (!Array.isArray(grantRefs)) {
-    throw new PolicyEvaluationError('grantRefs must be an array');
-  }
-  return grantRefs.map((grantRef) => {
-    if (!isPlainObject(grantRef) || typeof grantRef.id !== 'string' || !grantRef.id.trim()) {
+  if (!Array.isArray(grantRefs)) throw new PolicyEvaluationError('grantRefs must be an array');
+  return grantRefs.map((ref) => {
+    if (!isPlainObject(ref) || typeof ref.id !== 'string' || !ref.id.trim()) {
       throw new PolicyEvaluationError('each grant reference must contain a non-empty string id');
     }
-    const grant = trustedGrantsById[grantRef.id];
-    if (!grant) {
-      throw new PolicyEvaluationError(
-        `grant ${grantRef.id} is not available for headless Core evaluation`,
-      );
+    if (!Object.hasOwn(trustedGrantsById, ref.id)) {
+      throw new PolicyEvaluationError('referenced grant is not available for Core evaluation');
     }
-
-    return grant;
+    return trustedGrantsById[ref.id];
   });
 }
 
-/**
- * Evaluate authorization through Core policy semantics.
- * This skeleton mirrors sorrel-core evaluate() until the package is linked.
- *
- * @param {Object} request
- * @param {import('./models.js').Principal} request.principal
- * @param {string} request.action
- * @param {{ kind: string, id: string } | undefined} [request.resource]
- * @param {CoreGrant[]} request.grants
- * @param {{ kind: string, id: string } | undefined} [request.policyRef]
- * @param {{ kind: string, id: string } | undefined} [request.authorityRootRef]
- * @param {{ kind: string, id: string }[]} [request.policyRefs]
- * @returns {{ allowed: boolean, decision: CorePolicyDecision }}
- */
-export function evaluate(request) {
-  const {
-    principal,
-    action,
-    resource,
-    grants = [],
-    policyRef,
-    authorityRootRef,
-    policyRefs = [],
-  } = request;
+function trustedRecords(records) {
+  if (!isPlainObject(records)) throw new PolicyEvaluationError('trusted authorization records must be an object');
+  return Object.entries(records).map(([id, record]) => {
+    if (!isPlainObject(record) || record.id !== id) {
+      throw new PolicyEvaluationError('trusted authorization record ID must match its configured key');
+    }
+    return record;
+  });
+}
 
-  if (!isPlainObject(principal) || typeof principal.type !== 'string' || typeof principal.id !== 'string') {
-    throw new PolicyEvaluationError('principal is required for Core evaluation');
+function policyReferences(context) {
+  const references = context.policyRefs ?? [];
+  if (!Array.isArray(references)) throw new PolicyEvaluationError('policyRefs must be an array');
+  const all = context.policyRef ? [...references, context.policyRef] : references;
+  for (const ref of all) {
+    if (!isPlainObject(ref) || ref.kind !== 'Policy' || typeof ref.id !== 'string' ||
+        !Object.hasOwn(context.trustedPoliciesById ?? {}, ref.id)) {
+      throw new PolicyEvaluationError('referenced policy is not available for Core evaluation');
+    }
   }
+}
 
-  if (typeof action !== 'string' || action.trim() === '') {
-    throw new PolicyEvaluationError('action is required for Core evaluation');
-  }
-
-  const matchingGrant = grants.find(
-    (grant) =>
-      grant.action === action &&
-      principalsMatch(grant.principal, principal) &&
-      resourcesMatch(grant.resource, resource),
+/** Transport only: authorization semantics and decisions are owned by Rust Core. */
+export async function evaluate(request) {
+  const payload = Buffer.from(JSON.stringify({
+    principal: request.principal,
+    action: request.action,
+    resource: request.resource,
+    grants: request.grants ?? [],
+    policies: request.policies ?? [],
+  }));
+  if (payload.length > MAX_BYTES) throw new PolicyEvaluationError('Core policy request exceeds byte limit');
+  if (active >= MAX_CONCURRENT) throw new PolicyEvaluationError('Core policy evaluator is busy', 503);
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  const target = process.env.CARGO_TARGET_DIR
+    ? path.resolve(process.env.CARGO_TARGET_DIR) : path.join(root, 'target');
+  const binary = process.env.SORREL_HUB_CORE_POLICY_BIN ?? path.join(
+    target, 'debug',
+    `sorrel-core-policy${process.platform === 'win32' ? '.exe' : ''}`,
   );
-
-  if (matchingGrant) {
-    return {
-      allowed: true,
-      decision: createDecision('allow', `matched Core grant ${matchingGrant.id}`, {
-        grantId: matchingGrant.id,
-        policyRef,
-        authorityRootRef,
-        policyRefs,
-      }),
+  active += 1;
+  return await new Promise((resolve, reject) => {
+    let child;
+    try { child = spawn(binary, [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }); }
+    catch {
+      active -= 1;
+      return reject(new PolicyEvaluationError('Core policy executable could not be started', 503));
+    }
+    const output = [];
+    let bytes = 0;
+    let failure;
+    const fail = (message) => {
+      failure ??= new PolicyEvaluationError(message, 503);
+      child.kill('SIGKILL');
     };
-  }
-
-  return {
-    allowed: false,
-    decision: createDecision('deny', 'no matching Core grant for action', {
-      action,
-      principal: principalKey(principal),
-      resource: resourceKey(resource),
-      policyRef,
-      authorityRootRef,
-      policyRefs,
-    }),
-  };
+    const timer = setTimeout(() => fail('Core policy evaluator timed out'), TIMEOUT_MS);
+    child.on('error', () => { failure ??= new PolicyEvaluationError('Core policy executable is unavailable; build or configure SORREL_HUB_CORE_POLICY_BIN', 503); });
+    child.stdin.on('error', () => fail('Core policy request could not be delivered'));
+    for (const stream of [child.stdout, child.stderr]) {
+      stream.on('data', (chunk) => {
+        bytes += chunk.length;
+        if (bytes > MAX_BYTES) return fail('Core policy response exceeds byte limit');
+        if (stream === child.stdout) output.push(chunk);
+      });
+    }
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      active -= 1;
+      if (failure) return reject(failure);
+      let result;
+      try { result = JSON.parse(Buffer.concat(output).toString('utf8')); }
+      catch { return reject(new PolicyEvaluationError('Core policy evaluator returned an invalid response', 503)); }
+      if (!isPlainObject(result)) return reject(new PolicyEvaluationError('Core policy evaluator returned an invalid response', 503));
+      if (result.error) return reject(new PolicyEvaluationError(result.error.message ?? 'Core policy evaluation failed'));
+      if (code !== 0 || result.decision?.schemaVersion !== 'sorrel.protocol.v0' ||
+          result.decision?.kind !== 'PolicyDecision' || typeof result.allowed !== 'boolean' ||
+          result.allowed !== (result.decision.decision === 'allow')) {
+        return reject(new PolicyEvaluationError('Core policy evaluator returned an invalid decision', 503));
+      }
+      resolve(result);
+    });
+    child.stdin.end(payload);
+  });
 }
 
-/**
- * @param {import('./models.js').Principal} principal
- * @param {string} action
- * @param {{ kind: string, id: string } | undefined} resource
- * @param {import('./models.js').CoreRecordRef[]} grantRefs
- * @param {Record<string, CoreGrant>} trustedGrantsById
- * @param {Object} [policyContext]
- * @param {{ kind: string, id: string } | undefined} [policyContext.policyRef]
- * @param {{ kind: string, id: string } | undefined} [policyContext.authorityRootRef]
- * @param {{ kind: string, id: string }[]} [policyContext.policyRefs]
- */
-export function evaluateWithTrustedGrants(
-  principal,
-  action,
-  resource,
-  grantRefs,
-  trustedGrantsById,
-  policyContext = {},
+export async function evaluateWithTrustedGrants(
+  principal, action, resource, grantRefs, trustedGrantsById = {}, policyContext = {},
 ) {
-  const grants = hydrateTrustedGrants(grantRefs, trustedGrantsById);
-  const result = evaluate({
-    principal,
-    action,
-    resource,
-    grants,
-    ...policyContext,
+  hydrateTrustedGrants(grantRefs, trustedGrantsById);
+  policyReferences(policyContext);
+  const result = await evaluate({
+    principal, action, resource,
+    grants: trustedRecords(trustedGrantsById),
+    policies: trustedRecords(policyContext.trustedPoliciesById ?? {}),
   });
-
-  if (!result.allowed) {
-    throw new PolicyDeniedError('Core policy denied request', result.decision);
-  }
-
+  if (!result.allowed) throw new PolicyDeniedError('Core policy denied request', result.decision);
   return result;
 }
-
-function createDecision(outcome, reason, metadata = {}) {
-  return {
-    id: `decision_${randomUUID()}`,
-    source: 'core',
-    outcome,
-    reason,
-    metadata,
-  };
-}
-
-/**
- * @typedef {Object} CoreGrant
- * @property {string} id
- * @property {string} [source]
- * @property {import('./models.js').Principal} principal
- * @property {string} action
- * @property {{ kind: string, id: string } | undefined} [resource]
- */
-
-/**
- * @typedef {Object} CorePolicyDecision
- * @property {string} id
- * @property {string} source
- * @property {'allow' | 'deny'} outcome
- * @property {string} reason
- * @property {Record<string, unknown>} metadata
- */
