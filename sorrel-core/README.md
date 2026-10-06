@@ -20,6 +20,7 @@ capabilities and limitations.
 | `change`      | `Change` objects, path-level `snapshot_diff`, `apply_change` |
 | `history`     | snapshot-DAG operations: ancestry sets, merge bases (`git merge-base --all` equivalent) |
 | `merge`       | first three-way snapshot merge: entry-level merge against the best common ancestor with first-class conflicts |
+| `workspace`   | shared workspace selection and read-only `explain_workspace_path` eligibility diagnostics |
 | `stat_cache`  | metadata cache that skips re-hashing unchanged files |
 | `transport`   | sync push/pull helpers: object closure, missing-object negotiation, content-verified batch transfer, ancestry check |
 | `lane_stack`  | `Lane`/`Stack` metadata objects for agent-native work coordination |

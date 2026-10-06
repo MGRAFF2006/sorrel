@@ -77,4 +77,6 @@ pub use transport::{
     TransportError, TransportResult,
 };
 
-pub use workspace::materialize_workspace_snapshot;
+pub use workspace::{
+    explain_workspace_path, materialize_workspace_snapshot, WorkspacePathExplanation,
+};

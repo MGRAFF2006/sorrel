@@ -60,6 +60,24 @@ when ignored later. `.env`, `.env.*`, and configured local dotenv-provider paths
 are protected before contents enter the object store; `.env.example` remains an
 ordinary file. Ignore negation cannot reinclude protected secret files.
 
+Use `sorrel path explain <workspace-relative-path>` (or add `--json`) to inspect
+`included`, `tracked`, `ignored`, `protected`, and `metadata` flags without
+reading the target's contents or creating snapshots, blobs, or cache entries.
+Tracked ordinary files can be both ignored and included; protected files remain
+excluded. `included` means selection eligibility, including for missing paths;
+`exists`, `isDirectory`, and `supportedType` describe filesystem metadata.
+Reserved `.git` and `.sorrel` paths are classified without traversal; these three
+fields are `null` (`unknown` in human output) because their type and existence
+are not inspected, including when `.git` is a worktree pointer file.
+The command also works before `init`, without creating `.sorrel/`.
+
+Explanation reads current ignore/provider configuration and immutable HEAD
+snapshot/tree metadata. It does not replay pending metadata transactions or
+acquire the writer lock, so the result is a moment-in-time observation rather
+than an atomic view of concurrent changes. Parent components and absolute paths
+are rejected, symlink ancestors are not traversed, and unsupported leaf types
+are reported as excluded. No rule editing or preset configuration is included.
+
 For legacy workspaces that already track secrets, see the
 [workspace selection and recovery contract](../docs/ARCHITECTURE.md#change-lane-and-merge-flow).
 
