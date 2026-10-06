@@ -21,8 +21,8 @@ async function withServer(t, persistent, callback) {
   trustedGrantsById.grant_parent_fixture = {
     schemaVersion: 'sorrel.protocol.v0', kind: 'Grant', id: 'grant_parent_fixture',
     principal: { kind: 'user', id: 'local' }, effect: 'allow',
-    resources: [{ kind: 'org', id: '*' }, { kind: 'project', id: '*' }],
-    capabilities: ['org.write', 'project.read', 'project.create', 'policy.grant', 'proposal.read',
+    resources: [{ kind: 'org', id: '*' }, { kind: 'project', id: '*' }, { kind: 'repo', id: '*' }],
+    capabilities: ['org.read', 'repo.read', 'policy.read', 'proposal.read', 'review.comment.read', 'workflow.run.read', 'org.write', 'project.read', 'project.create', 'policy.grant', 'proposal.read',
       'proposal.write', 'proposal.review', 'review.comment.write', 'workflow.run.write'],
   };
   const app = createApp({ store, trustedGrantsById, env: { SORREL_HUB_LOCAL_DEMO: '1' } });
@@ -98,6 +98,7 @@ for (const persistent of [false, true]) {
       const proposal = store.createProposal({ projectId: project.id, repositoryId: repository.id, syncRepoId: 'external_sync', title: 'Review', authorRef: 'user:local', sourceLane: 'external_lane', sourceSnapshot: 'aa'.repeat(32), ...coreRefs });
       const run = store.createWorkflowRun({ projectId: project.id, proposalId: proposal.id, name: 'CI', providerRunId: 'external_run', ...coreRefs });
       store.updateProposal(proposal.id, { workflowRunIds: [run.id] });
+      store.updateWorkflowRun(run.id, { status: 'in_progress' });
       store.updateWorkflowRun(run.id, { status: 'succeeded' });
       store.createPolicy({ projectId: project.id, organizationId: project.organizationId, name: 'Scoped', ...coreRefs });
       store.createPolicy({ organizationId: 'another_namespace', name: 'Organization only', ...coreRefs });
