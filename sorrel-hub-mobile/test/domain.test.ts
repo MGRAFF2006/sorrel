@@ -2,12 +2,23 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  connectedSyncRepos,
   isInsecureConnection,
   normalizeBaseUrl,
   PROPOSAL_TRANSITIONS,
   tabletColumns,
   unwrapList,
 } from '../src/lib/domain';
+
+test('shows canonical project links before reviews and preserves legacy proposal links', () => {
+  const available = [{ id: 'repo_linked' }, { id: 'repo_legacy' }, { id: 'repo_unrelated' }];
+  assert.deepEqual(connectedSyncRepos({ id: 'project', repositoryIds: ['repo_linked'] }, [], available),
+    [{ id: 'repo_linked' }]);
+  assert.deepEqual(connectedSyncRepos({ id: 'project', repositoryIds: ['repo_linked', 'repo_linked', 'repo_hidden'] },
+    [{ id: 'proposal', syncRepoId: 'repo_legacy' }, { id: 'empty' }, { id: 'same', syncRepoId: 'repo_linked' }], available),
+  [{ id: 'repo_linked' }, { id: 'repo_legacy' }]);
+  assert.deepEqual(connectedSyncRepos({ id: 'unlinked' }, [], available), []);
+});
 
 test('normalizes a safe Hub origin and removes its trailing slash', () => {
   assert.equal(normalizeBaseUrl(' https://hub.example.test/ '), 'https://hub.example.test');
