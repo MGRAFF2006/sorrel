@@ -11,7 +11,7 @@ debugging, and release hygiene.
 Requirements:
 
 - Git
-- Rust stable 1.85+ with `clippy` and `rustfmt`
+- Rust 1.92+ with `clippy` and `rustfmt`
 - Node.js 22+
 - Docker or Podman only for container-runner/Compose work
 
@@ -26,6 +26,15 @@ npm run check:quick
 `npm run setup` installs locked dependencies for packages that need them and
 prefetches the Cargo workspace. No submodules or private dependency tokens are
 required.
+
+The locked CLI dependency chain requires Rust 1.92. CI checks all workspace
+targets with exactly Rust 1.92.0; the complete repository gate runs on current
+stable. To reproduce the minimum-version check without changing your default:
+
+```sh
+rustup toolchain install 1.92.0 --profile minimal
+cargo +1.92.0 check --locked --workspace --all-targets
+```
 
 ## Find the owner before editing
 

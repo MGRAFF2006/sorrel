@@ -22,7 +22,7 @@ merge). Registry helpers are in `src/repo.rs`.
 
 ## Stack and conventions
 
-- Rust, edition 2021, **rust-version 1.85+**.
+- Rust, edition 2021, **rust-version 1.92+**.
 - `unsafe_code = "forbid"`.
 - `sorrel-core` is the workspace package at `../sorrel-core`, referenced with a
   Cargo path dependency. Change Core first when a CLI feature needs a new
