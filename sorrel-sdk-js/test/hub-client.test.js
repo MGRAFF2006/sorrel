@@ -17,6 +17,7 @@ async function withLiveHub(callback) {
       ...process.env,
       SORREL_HUB_SYNC_STORE: 'memory',
       SORREL_HUB_BOOTSTRAP_GRANTS: '1',
+      SORREL_HUB_LOCAL_DEMO: '1',
     },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
