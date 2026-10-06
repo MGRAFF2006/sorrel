@@ -177,10 +177,25 @@ ref under `<repo>/refs/`.
 Product metadata (organizations, projects, repositories, proposals, review
 comments, workflow runs, policies) is stored as one JSON document per record
 under `<metadataDir>/<collection>/<id>.json`, also written atomically.
-Filesystem-backed metadata becomes visible to requests only after persistence
-succeeds; failed creates, updates, and project/repository links leave the prior
-in-memory records intact so a failed request can be retried. Duplicate record
-IDs return `409`.
+Writes flush file bytes before rename. On Unix, directory entries are then
+flushed from the containing directory up to the configured store root; startup
+also flushes the root's ancestor chain to reconcile earlier interrupted
+directory creation. Unix startup requires directory-open and `fsync` permissions
+on those ancestors and fails if durability cannot be established. Existing
+deduplicated sync objects are flushed before a successful `put` returns.
+HTTP ref publication flushes every object in its already validated closure
+before renaming the ref; direct store callers can pass that closure as the
+fourth `setRef` argument. An omitted closure retains the low-level store API's
+opaque-ref behavior and does not establish object durability.
+
+Failures before rename preserve prior metadata and remove temporary files.
+A failure after rename reports an error even though the new record or ref may
+already be visible. Metadata adopts that published record in memory so live
+reads agree with disk and subsequent restart. Inspect the current record or ref
+before retrying an uncertain write; duplicate record IDs return `409`. Windows
+flushes newly written file bytes but does not provide the Unix directory-flush
+guarantee. These barriers depend on the filesystem and storage honoring `fsync`;
+they do not provide multi-record transactions or hardware-failure recovery.
 
 ## License
 

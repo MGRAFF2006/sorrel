@@ -219,7 +219,7 @@ async function advanceRef(request, response, context, repoId, refName) {
     }
   }
 
-  const { incomplete, missingIds } = walkClosure(repoId, [snapshot], context.store.sync, 'snapshot');
+  const { closure, incomplete, missingIds } = walkClosure(repoId, [snapshot], context.store.sync, 'snapshot');
   if (incomplete) {
     throw new HttpError(
       409,
@@ -238,7 +238,7 @@ async function advanceRef(request, response, context, repoId, refName) {
     );
   }
 
-  context.store.sync.setRef(repoId, refName, snapshot);
+  context.store.sync.setRef(repoId, refName, snapshot, closure);
 
   sendJson(response, 200, {
     name: refName,
