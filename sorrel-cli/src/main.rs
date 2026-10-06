@@ -3447,6 +3447,7 @@ impl ObjectStore for StatusPreview<'_> {
     fn write(&self, bytes: &[u8]) -> ObjectStoreResult<ObjectId> {
         let id = ObjectId::for_bytes(bytes);
         if self.durable.has(&id)? {
+            self.durable.read(&id)?;
             Ok(id)
         } else {
             self.scratch.write(bytes)

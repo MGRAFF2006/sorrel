@@ -144,3 +144,37 @@ fn status_refuses_a_symlinked_temporary_directory() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("not a symlink"));
     assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
 }
+
+#[test]
+fn status_rejects_a_corrupt_durable_blob_even_on_a_cache_miss() {
+    let root = TempDir::new().unwrap();
+    command(root.path(), &["init"]);
+    fs::write(root.path().join("tracked.txt"), "unchanged bytes\n").unwrap();
+    command(root.path(), &["change", "create", "-m", "baseline"]);
+    let cache_path = root.path().join(".sorrel/stat-cache.json");
+    let cache: Value = serde_json::from_slice(&fs::read(&cache_path).unwrap()).unwrap();
+    let id = cache["entries"]["tracked.txt"]["objectId"]
+        .as_str()
+        .unwrap();
+    let blob = root
+        .path()
+        .join(".sorrel/objects")
+        .join(&id[..2])
+        .join(&id[2..]);
+    fs::write(&blob, b"corrupt durable blob").unwrap();
+    fs::remove_file(&cache_path).unwrap();
+    let before = objects(root.path());
+    let head = fs::read(root.path().join(".sorrel/HEAD")).unwrap();
+    let output = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root.path())
+        .args(["status", "--json"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("content digest mismatch"));
+    assert_eq!(objects(root.path()), before);
+    assert_eq!(fs::read(root.path().join(".sorrel/HEAD")).unwrap(), head);
+    assert!(!cache_path.exists());
+    assert_no_preview(root.path());
+}
