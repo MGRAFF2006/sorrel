@@ -51,6 +51,7 @@ fn secret_run_respects_declared_providers_and_explicit_overrides() {
             .args([
                 "grant",
                 "create",
+                "--local-demo",
                 "--action",
                 "secret.inject",
                 "--secret",
@@ -100,7 +101,10 @@ fn secret_run_respects_declared_providers_and_explicit_overrides() {
 
 fn cli(root: &Path, environment_value: Option<&str>) -> Command {
     let mut command = Command::cargo_bin("sorrel").unwrap();
-    command.current_dir(root).env_remove(SECRET_NAME);
+    command
+        .current_dir(root)
+        .env_remove(SECRET_NAME)
+        .env("SORREL_LOCAL_DEMO", "1");
     if let Some(value) = environment_value {
         command.env(SECRET_NAME, value);
     }
