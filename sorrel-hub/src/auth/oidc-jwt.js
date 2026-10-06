@@ -54,7 +54,7 @@ export function decodeJwt(token) {
  * @param {string} token
  * @param {{
  *   issuer: string,
- *   audience?: string,
+ *   audience: string,
  *   fetchJwks?: (uri: string) => Promise<Jwk[]>,
  *   nowMs?: number,
  *   clockSkewSec?: number,
@@ -72,24 +72,29 @@ export async function verifyOidcAccessToken(token, options) {
     throw new Error('jwt iss mismatch');
   }
 
-  if (options.audience) {
-    const aud = payload.aud;
-    const ok =
-      aud === options.audience ||
-      (Array.isArray(aud) && aud.includes(options.audience));
-    if (!ok) {
-      throw new Error('jwt aud mismatch');
-    }
+  if (typeof options.audience !== 'string' || !options.audience.trim()) {
+    throw new Error('jwt audience must be configured');
+  }
+  const aud = payload.aud;
+  const audienceMatches =
+    aud === options.audience ||
+    (Array.isArray(aud) && aud.every((value) => typeof value === 'string') &&
+      aud.includes(options.audience));
+  if (!audienceMatches) {
+    throw new Error('jwt aud mismatch');
   }
 
   const nowSec = Math.floor((options.nowMs ?? Date.now()) / 1000);
   const skew = options.clockSkewSec ?? 60;
-  for (const claim of ['exp', 'nbf', 'iat']) {
+  if (!Number.isFinite(payload.exp)) {
+    throw new Error('jwt exp must be a numeric date');
+  }
+  for (const claim of ['nbf', 'iat']) {
     if (payload[claim] !== undefined && !Number.isFinite(payload[claim])) {
       throw new Error(`jwt ${claim} must be a numeric date`);
     }
   }
-  if (typeof payload.exp === 'number' && nowSec >= payload.exp + skew) {
+  if (nowSec >= payload.exp + skew) {
     throw new Error('jwt expired');
   }
   if (typeof payload.nbf === 'number' && nowSec + skew < payload.nbf) {

@@ -90,10 +90,16 @@ survives restarts:
 - `dev` (default) trusts `x-sorrel-acting-principal` and is restricted to
   loopback unless the insecure-demo override is explicit.
 - `oidc` verifies RS256/ES256 Bearer JWTs using
-  `SORREL_OIDC_ISSUER` and optional `SORREL_OIDC_AUDIENCE`; keys are read from
-  `<issuer>/.well-known/jwks.json`.
+  required `SORREL_OIDC_ISSUER` and `SORREL_OIDC_AUDIENCE`; keys are read from
+  `<issuer>/.well-known/jwks.json`. Issuer-only configuration fails closed until
+  an audience identifying this Hub is supplied.
 - `workos` uses `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, optional
   `WORKOS_ISSUER`, and optional `WORKOS_AUDIENCE` for Bearer verification.
+
+OIDC and WorkOS tokens must contain a finite numeric `exp` claim and an `aud`
+claim matching the configured audience (a string or array of strings). WorkOS
+defaults its audience to `WORKOS_CLIENT_ID`. Expiry retains the existing
+60-second clock-skew allowance. Tokens without expiry are rejected.
 
 These adapters authenticate a principal; authorization still requires trusted
 Core grant references. WorkOS remains an adapter skeleton without sealed
