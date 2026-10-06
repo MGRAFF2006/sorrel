@@ -3313,9 +3313,26 @@ fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
     if before_snapshot != after_snapshot {
         let tracked = to_io(read_snapshot_files(&store, &before_snapshot))?;
-        for path in to_io(read_snapshot_files(&store, &after_snapshot))?.keys() {
+        let incoming = to_io(read_snapshot_files(&store, &after_snapshot))?;
+        let removed: std::collections::BTreeSet<PathBuf> = tracked
+            .keys()
+            .filter(|path| !incoming.contains_key(*path))
+            .cloned()
+            .collect();
+        for path in incoming.keys() {
             if !tracked.contains_key(path) {
+                // A tracked file becoming a directory is removed before checkout.
+                if path
+                    .ancestors()
+                    .skip(1)
+                    .any(|parent| removed.contains(parent))
+                {
+                    continue;
+                }
                 match fs::symlink_metadata(path) {
+                    Ok(metadata)
+                        if metadata.is_dir() && pull_directory_will_be_removed(path, &removed)? => {
+                    }
                     Ok(_) => {
                         return Err(io::Error::other(format!(
                             "pull would overwrite an untracked path: {}; move it before pulling",
@@ -3352,6 +3369,28 @@ fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
             result.downloaded
         ),
     })
+}
+
+fn pull_directory_will_be_removed(
+    path: &Path,
+    removed: &std::collections::BTreeSet<PathBuf>,
+) -> io::Result<bool> {
+    let entries = fs::read_dir(path)?.collect::<io::Result<Vec<_>>>()?;
+    // Empty untracked directories will not be removed by tracked-file cleanup.
+    if entries.is_empty() {
+        return Ok(false);
+    }
+    for entry in entries {
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            if !pull_directory_will_be_removed(&path, removed)? {
+                return Ok(false);
+            }
+        } else if !removed.contains(&path) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn local_slice(args: &SliceCreateArgs, language: &str) -> Value {
