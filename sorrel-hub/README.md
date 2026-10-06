@@ -249,10 +249,19 @@ Lightweight collection endpoints for administration data:
 - `GET|POST /admin/review-comments` (filters: `proposalId`, `state`)
 - `GET|PATCH /admin/review-comments/:id` — resolve via `{ "state": "resolved" }`
 - `GET|POST /admin/workflow-runs` (filters: `projectId`, `proposalId`, `status`)
-- `GET|PATCH /admin/workflow-runs/:id` — status updates (`queued`→`in_progress`→`succeeded`/…)
+- `GET|PATCH /admin/workflow-runs/:id` — status updates for one workflow attempt
 - `GET|POST /admin/policies`
 - `GET /admin/policies/:id`
 - `GET /admin/sync-repos` — sync transport repos (`{ "repos": [ { "id", "refCount" } ] }`)
+
+Workflow-run updates allow `queued` → `in_progress`, `failed`, or `cancelled`,
+and `in_progress` → `succeeded`, `failed`, or `cancelled`. A terminal attempt
+cannot switch to another status; create a new run record for another attempt.
+Same-status updates and metadata/provider-id edits remain valid. Repeating a
+terminal status preserves `startedAt`; `completedAt` is preserved unless an
+explicit completion-time correction is supplied. Invalid transitions return
+`400 model_validation_failed` without changing the record. POST still accepts
+any known status for imported runs.
 
 Proposal records may carry lane-submit fields: `syncRepoId`, `sourceLane`,
 `targetLane`, `sourceSnapshot`, `targetSnapshot`.

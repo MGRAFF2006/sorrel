@@ -13,6 +13,14 @@ export const PROPOSAL_STATUS_TRANSITIONS = Object.freeze({
 });
 export const REVIEW_COMMENT_STATES = ['open', 'resolved'];
 export const WORKFLOW_RUN_STATUSES = ['queued', 'in_progress', 'succeeded', 'failed', 'cancelled'];
+/** Allowed transitions for one workflow attempt; repeated status updates are valid. */
+export const WORKFLOW_RUN_STATUS_TRANSITIONS = Object.freeze({
+  queued: ['in_progress', 'failed', 'cancelled'],
+  in_progress: ['succeeded', 'failed', 'cancelled'],
+  succeeded: [],
+  failed: [],
+  cancelled: [],
+});
 export const CORE_PRINCIPAL_TYPES = ['user', 'agent', 'team', 'service', 'runner', 'system'];
 export const POLICY_REF_KINDS = ['Policy', 'AgentPolicy'];
 export const AUTHORITY_ROOT_REF_KINDS = ['AuthorityRoot'];
@@ -596,12 +604,17 @@ export function updateWorkflowRun(run, attributes) {
 
   const next = { ...run, updatedAt: nowIso() };
   if (attributes.status !== undefined) {
-    next.status = enumValue(attributes, 'status', WORKFLOW_RUN_STATUSES);
+    const status = enumValue(attributes, 'status', WORKFLOW_RUN_STATUSES);
+    const allowed = WORKFLOW_RUN_STATUS_TRANSITIONS[run.status] ?? [];
+    if (status !== run.status && !allowed.includes(status)) {
+      throw new ModelValidationError(`cannot transition workflow run status from ${run.status} to ${status}`);
+    }
+    next.status = status;
     if (['in_progress', 'succeeded', 'failed', 'cancelled'].includes(next.status) && !next.startedAt) {
       next.startedAt = next.startedAt ?? nowIso();
     }
     if (['succeeded', 'failed', 'cancelled'].includes(next.status)) {
-      next.completedAt = optionalString(attributes, 'completedAt') ?? nowIso();
+      next.completedAt = optionalString(attributes, 'completedAt') ?? next.completedAt ?? nowIso();
     }
   }
   if (attributes.providerRunId !== undefined) {
