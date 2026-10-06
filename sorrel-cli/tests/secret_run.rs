@@ -94,7 +94,19 @@ fn secret_run_respects_declared_providers_and_explicit_overrides() {
             "sorrel-vault" | "dotenv" => "dotenv:.env",
             other => other,
         });
-        assert_eq!(result["provider"], expected_provider);
+        if let Some(expected_path) = expected_provider.strip_prefix("dotenv:") {
+            let actual_provider = result["provider"].as_str().expect("provider string");
+            let actual_path = actual_provider
+                .strip_prefix("dotenv:")
+                .expect("dotenv provider");
+            assert_eq!(
+                root.join(actual_path).canonicalize().unwrap(),
+                root.join(expected_path).canonicalize().unwrap(),
+                "provider paths must identify the exact selected dotenv file"
+            );
+        } else {
+            assert_eq!(result["provider"], expected_provider);
+        }
         assert!(!String::from_utf8_lossy(&run_output.get_output().stdout).contains(expected));
     }
 }
