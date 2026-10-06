@@ -66,8 +66,16 @@ Flags:
 | --- | --- |
 | `--branch <name>` | Branch to update (default `main`) |
 | `--snapshot <id>` | Snapshot tip (default HEAD) |
-| `--force` | Overwrite an existing branch when no map is present |
+| `--force` | Allow a non-fast-forward update of the destination branch |
 | `--json` | Structured output |
+
+An existing branch must be an ancestor of the actual exported Git commit (or
+already equal to it), regardless of whether a mapping exists. If Git gained
+commits independently, import or sync them before exporting, or explicitly use
+`--force` to discard that branch history. A stale map or a map from another
+destination does not authorize an overwrite. Failed ancestry checks leave the
+destination branch and Sorrel mapping unchanged; newly generated Git objects
+may remain unreachable in the destination object database.
 
 ## Colocated sync
 
