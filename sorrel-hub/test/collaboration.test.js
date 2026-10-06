@@ -125,6 +125,8 @@ test('full proposal lifecycle: create, get, comment, status transitions', async 
 
 test('approved and merged proposal inputs remain bound to their review', async () => {
   await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_review', organizationId: 'org_local', name: 'Review' });
+    app.store.createRepository({ id: 'repo_product', projectId: 'proj_review', organizationId: 'org_local', provider: 'sorrel', owner: 'local', name: 'Reviewed repository' });
     const inputs = {
       repositoryId: 'repo_product',
       syncRepoId: 'repo_sync',
@@ -172,6 +174,7 @@ test('approved and merged proposal inputs remain bound to their review', async (
 
 test('open proposal inputs can change, with an explicit reopen before replacing approved inputs', async () => {
   await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_review', organizationId: 'org_local', name: 'Review' });
     const proposal = app.store.createProposal({
       projectId: 'proj_review', title: 'Open change', status: 'open',
       authorPrincipal: { type: 'user', id: 'local' }, sourceSnapshot: 'aa'.repeat(32),
