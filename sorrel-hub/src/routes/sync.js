@@ -1,6 +1,6 @@
 import { evaluateWithTrustedGrants } from '../core-policy.js';
 import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
-import { resolveActingPrincipal } from '../policy-guard.js';
+import { assertCoreAccess, resolveActingPrincipal } from '../policy-guard.js';
 import { browseTextFile, browseTree } from '../sync-browser.js';
 import {
   isDescendant,
@@ -34,6 +34,13 @@ export async function handleSyncRoute(request, response, context) {
 
   const repoId = parseRepoId(segments[0]);
   const resource = segments[1];
+  if (request.method === 'GET' || resource === 'objects' && segments[2] === 'missing') {
+    await assertCoreAccess(context, 'repo.read', { kind: 'repo', id: repoId });
+  } else if (request.method === 'POST' && resource === 'objects') {
+    await assertCoreAccess(context, POLICY_ACTION_OBJECT_WRITE, { kind: 'repo', id: repoId });
+  } else if (request.method === 'POST' && resource === 'refs') {
+    await assertCoreAccess(context, POLICY_ACTION_REF_WRITE, { kind: 'repo', id: repoId });
+  }
 
   if (resource === 'refs') {
     if (segments.length === 2) {

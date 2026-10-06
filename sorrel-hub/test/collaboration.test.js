@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 
-import { createApp } from '../src/app.js';
+import { createDemoApp as createApp } from '../test-support/demo-app.js';
 
 async function withServer(callback, options = {}) {
   const app = createApp(options);
@@ -211,11 +211,13 @@ test('lane-submit attributes an authenticated session instead of a spoofed body 
 
     assert.equal(response.status, 201);
     assert.deepEqual(proposal.authorPrincipal, sessionPrincipal);
-  }, { authAdapter });
+  }, { authAdapter, fixturePrincipal: sessionPrincipal });
 });
 
 test('workflow run status updates', async () => {
   await withServer(async (baseUrl) => {
+    assert.equal((await postJson(`${baseUrl}/projects`, { id: 'proj_ci', organizationId: 'org_fixture', name: 'proj_ci' })).status, 201);
+
     const runRes = await postJson(`${baseUrl}/admin/workflow-runs`, {
       projectId: 'proj_ci',
       name: 'validate',
@@ -264,6 +266,8 @@ test('GET project by id', async () => {
 
 test('list proposals filters by status and sourceLane', async () => {
   await withServer(async (baseUrl) => {
+    assert.equal((await postJson(`${baseUrl}/projects`, { id: 'proj_f', organizationId: 'org_fixture', name: 'proj_f' })).status, 201);
+
     await postJson(`${baseUrl}/admin/proposals`, {
       projectId: 'proj_f',
       title: 'A',
@@ -295,6 +299,9 @@ test('admin and lane submissions share verified attribution and mirroring', asyn
   const principal = { type: 'user', id: 'verified' };
   const mirrored = [];
   await withServer(async (baseUrl) => {
+    assert.equal((await postJson(`${baseUrl}/projects`, { id: 'proj_one', organizationId: 'org_fixture', name: 'proj_one' })).status, 201);
+    assert.equal((await postJson(`${baseUrl}/projects`, { id: 'proj_two', organizationId: 'org_fixture', name: 'proj_two' })).status, 201);
+
     const payload = {
       projectId: 'proj_one', title: 'Review', syncRepoId: 'repo_one', sourceLane: 'lane_feature',
       sourceSnapshot: 'aa'.repeat(32), authorPrincipal: { type: 'user', id: 'forged' },
@@ -314,6 +321,7 @@ test('admin and lane submissions share verified attribution and mirroring', asyn
     }).then((r) => r.json());
     assert.equal(comment.data.authorRef, 'user:verified');
   }, {
+    fixturePrincipal: principal,
     authAdapter: { mode: 'oidc', async resolveSession() { return { principal, sessionId: 'verified-session', authMode: 'oidc' }; } },
     convexMirror: { async upsertProposal(proposal) { mirrored.push(proposal); } },
   });
@@ -322,6 +330,9 @@ test('admin and lane submissions share verified attribution and mirroring', asyn
 
 test('lane-submit reuse is scoped to project and normalized repository', async () => {
   await withServer(async (baseUrl) => {
+    assert.equal((await postJson(`${baseUrl}/projects`, { id: 'proj_a', organizationId: 'org_fixture', name: 'proj_a' })).status, 201);
+    assert.equal((await postJson(`${baseUrl}/projects`, { id: 'proj_b', organizationId: 'org_fixture', name: 'proj_b' })).status, 201);
+
     const payload = {
       projectId: 'proj_a', syncRepoId: 'repo_shared', title: 'Tip',
       sourceLane: 'lane_feature', sourceSnapshot: 'dd'.repeat(32),

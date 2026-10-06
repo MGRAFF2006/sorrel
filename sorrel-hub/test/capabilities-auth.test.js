@@ -141,15 +141,15 @@ test('bind safety refuses bootstrap grants on non-loopback without override', ()
   assert.match(denied.message, /BOOTSTRAP_GRANTS/);
 });
 
-test('GET /session returns null without credentials and principal with header', async () => {
-  const app = createApp({ env: { SORREL_HUB_AUTH: 'dev' } });
+test('explicit demo session defaults to local and accepts an acting principal header', async () => {
+  const app = createApp({ env: { SORREL_HUB_AUTH: 'dev', SORREL_HUB_LOCAL_DEMO: '1' } });
   const { server, url } = await listen(app);
   try {
     const anonymous = await fetch(`${url}/session`);
     assert.equal(anonymous.status, 200);
     const anonBody = await anonymous.json();
     assert.equal(anonBody.data.auth.mode, 'dev');
-    assert.equal(anonBody.data.session, null);
+    assert.deepEqual(anonBody.data.session.principal, { type: 'user', id: 'local' });
 
     const authed = await fetch(`${url}/session`, {
       headers: {

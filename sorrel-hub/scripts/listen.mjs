@@ -8,6 +8,7 @@
  *   SORREL_HUB_SYNC_STORE   default "memory" for tests
  *   SORREL_HUB_DATA_DIR     optional FS sync root when store is fs
  *   SORREL_HUB_METADATA_DIR optional FS metadata root
+ *   SORREL_HUB_LOCAL_DEMO    set to "1" to enable explicit local test/demo identity
  *   SORREL_HUB_BOOTSTRAP_GRANTS  set to "1" to enable dev-only local grants
  *
  * Stdout (single line): {"url":"http://127.0.0.1:<port>","pid":N}

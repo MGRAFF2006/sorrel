@@ -40,6 +40,7 @@ impl LiveHub {
                 .current_dir(&hub_dir)
                 .env("SORREL_HUB_SYNC_STORE", "memory")
                 .env("SORREL_HUB_BOOTSTRAP_GRANTS", "1")
+                .env("SORREL_HUB_LOCAL_DEMO", "1")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
                 .spawn()

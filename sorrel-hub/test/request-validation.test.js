@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 
-import { createApp } from '../src/app.js';
+import { createDemoApp as createApp } from '../test-support/demo-app.js';
 
 async function withServer(t) {
   const app = createApp();
@@ -84,8 +84,9 @@ test('creation locations round-trip arbitrary string IDs', async (t) => {
 });
 
 
-test('malformed grant references produce policy errors instead of server exceptions', async (t) => {
-  const { baseUrl } = await withServer(t);
+test('malformed grant references produce validation errors instead of server exceptions', async (t) => {
+  const { app, baseUrl } = await withServer(t);
+  app.store.createProject({ id: 'proj_valid', organizationId: 'org_valid', name: 'Fixture' });
   for (const path of ['/repo_valid/objects', '/repo_valid/refs/main', '/admin/repositories']) {
     for (const grantRefs of [[null], [42], [{}], [{ id: '' }]]) {
       const response = await fetch(`${baseUrl}${path}`, {
@@ -93,10 +94,10 @@ test('malformed grant references produce policy errors instead of server excepti
           'content-type': 'application/json',
           'x-sorrel-acting-principal': JSON.stringify({ type: 'user', id: 'local' }),
         },
-        body: JSON.stringify({ snapshot: 'aa'.repeat(32), grantRefs }),
+        body: JSON.stringify({ snapshot: 'aa'.repeat(32), grantRefs, projectId: 'proj_valid', organizationId: 'org_valid', provider: 'sorrel', owner: 'local', name: 'Malformed grants' }),
       });
       assert.equal(response.status, path.startsWith('/admin/') ? 400 : 403);
-      assert.equal((await response.json()).error.code, 'policy_evaluation_failed');
+      assert.equal((await response.json()).error.code, path.startsWith('/admin/') ? 'model_validation_failed' : 'policy_evaluation_failed');
     }
   }
 });

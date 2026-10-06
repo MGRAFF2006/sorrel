@@ -28,6 +28,7 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "3000"
+      SORREL_HUB_LOCAL_DEMO: "1"
       SORREL_HUB_BOOTSTRAP_GRANTS: "1"
       # Isolated compose demo only — never use this override on a public network.
       SORREL_HUB_ALLOW_INSECURE_DEV_AUTH: "1"
