@@ -4,8 +4,8 @@
 //! Grants proposed by the same change must never be treated as actor authority.
 
 use crate::policy::{
-    evaluate_policy, Capability, DecisionKind, Grant, GrantEffect, PolicyEvaluationRequest,
-    PrincipalDescriptor, ResourceRef, PROTOCOL_VERSION,
+    evaluate_policy, resource_matches, Capability, DecisionKind, Grant, GrantEffect,
+    PolicyEvaluationRequest, PrincipalDescriptor, ResourceRef, PROTOCOL_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -512,7 +512,7 @@ fn delegation_within_scope(
 }
 
 fn resource_within(requested: &ResourceRef, allowed: &ResourceRef) -> bool {
-    requested.kind == allowed.kind && (requested.id == allowed.id || allowed.id == "*")
+    resource_matches(allowed, requested)
 }
 
 fn capability_within(requested: &Capability, allowed: &[Capability]) -> bool {
@@ -780,6 +780,45 @@ mod tests {
             evaluation.denied_grant_ids,
             vec!["proposed_delegate_repo_write"]
         );
+    }
+
+    #[test]
+    fn delegated_path_scope_cannot_be_removed_or_changed() {
+        let authority = authority(1);
+        let delegator = user("delegator");
+        let mut received = repo_grant("scoped_read", delegator.clone(), "repo.read", "*");
+        received.resource.path = Some("src/private.rs".to_owned());
+        let previous = vec![
+            policy_grant("delegate", delegator.clone(), CAP_POLICY_DELEGATE),
+            received,
+        ];
+        for (path, expected) in [
+            (Some("src/private.rs"), PolicyChangeOutcome::Approved),
+            (None, PolicyChangeOutcome::Denied),
+            (Some("src/private.rs/child"), PolicyChangeOutcome::Denied),
+            (Some("src/public.rs"), PolicyChangeOutcome::Denied),
+        ] {
+            let mut change = PolicyChange::new(
+                "change",
+                delegator.clone(),
+                root(1),
+                root(2),
+                PolicyChangeAction::Delegate,
+            );
+            let mut resource = ResourceRef::new(ResourceKind::Repo, "repo_main");
+            resource.path = path.map(str::to_owned);
+            change.proposed_grants.push(ProposedGrant::new(
+                "proposed",
+                agent("recipient"),
+                ["repo.read"],
+                resource,
+                GrantEffect::Allow,
+            ));
+            let change = signed_change(&authority, change, &["key_alpha"]);
+            let result = evaluate_policy_change(&change, &authority, &previous, &context(1));
+            assert_eq!(result.trust, PolicyChangeTrust::Trusted);
+            assert_eq!(result.outcome, expected, "requested path: {path:?}");
+        }
     }
 
     #[test]
