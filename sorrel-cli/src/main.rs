@@ -11,13 +11,13 @@ use cli_policy::{
 use serde_json::{json, Value};
 use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
-    create_change, create_lane, create_stack, git_export, git_import, is_descendant,
-    materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree, parse_object_id_hex,
-    read_conflict, read_snapshot, read_snapshot_files, read_stack, restore_snapshot_to_directory,
-    snapshot_diff, write_snapshot, write_tree, ChangeOptions, ConflictType, FileObjectStore,
-    GitExportOptions, GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions,
-    ObjectId, ObjectKind, ObjectRef, ObjectStore, PathChangeKind, Principal, SnapshotOptions,
-    StackOptions, StatCache, Visibility,
+    create_change, create_lane, create_stack, git_export, git_export_with_force, git_import,
+    is_descendant, materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree,
+    parse_object_id_hex, read_conflict, read_snapshot, read_snapshot_files, read_stack,
+    restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree, ChangeOptions,
+    ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
+    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
+    PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -174,7 +174,7 @@ struct GitExportArgs {
     #[arg(long)]
     snapshot: Option<String>,
 
-    /// Overwrite / proceed even when the destination already has commits on the branch.
+    /// Allow a non-fast-forward update of the destination branch.
     #[arg(long)]
     force: bool,
 }
@@ -1720,20 +1720,11 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
         }
     }
 
-    // Refuse to clobber an existing non-empty branch unless --force or we have a map.
-    if !args.force && snapshot_to_git.is_empty() && git_branch_exists(&git_path, &args.branch) {
-        return Err(io::Error::other(format!(
-            "Git branch '{}' already exists at {}; pass --force to overwrite",
-            args.branch,
-            git_path.display()
-        )));
-    }
-
     let mut options = GitExportOptions::new(&git_path, tip);
     options.branch = args.branch;
     options.snapshot_to_git = snapshot_to_git;
 
-    let exported = to_io(git_export(&store, options))?;
+    let exported = to_io(git_export_with_force(&store, options, args.force))?;
     let created = exported.commits.iter().filter(|c| c.created).count();
 
     let commits_json: Vec<Value> = exported
@@ -1794,17 +1785,6 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
             exported.head_git_sha
         ),
     })
-}
-
-fn git_branch_exists(git_path: &Path, branch: &str) -> bool {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--verify", &format!("refs/heads/{branch}")])
-        .current_dir(git_path)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
 }
 
 /// Bidirectional fast-forward sync between the workspace and a mirrored Git
