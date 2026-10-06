@@ -60,9 +60,10 @@ test('unknown errors and methods cannot inject arbitrary error fields or request
 test('known client and policy evaluation errors do not produce unexpected-error diagnostics', async (t) => {
   const logs = [];
   t.mock.method(console, 'error', (...args) => logs.push(args));
-  await withServer(createApp(), async url => {
-    assert.equal((await fetch(`${url}/not-found`)).status, 404);
-    assert.equal((await fetch(`${url}/projects`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' })).status, 400);
+  const sessionHeaders = { 'x-sorrel-acting-principal': '{"type":"user","id":"local"}' };
+  await withServer(createApp({ env: { SORREL_HUB_LOCAL_DEMO: '1' } }), async url => {
+    assert.equal((await fetch(`${url}/not-found`, { headers: sessionHeaders })).status, 404);
+    assert.equal((await fetch(`${url}/projects`, { method: 'POST', headers: { ...sessionHeaders, 'content-type': 'application/json' }, body: '{' })).status, 400);
   });
   const policyError = new PolicyEvaluationError('known policy failure');
   const app = createApp({ authAdapter: { mode: 'oidc', async resolveSession() { throw policyError; } } });
