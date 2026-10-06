@@ -52,6 +52,9 @@ fn explanation_works_without_initializing_or_reading_target_contents() {
     fs::write(root.path().join(".sorrelignore"), "*.tmp\n!.env\n").unwrap();
     fs::write(root.path().join(".env"), "SYNTHETIC_CONTENT_NOT_FOR_OUTPUT").unwrap();
     let before = state(root.path());
+    let directory = explain(root.path(), ".");
+    assert_eq!(directory["path"], ".");
+    assert_eq!(directory["isDirectory"], true);
     assert_eq!(explain(root.path(), "missing.txt")["included"], true);
     assert_eq!(explain(root.path(), "missing.tmp")["ignored"], true);
     let protected = explain(root.path(), ".env");

@@ -129,7 +129,11 @@ pub fn explain_workspace_path(
     let included =
         !metadata && !protected && supported_type && selection.allows(&relative, is_directory)?;
     Ok(WorkspacePathExplanation {
-        path: relative,
+        path: if relative.as_os_str().is_empty() {
+            PathBuf::from(".")
+        } else {
+            relative
+        },
         included,
         tracked,
         ignored,
