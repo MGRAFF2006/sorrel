@@ -208,6 +208,12 @@ content-addressed fanout (`<repo>/objects/<id[0..2]>/<id>`), atomic
 temp-file + rename writes, digest-verified reads, and one JSON document per
 ref under `<repo>/refs/`.
 
+Ref reads validate the JSON record, its name against the filename, and its
+64-character hexadecimal snapshot id. Corrupt records fail with a server error;
+they are never treated as absent or overwritten by a ref advance. The file is
+preserved for diagnosis. Restore a known-good ref record from a backup before
+retrying the affected operation.
+
 Product metadata (organizations, projects, repositories, proposals, review
 comments, workflow runs, policies) is stored as one JSON document per record
 under `<metadataDir>/<collection>/<id>.json`, also written atomically.
