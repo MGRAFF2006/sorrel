@@ -31,11 +31,11 @@ export class RepoSyncStore {
   }
 
   has(repoId, id) {
-    return this.#repo(repoId).objects.has(id);
+    return this.repos.get(repoId)?.objects.has(id) ?? false;
   }
 
   get(repoId, id) {
-    const bytes = this.#repo(repoId).objects.get(id);
+    const bytes = this.repos.get(repoId)?.objects.get(id);
     if (!bytes) {
       throw new SyncObjectNotFoundError();
     }
@@ -68,16 +68,13 @@ export class RepoSyncStore {
   }
 
   listRefs(repoId) {
-    const { refs } = this.#repo(repoId);
+    const refs = this.repos.get(repoId)?.refs;
+    if (!refs) return [];
     return [...refs.entries()].map(([name, snapshot]) => ({ name, snapshot }));
   }
 
   getRef(repoId, name) {
-    const snapshot = this.#repo(repoId).refs.get(name);
-    if (snapshot === undefined) {
-      return undefined;
-    }
-    return snapshot;
+    return this.repos.get(repoId)?.refs.get(name);
   }
 
   setRef(repoId, name, snapshotId) {
