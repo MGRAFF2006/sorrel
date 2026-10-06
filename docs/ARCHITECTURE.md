@@ -161,8 +161,8 @@ Hub separates product metadata from VCS transport:
   Core policy adapter over bounded asynchronous JSON subprocess requests. All
   operator-configured trusted grants and native policies participate; client
   references cannot omit denies. Unsupported constraints fail closed. These
-  configured records are the trust boundary; authority-chain verification and
-  private authorization of every route remain separate work.
+  configured records are the trust boundary; authority-chain verification
+  remains separate work.
 - Sync objects and refs use a filesystem store with digest verification,
   missing-object negotiation, closure checks, and fast-forward/expected-head
   enforcement.
@@ -170,7 +170,9 @@ Hub separates product metadata from VCS transport:
   optional Convex availability, including the server-owned proposal transitions.
   `/session` exposes the resolved Hub session. Non-development mutations require
   that verified session; creator, author, and requester attribution uses its
-  principal. Read access remains public in this alpha.
+  principal. All private reads and writes require native Core authorization on
+  actual resource scopes. Lists filter inaccessible records. Development acting
+  headers and anonymous `user:local` sessions require explicit local demo mode.
 - The shared SolidJS UI calls Hub through a host-injected transport: the
   browser host's `/api` proxy or the desktop shell's scoped Tauri HTTP client.
 - The desktop shell currently permits only loopback Hub URLs and does not claim

@@ -19,7 +19,7 @@ function grant(id, effect = 'allow') {
 const request = { principal, action: 'repo.object.write', resource };
 
 async function withServer(options, callback) {
-  const app = createApp(options);
+  const app = createApp({ authAdapter: { mode: 'oidc', resolveSession: async () => ({ principal }) }, ...options });
   const server = http.createServer(app.handleRequest);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try { await callback(`http://127.0.0.1:${server.address().port}`, app); }
@@ -96,6 +96,8 @@ test('configured policies apply even when callers omit their refs, and unknown r
     const denied = await upload(url, [{ id: 'allow' }], { policyRefs: [] });
     assert.equal(denied.status, 403);
     assert.equal((await denied.json()).error.decision.matchedPolicy.id, 'deny_policy');
+  });
+  await withServer({ trustedGrantsById: { allow: grant('allow') } }, async (url) => {
     const unknown = await upload(url, [{ id: 'allow' }], { policyRefs: [{ kind: 'Policy', id: 'not_hydrated' }] });
     assert.equal(unknown.status, 403);
     assert.equal((await unknown.json()).error.code, 'policy_evaluation_failed');

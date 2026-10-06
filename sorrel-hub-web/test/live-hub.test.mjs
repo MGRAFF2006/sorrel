@@ -42,6 +42,7 @@ test('hub-web proxies live hub health and sync-repos', async () => {
   const hub = await spawnReady(HUB_DIR, 'scripts/listen.mjs', {
     SORREL_HUB_SYNC_STORE: 'memory',
     SORREL_HUB_BOOTSTRAP_GRANTS: '1',
+    SORREL_HUB_LOCAL_DEMO: '1',
   });
   try {
     const ui = await spawnReady(ROOT, 'scripts/listen.mjs', {

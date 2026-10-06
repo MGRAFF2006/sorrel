@@ -32,11 +32,11 @@ production AuthAdapter and network controls. See the root
 | **Engine (`sorrel-core`)** | Content-addressed object store, snapshots, changes, path/line-level diff helpers, lanes/stacks, policy/authority spine, sync closure helpers, stat-cache, three-way merge + protocol-aligned conflict/merge-result objects, **incremental `git_import` / `git_export`**. |
 | **CLI (`sorrel-cli`)** | Persistent `.sorrel/` workspace: `init`, `status`, `change create`/`list`, `diff`, `log`, `lane create`/`list`/`switch`/`submit`, `stack create`/`list`/`show`, `merge` / `merge --abort` / **`merge --continue`**, **`git import` / `git export` / `git sync`**, `grant`, `slice create`, `workflow validate`/`run`, **`secret list\|sync\|check\|get\|set\|run`**, **`env init\|ensure\|info\|shell`**, **`run list\|show\|logs`**, `remote add`/`list`, `push`, `pull`. |
 | **Git bridge** | `sorrel git import`, `git export`, and colocated `git sync`; incremental fast-forwards in either direction, divergence parked on a normal Sorrel lane, `.sorrel/git-map.json` links SHAs ↔ snapshots. See `sorrel-cli/GIT.md`. |
-| **Sync** | CLI ↔ Hub over HTTP sync transport; Hub FS-backed object/ref store; isolated demos can opt into `user:local` bootstrap grants with `SORREL_HUB_BOOTSTRAP_GRANTS=1`. |
+| **Sync** | CLI ↔ Hub over HTTP sync transport; Hub FS-backed object/ref store; isolated demos can opt into `user:local` bootstrap grants with `SORREL_HUB_LOCAL_DEMO=1` and `SORREL_HUB_BOOTSTRAP_GRANTS=1`. |
 | **Vault** | Secrets schema + local Node backend for tests. **Primary UX:** `sorrel secret *` resolves via upstream SecretSpec (`keyring` / `dotenv` / `env`) under Core grants; workflow jobs can inject authorized `secretRefs` with log redaction. |
 | **Runners** | Shared CLI/library workflow parser and local executor, named/legacy YAML, job dependencies and literal env, native Core workflow policy, host-resolved secret injection/redaction. Simple CLI jobs prefer devenv; dependency/env jobs use `local-fallback`. ContainerRunner remains experimental. Structured logs under `.sorrel/runs/`; workflow failures return nonzero status. |
 | **Slices** | TS/JS slice manifest generator (prototype). |
-| **Hub API** | JSON HTTP server: health, projects/repository linking, admin collections with GET/PATCH, server-owned proposal transitions, lane-submit collaboration, sync transport, bounded tree/text browsing and recorded snapshot comparison, FS persistence; non-dev mutations require verified sessions. |
+| **Hub API** | JSON HTTP server: health, projects/repository linking, admin collections with GET/PATCH, server-owned proposal transitions, lane-submit collaboration, sync transport, bounded tree/text browsing and recorded snapshot comparison, FS persistence; private reads/writes require verified sessions and Core grants; explicit local demo remains available. |
 | **Hub UI** | Shared Solid `sorrel-hub-ui` — guided organization/repository connection, file previews and recorded before/after review comparisons, proposal-backed Work board, global Inbox, organization/profile surfaces; keyboard-accessible dialogs with pending/error/retry states. Hosted by thin `sorrel-hub-web`. |
 | **Desktop app** | Tauri host for the shared Hub UI; native installers are built for Windows, macOS, and Linux on x64 and ARM64. The app connects to a local loopback Hub and wires scoped native notification/external-link adapters. |
 | **Mobile app** | Native Expo/React Native Hub companion for iPhone, iPad, Android phones, and Android tablets; native stacks/tabs, secure bearer storage, project/review/comment lifecycle, and repository refs. |
@@ -49,8 +49,10 @@ Privileged Hub sync and repository/policy administration now use the packaged
 Rust Core policy adapter rather than a reduced JavaScript evaluator. Operator
 trusted grant/policy records supply the effective policy; grant lifecycle and
 Core deny/redact/review precedence are enforced. Unsupported conditions and
-unresolved protocol object references fail closed. This does not yet make every
-Hub read or metadata route private or verify authority-chain signatures.
+unresolved protocol object references fail closed. Private metadata, collaboration
+and sync reads/writes require exact Core scope decisions; list results and summary
+counts exclude inaccessible records. Local demos require explicit opt-in and
+actual native grants. Authority-chain signatures remain unverified.
 
 ## Missing / not ready
 
