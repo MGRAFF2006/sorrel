@@ -54,7 +54,9 @@ export function decodeJwt(token) {
  * @param {string} token
  * @param {{
  *   issuer: string,
- *   audience: string,
+ *   audience?: string,
+ *   clientId?: string,
+ *   jwksUri?: string,
  *   fetchJwks?: (uri: string) => Promise<Jwk[]>,
  *   nowMs?: number,
  *   clockSkewSec?: number,
@@ -72,16 +74,26 @@ export async function verifyOidcAccessToken(token, options) {
     throw new Error('jwt iss mismatch');
   }
 
-  if (typeof options.audience !== 'string' || !options.audience.trim()) {
-    throw new Error('jwt audience must be configured');
+  if (options.clientId !== undefined) {
+    if (typeof options.clientId !== 'string' || !options.clientId.trim()) {
+      throw new Error('jwt client_id must be configured');
+    }
+    if (payload.client_id !== options.clientId) {
+      throw new Error('jwt client_id mismatch');
+    }
   }
-  const aud = payload.aud;
-  const audienceMatches =
-    aud === options.audience ||
-    (Array.isArray(aud) && aud.every((value) => typeof value === 'string') &&
-      aud.includes(options.audience));
-  if (!audienceMatches) {
-    throw new Error('jwt aud mismatch');
+  if (options.clientId === undefined || options.audience !== undefined) {
+    if (typeof options.audience !== 'string' || !options.audience.trim()) {
+      throw new Error('jwt audience must be configured');
+    }
+    const aud = payload.aud;
+    const audienceMatches =
+      aud === options.audience ||
+      (Array.isArray(aud) && aud.every((value) => typeof value === 'string') &&
+        aud.includes(options.audience));
+    if (!audienceMatches) {
+      throw new Error('jwt aud mismatch');
+    }
   }
 
   const nowSec = Math.floor((options.nowMs ?? Date.now()) / 1000);
@@ -101,7 +113,7 @@ export async function verifyOidcAccessToken(token, options) {
     throw new Error('jwt not yet valid');
   }
 
-  const jwksUri = `${issuer}/.well-known/jwks.json`;
+  const jwksUri = options.jwksUri ?? `${issuer}/.well-known/jwks.json`;
   const keys =
     (await options.fetchJwks?.(jwksUri)) ?? (await fetchJwksCached(jwksUri));
   const kid = typeof header.kid === 'string' ? header.kid : undefined;

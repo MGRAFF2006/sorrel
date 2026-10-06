@@ -93,13 +93,19 @@ survives restarts:
   required `SORREL_OIDC_ISSUER` and `SORREL_OIDC_AUDIENCE`; keys are read from
   `<issuer>/.well-known/jwks.json`. Issuer-only configuration fails closed until
   an audience identifying this Hub is supplied.
-- `workos` uses `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, optional
-  `WORKOS_ISSUER`, and optional `WORKOS_AUDIENCE` for Bearer verification.
+- `workos` uses `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` to verify AuthKit
+  Bearer JWTs. It requires a string `client_id` exactly matching
+  `WORKOS_CLIENT_ID` and reads keys from
+  `<issuer>/sso/jwks/<encoded-client-id>`. The issuer defaults to
+  `https://api.workos.com`; `WORKOS_ISSUER` overrides it. AuthKit tokens do not
+  require `aud`; optional `WORKOS_AUDIENCE` adds an `aud` restriction without
+  replacing the `client_id` check. See the
+  [WorkOS session-token contract](https://workos.com/docs/reference/authkit/session-tokens).
 
-OIDC and WorkOS tokens must contain a finite numeric `exp` claim and an `aud`
-claim matching the configured audience (a string or array of strings). WorkOS
-defaults its audience to `WORKOS_CLIENT_ID`. Expiry retains the existing
-60-second clock-skew allowance. Tokens without expiry are rejected.
+OIDC and WorkOS tokens must contain a finite numeric `exp` claim. Generic OIDC
+also requires an `aud` claim matching its configured audience (a string or
+array of strings). Expiry retains the existing 60-second clock-skew allowance.
+Tokens without expiry are rejected.
 
 These adapters authenticate a principal; authorization still requires trusted
 Core grant references. WorkOS remains an adapter skeleton without sealed
