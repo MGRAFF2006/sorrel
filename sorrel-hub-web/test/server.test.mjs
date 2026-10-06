@@ -76,6 +76,55 @@ test('shared server serves the SPA and forwards Hub auth headers', async () => {
   }
 });
 
+test('dotted resource routes load the SPA while missing assets stay 404', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sorrel-hub-web-routes-'));
+  const page = '<main id="root">Dotted resource routes</main>';
+  await writeFile(join(root, 'index.html'), page);
+  await mkdir(join(root, 'assets'));
+  await writeFile(join(root, 'assets', 'app.123.js'), 'console.log("asset")');
+  await writeFile(join(root, 'favicon.svg'), '<svg></svg>');
+  const server = createHubWebServer({ root, hubApiUrl: 'http://127.0.0.1:1' });
+  try {
+    const url = await listen(server);
+    for (const route of [
+      '/projects/project.1',
+      '/projects/project.1/',
+      '/projects/project%2E1?repoId=repo.1',
+      '/projects/project.1/sync?repoId=repo.1',
+      '/orgs/org.1',
+      '/orgs/org.1/',
+    ]) {
+      for (const method of ['GET', 'HEAD']) {
+        const response = await fetch(url + route, { method });
+        assert.equal(response.status, 200, `${method} ${route}`);
+        assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
+        assert.equal(await response.text(), method === 'HEAD' ? '' : page);
+      }
+    }
+    for (const [asset, contentType, body] of [
+      ['/assets/app.123.js?cache=1', 'text/javascript; charset=utf-8', 'console.log("asset")'],
+      ['/favicon.svg', 'image/svg+xml', '<svg></svg>'],
+    ]) {
+      for (const method of ['GET', 'HEAD']) {
+        const response = await fetch(url + asset, { method });
+        assert.equal(response.status, 200, `${method} ${asset}`);
+        assert.equal(response.headers.get('content-type'), contentType);
+        assert.equal(await response.text(), method === 'HEAD' ? '' : body);
+      }
+    }
+    for (const asset of ['/assets/missing.js', '/assets/missing.css?cache=1', '/missing.svg']) {
+      for (const method of ['GET', 'HEAD']) {
+        const response = await fetch(url + asset, { method });
+        assert.equal(response.status, 404, `${method} ${asset}`);
+        assert.equal(await response.text(), method === 'HEAD' ? '' : 'Not found');
+      }
+    }
+  } finally {
+    await close(server);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 
 test('static serving refuses traversal and symlinks outside the asset root', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'sorrel-hub-web-boundary-'));
