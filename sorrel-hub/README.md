@@ -83,6 +83,10 @@ survives restarts:
 - `SORREL_HUB_SYNC_STORE=memory` — use ephemeral in-memory stores for both
   sync and metadata (the default inside tests via `createApp()`).
 
+Unexpected HTTP 500 failures emit a server diagnostic with the HTTP method,
+fixed category, and recognized filesystem error code. Raw exceptions and
+request data are omitted; the client response remains redacted.
+
 ### Authentication adapters
 
 `SORREL_HUB_AUTH` selects one of these request-authentication adapters:
