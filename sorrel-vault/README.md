@@ -34,7 +34,9 @@ add custom AWS/1Password adapters here.
 ## CLI
 
 A small CLI exposes the local vault operations by composing the library modules.
-It never prints or persists raw secret values.
+It never prints or persists raw secret values. Known resolved values are masked
+regardless of `minSecretLength`; visible prefix/suffix settings always leave at
+least one character hidden.
 
 ```sh
 node scripts/vault-cli.mjs --help          # usage
