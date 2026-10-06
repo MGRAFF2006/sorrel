@@ -376,7 +376,11 @@ fn cli_pull_rejects_ignored_path_collisions_before_restoring() {
         let before = head_bytes(local.path());
         let output = cli(local.path(), &["pull"]);
         assert!(!output.status.success());
-        assert!(String::from_utf8_lossy(&output.stderr).contains("untracked path"));
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("untracked path"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(head_bytes(local.path()), before);
         assert_eq!(std::fs::read(preserved).unwrap(), b"preserve\n");
         assert_eq!(
@@ -481,7 +485,11 @@ fn cli_pull_preserves_ignored_children_on_directory_to_file() {
     let before = head_bytes(local.path());
     let output = cli(local.path(), &["pull"]);
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("untracked path"));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("untracked path"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert_eq!(head_bytes(local.path()), before);
     assert_eq!(
         std::fs::read(local.path().join("a/tracked")).unwrap(),
