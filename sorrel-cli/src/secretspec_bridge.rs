@@ -675,54 +675,211 @@ pub fn resolve_handles(
         return Ok(ResolvedSecrets::default());
     }
 
+    let groups = group_handles(&selected, provider_override)?;
     let (spec_path, _) = ensure_secretspec_toml(cwd)?;
-    let provider = secretspec_provider_for(selected[0], provider_override);
-    let profile = profile_for_environment(&selected[0].environment);
-
-    let spec = secretspec::Secrets::load_from(&spec_path)
+    let config = secretspec::Config::try_from(spec_path.as_path())
         .map_err(|error| BridgeError::Spec(error.to_string()))?;
-    let mut spec = with_access_reason(
-        spec,
-        "Sorrel secret resolution after Core grant authorization",
-    );
-    spec.set_provider(&provider);
-    spec.set_profile(&profile);
-
-    let response = spec
-        .resolve()
-        .map_err(|error| BridgeError::Spec(error.to_string()))?;
-    if !response.is_ok() {
-        return Err(BridgeError::Spec(format!(
-            "missing required secrets: {}",
-            response.missing_required.join(", ")
-        )));
-    }
-
-    let mut values = BTreeMap::new();
-    let mut id_to_name = BTreeMap::new();
-    for handle in selected {
-        id_to_name.insert(handle.id.clone(), handle.name.clone());
-        if let Some(resolved) = response.secrets.get(&handle.name) {
-            if let Some(value) = &resolved.value {
-                values.insert(handle.name.clone(), value.clone());
-            }
-        } else if handle.required {
+    let mut result = ResolvedSecrets::default();
+    let mut providers = std::collections::BTreeSet::new();
+    let mut profiles = std::collections::BTreeSet::new();
+    for ((provider, profile), group) in groups {
+        let (_manifest, spec) = selected_spec(
+            cwd,
+            &config,
+            &group,
+            &provider,
+            &profile,
+            "Sorrel secret resolution after Core grant authorization",
+        )?;
+        let response = spec
+            .resolve()
+            .map_err(|error| BridgeError::Spec(error.to_string()))?;
+        if !response.is_ok() {
             return Err(BridgeError::Spec(format!(
-                "required secret `{}` ({}) did not resolve",
-                handle.name, handle.id
+                "missing required secrets: {}",
+                response.missing_required.join(", ")
             )));
         }
+        providers.insert(response.provider);
+        profiles.insert(response.profile);
+        for handle in group {
+            result
+                .id_to_name
+                .insert(handle.id.clone(), handle.name.clone());
+            if let Some(value) = response
+                .secrets
+                .get(&handle.name)
+                .and_then(|secret| secret.value.as_ref())
+            {
+                result.values.insert(handle.name.clone(), value.clone());
+            } else if handle.required {
+                return Err(BridgeError::Spec(format!(
+                    "required secret `{}` ({}) did not resolve",
+                    handle.name, handle.id
+                )));
+            }
+        }
     }
-
-    Ok(ResolvedSecrets {
-        provider: response.provider,
-        profile: response.profile,
-        values,
-        id_to_name,
-    })
+    result.provider = context_summary(providers);
+    result.profile = context_summary(profiles);
+    Ok(result)
 }
 
-/// Value-free presence report for `sorrel secret check`.
+fn group_handles<'a>(
+    selected: &[&'a SecretHandle],
+    provider_override: Option<&str>,
+) -> Result<BTreeMap<(String, String), Vec<&'a SecretHandle>>, BridgeError> {
+    let mut names = BTreeMap::new();
+    let mut groups: BTreeMap<(String, String), Vec<&SecretHandle>> = BTreeMap::new();
+    for &handle in selected {
+        if let Some(previous) = names.insert(&handle.name, &handle.id) {
+            if previous == &handle.id {
+                continue;
+            }
+            return Err(BridgeError::Spec(format!(
+                "selected SecretRefs `{previous}` and `{}` share environment name `{}`; select only one",
+                handle.id, handle.name
+            )));
+        }
+        groups
+            .entry((
+                secretspec_provider_for(handle, provider_override),
+                profile_for_environment(&handle.environment),
+            ))
+            .or_default()
+            .push(handle);
+    }
+    Ok(groups)
+}
+
+fn selected_spec(
+    cwd: &Path,
+    config: &secretspec::Config,
+    handles: &[&SecretHandle],
+    provider: &str,
+    profile: &str,
+    reason: &str,
+) -> Result<(tempfile::NamedTempFile, secretspec::Secrets), BridgeError> {
+    use std::io::Write;
+
+    let names: std::collections::BTreeSet<&str> =
+        handles.iter().map(|handle| handle.name.as_str()).collect();
+    let mut config = config.clone();
+    // Inheritance has already been loaded. Re-loading it would restore excluded names.
+    config.project.extends = None;
+    config.scopes = None;
+    let mut aliases = secretspec::GlobalConfig::load()
+        .map_err(|error| BridgeError::Spec(error.to_string()))?
+        .and_then(|global| global.defaults.providers)
+        .unwrap_or_default();
+    aliases.extend(config.providers.take().unwrap_or_default());
+    for alias in aliases.values_mut() {
+        let mut value =
+            serde_json::to_value(&*alias).map_err(|error| BridgeError::Spec(error.to_string()))?;
+        root_provider_route(&mut value, cwd)?;
+        *alias =
+            serde_json::from_value(value).map_err(|error| BridgeError::Spec(error.to_string()))?;
+    }
+    config.providers = Some(aliases);
+    for profile in config.profiles.values_mut() {
+        profile
+            .secrets
+            .retain(|name, _| names.contains(name.as_str()));
+        if let Some(providers) = profile
+            .defaults
+            .as_mut()
+            .and_then(|defaults| defaults.providers.as_mut())
+        {
+            for provider in providers {
+                *provider = rooted_provider(provider, cwd)?;
+            }
+        }
+        for secret in profile.secrets.values_mut() {
+            if let Some(providers) = &mut secret.providers {
+                for provider in providers {
+                    *provider = rooted_provider(provider, cwd)?;
+                }
+            }
+        }
+    }
+    let text = toml::to_string(&config).map_err(|error| BridgeError::Spec(error.to_string()))?;
+    // Keep defaults in excluded metadata or outside the workspace: they may be sensitive.
+    // NamedTempFile restricts permissions and removes the manifest on every exit.
+    let metadata_dir = cwd.join(repo::SORREL_DIR);
+    let metadata_is_directory =
+        fs::symlink_metadata(&metadata_dir).is_ok_and(|metadata| metadata.file_type().is_dir());
+    let temporary_dir = if metadata_is_directory {
+        metadata_dir
+    } else {
+        let directory = env::temp_dir();
+        if directory.canonicalize()?.starts_with(cwd.canonicalize()?) {
+            return Err(BridgeError::Spec(
+                "temporary directory must be outside the workspace for secret resolution"
+                    .to_owned(),
+            ));
+        }
+        directory
+    };
+    let mut manifest = tempfile::Builder::new()
+        .prefix("sorrel-secrets-")
+        .suffix(".toml")
+        .tempfile_in(temporary_dir)?;
+    manifest.write_all(text.as_bytes())?;
+    let spec = secretspec::Secrets::load_from(manifest.path())
+        .map_err(|error| BridgeError::Spec(error.to_string()))?;
+    let mut spec = with_access_reason(spec, reason);
+    spec.set_provider(rooted_provider(provider, cwd)?);
+    spec.set_profile(profile);
+    spec.set_ignore_ambient_scope(true);
+    Ok((manifest, spec))
+}
+
+fn rooted_provider(provider: &str, cwd: &Path) -> Result<String, BridgeError> {
+    // Dotenv is the only file-backed provider enabled in this build. Let its
+    // upstream parser handle URI, shorthand, home-relative and Windows paths.
+    if provider != "dotenv" && !provider.starts_with("dotenv:") {
+        return Ok(provider.to_owned());
+    }
+    let mut provider = Box::<dyn secretspec::Provider>::try_from(provider.to_owned())
+        .map_err(|error| BridgeError::Spec(error.to_string()))?;
+    provider.with_base_dir(&std::path::absolute(cwd)?);
+    Ok(provider.uri())
+}
+
+fn root_provider_route(value: &mut Value, cwd: &Path) -> Result<(), BridgeError> {
+    match value {
+        Value::String(provider) => *provider = rooted_provider(provider, cwd)?,
+        Value::Object(route) => {
+            for key in ["uri", "provider", "cache"] {
+                if let Some(value) = route.get_mut(key) {
+                    root_provider_route(value, cwd)?;
+                }
+            }
+            if let Some(Value::Array(fallback)) = route.get_mut("fallback") {
+                for provider in fallback {
+                    root_provider_route(provider, cwd)?;
+                }
+            }
+            if let Some(Value::Object(credentials)) = route.get_mut("credentials") {
+                for source in credentials.values_mut() {
+                    root_provider_route(source, cwd)?;
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn context_summary(values: std::collections::BTreeSet<String>) -> String {
+    if values.len() == 1 {
+        values.into_iter().next().unwrap_or_default()
+    } else {
+        "mixed".to_owned()
+    }
+}
+
+/// Value-free presence report for the supplied handles only.
 pub fn check_handles(
     cwd: &Path,
     handles: &[SecretHandle],
@@ -733,16 +890,39 @@ pub fn check_handles(
             "no SecretRef handles declared (add sorrel.secrets.yml or .sorrel/secrets)".to_owned(),
         ));
     }
+    let selected = handles.iter().collect::<Vec<_>>();
+    let groups = group_handles(&selected, provider_override)?;
     let (spec_path, _) = ensure_secretspec_toml(cwd)?;
-    let provider = secretspec_provider_for(&handles[0], provider_override);
-    let profile = profile_for_environment(&handles[0].environment);
-    let spec = secretspec::Secrets::load_from(&spec_path)
+    let config = secretspec::Config::try_from(spec_path.as_path())
         .map_err(|error| BridgeError::Spec(error.to_string()))?;
-    let mut spec = with_access_reason(spec, "Sorrel secret availability check");
-    spec.set_provider(&provider);
-    spec.set_profile(&profile);
-    spec.report()
-        .map_err(|error| BridgeError::Spec(error.to_string()))
+    let mut providers = std::collections::BTreeSet::new();
+    let mut profiles = std::collections::BTreeSet::new();
+    let mut secrets = Vec::new();
+    let mut violations = Vec::new();
+    for ((provider, profile), group) in groups {
+        let (_manifest, spec) = selected_spec(
+            cwd,
+            &config,
+            &group,
+            &provider,
+            &profile,
+            "Sorrel secret availability check",
+        )?;
+        let report = spec
+            .report()
+            .map_err(|error| BridgeError::Spec(error.to_string()))?;
+        providers.insert(report.provider);
+        profiles.insert(report.profile);
+        secrets.extend(report.secrets);
+        violations.extend(report.constraint_violations);
+    }
+    let mut report = secretspec::ResolutionReport::new(
+        context_summary(providers),
+        context_summary(profiles),
+        secrets,
+    );
+    report.constraint_violations = violations;
+    Ok(report)
 }
 
 /// Persist a secret value into the configured provider (after policy allow).
@@ -1220,5 +1400,82 @@ secretRefs:
         );
         assert!(!text.contains("super-secret-token"));
         assert!(text.contains("<sorrel:redacted secret_npm_token_dev>"));
+    }
+
+    #[test]
+    fn narrowed_manifest_is_excluded_private_and_cleaned_after_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let metadata = directory.path().join(repo::SORREL_DIR);
+        fs::create_dir(&metadata).unwrap();
+        let config: secretspec::Config = r#"
+[project]
+name = "synthetic-private-manifest-test"
+revision = "1.0"
+[profiles.default]
+TOKEN = { description = "Synthetic", default = "synthetic-default" }
+[profiles.dev]
+"#
+        .parse()
+        .unwrap();
+        let handle = SecretHandle {
+            id: "secret_token".into(),
+            name: "TOKEN".into(),
+            provider: "dotenv:.env".into(),
+            uri: String::new(),
+            environment: "dev".into(),
+            required: true,
+            description: None,
+        };
+        let (manifest, _spec) = selected_spec(
+            directory.path(),
+            &config,
+            &[&handle],
+            "dotenv:.env",
+            "dev",
+            "synthetic test",
+        )
+        .unwrap();
+        assert_eq!(manifest.path().parent(), Some(metadata.as_path()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                manifest.as_file().metadata().unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        let store = sorrel_core::InMemoryObjectStore::new();
+        let snapshot = sorrel_core::materialize_snapshot_excluding(
+            &store,
+            directory.path(),
+            [repo::SORREL_DIR],
+            sorrel_core::SnapshotOptions::new("repo_test"),
+        )
+        .unwrap();
+        assert!(sorrel_core::read_snapshot_files(&store, &snapshot.id)
+            .unwrap()
+            .is_empty());
+        let path = manifest.path().to_owned();
+        drop(manifest);
+        assert!(!path.exists());
+        let mut invalid = config;
+        invalid
+            .profiles
+            .get_mut("default")
+            .unwrap()
+            .secrets
+            .get_mut("TOKEN")
+            .unwrap()
+            .description = None;
+        assert!(selected_spec(
+            directory.path(),
+            &invalid,
+            &[&handle],
+            "dotenv:.env",
+            "dev",
+            "synthetic test"
+        )
+        .is_err());
+        assert!(fs::read_dir(metadata).unwrap().next().is_none());
     }
 }
