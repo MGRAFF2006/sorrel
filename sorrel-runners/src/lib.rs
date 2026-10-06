@@ -774,10 +774,10 @@ impl LocalProcessRunner {
         authorize_job_bundle(bundle, &self.capabilities, policy)?;
         for job in &bundle.jobs {
             for (name, value) in &job.env {
-                if let EnvValue::SecretRef { secret } = value {
-                    if !env.contains_key(name) {
-                        return Err(RunnerError::SecretInjectionUnsupported(secret.id.clone()));
-                    }
+                if let EnvValue::SecretRef { secret } = value
+                    && !env.contains_key(name)
+                {
+                    return Err(RunnerError::SecretInjectionUnsupported(secret.id.clone()));
                 }
             }
         }
@@ -1379,10 +1379,10 @@ fn build_redaction_context(bundle: &JobBundle, job: &Job) -> RedactionContext {
     }
 
     for (name, value) in &job.env {
-        if let EnvValue::Literal { value } = value {
-            if should_redact_env_key(name, &bundle.redaction) {
-                terms.push(value.clone());
-            }
+        if let EnvValue::Literal { value } = value
+            && should_redact_env_key(name, &bundle.redaction)
+        {
+            terms.push(value.clone());
         }
     }
 
