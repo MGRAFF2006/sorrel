@@ -31,6 +31,15 @@ JSON includes `runId` when persisted. Failure to save logs is reported as
 `tests/policy_conformance.rs` checks the CLI policy evaluator against the
 vendored `sorrel-protocol` conformance manifest.
 
+## Merge status
+
+`status --json` reports recorded pending merge conflicts in `worktree.conflicts`
+and whether a merge awaits completion in `worktree.mergeInProgress`. The count
+includes conflicts without text markers and stays pending after manual editing
+until `merge --continue` or `merge --abort`. `status` still exits successfully
+when it can report the state; `status` and `worktree.dirty` continue to describe
+changes against HEAD. Human output includes a pending-merge hint.
+
 ## Workspace file selection
 
 `status`, `diff`, and `change create` honor nested `.gitignore` and
