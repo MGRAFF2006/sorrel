@@ -66,14 +66,14 @@
       <section class="section">
         <div class="doc-body">
           <h2>The core loop</h2>
-          <pre><code>$ sorrel init                      # .sorrel/: object store + manifest + HEAD
-$ echo "hello" &gt; a.txt
-$ sorrel status                    # dirty: added a.txt (real diff vs HEAD)
-$ sorrel change create -m "add a"  # snapshot, diff, Change object, advance HEAD
-$ echo "world" &gt;&gt; a.txt
-$ sorrel diff                      # line-level unified hunks vs HEAD
-$ sorrel change create -m "edit a"
-$ sorrel log                       # snapshot DAG walk with change ids,
+          <pre><code>sorrel init                      # .sorrel/: object store + manifest + HEAD
+echo "hello" &gt; a.txt
+sorrel status                    # dirty: added a.txt (real diff vs HEAD)
+sorrel change create -m "add a"  # snapshot, diff, Change object, advance HEAD
+echo "world" &gt;&gt; a.txt
+sorrel diff                      # line-level unified hunks vs HEAD
+sorrel change create -m "edit a"
+sorrel log                       # snapshot DAG walk with change ids,
                                    # authors, and messages</code></pre>
           <p>
             <code>status</code> and <code>change create</code> use the engine's stat cache, so
@@ -82,12 +82,12 @@ $ sorrel log                       # snapshot DAG walk with change ids,
           </p>
 
           <h2>Lanes: parallel work without branch noise</h2>
-          <pre><code>$ sorrel lane create --name agent/feature
-$ sorrel lane list                 # every lane, its head, the active one marked
-$ sorrel lane switch &lt;lane-id&gt;     # restores that lane's tree (refuses if dirty)
-$ sorrel lane submit               # create a Hub proposal for the active lane
-$ sorrel stack create --name series &lt;change-id&gt;
-$ sorrel stack show &lt;stack-id&gt;</code></pre>
+          <pre><code>sorrel lane create --name agent/feature
+sorrel lane list                 # every lane, its head, the active one marked
+sorrel lane switch &lt;lane-id&gt;     # restores that lane's tree (refuses if dirty)
+sorrel lane submit               # create a Hub proposal for the active lane
+sorrel stack create --name series &lt;change-id&gt;
+sorrel stack show &lt;stack-id&gt;</code></pre>
           <p>
             Each lane has its own head under <code>.sorrel/heads/</code>. Two lanes advance
             independently — exactly what parallel agents need to work without stepping on each
@@ -95,7 +95,7 @@ $ sorrel stack show &lt;stack-id&gt;</code></pre>
           </p>
 
           <h2>Merge: fast-forward or real three-way</h2>
-          <pre><code>$ sorrel merge &lt;lane-id&gt;
+          <pre><code>sorrel merge &lt;lane-id&gt;
 # fast-forward when the active lane has not diverged
 # otherwise: engine three-way merge (merge base + line merge)
 
@@ -103,9 +103,9 @@ $ sorrel stack show &lt;stack-id&gt;</code></pre>
 #   - conflicted files get &lt;&lt;&lt;&lt;&lt;&lt;&lt; ours / ======= / &gt;&gt;&gt;&gt;&gt;&gt;&gt; theirs markers
 #   - .sorrel/MERGE_STATE records the stored MergeResult object
 #   - HEAD does not move
-$ sorrel merge --continue          # after resolving markers, complete the merge
+sorrel merge --continue          # after resolving markers, complete the merge
 # or:
-$ sorrel merge --abort             # restore the pre-merge tree</code></pre>
+sorrel merge --abort             # restore the pre-merge tree</code></pre>
           <p>
             Clean merges write a merged snapshot with both parents and record a merge Change.
             Conflicted merges leave inspectable state: marker-annotated files in the tree and
@@ -113,9 +113,9 @@ $ sorrel merge --abort             # restore the pre-merge tree</code></pre>
           </p>
 
           <h2>Git bridge: import, export, and colocated sync</h2>
-          <pre><code>$ sorrel git import                 # Git commits → Sorrel snapshots
-$ sorrel git export ./mirror.git   # Sorrel snapshots → Git commits
-$ sorrel git sync                  # align colocated .git/ and .sorrel/</code></pre>
+          <pre><code>sorrel git import                 # Git commits → Sorrel snapshots
+sorrel git export ./mirror.git   # Sorrel snapshots → Git commits
+sorrel git sync                  # align colocated .git/ and .sorrel/</code></pre>
           <p>
             Import and export are incremental and record SHA-to-snapshot mappings in
             <code>.sorrel/git-map.json</code>. Colocated sync fast-forwards the side that has
@@ -124,9 +124,9 @@ $ sorrel git sync                  # align colocated .git/ and .sorrel/</code></
           </p>
 
           <h2>Hub sync: push and pull</h2>
-          <pre><code>$ sorrel remote add origin http://127.0.0.1:3000
-$ sorrel push origin               # negotiate missing objects, upload, advance ref
-$ sorrel pull origin               # fetch refs, download closure, verify ids</code></pre>
+          <pre><code>sorrel remote add origin http://127.0.0.1:3000
+sorrel push origin               # negotiate missing objects, upload, advance ref
+sorrel pull origin               # fetch refs, download closure, verify ids</code></pre>
           <p>
             Push seeds the local snapshot closure, asks the Hub which objects are missing,
             uploads only those, and advances the remote ref with fast-forward and closure checks.
@@ -134,21 +134,21 @@ $ sorrel pull origin               # fetch refs, download closure, verify ids</c
           </p>
 
           <h2>Workflows, policy, slices</h2>
-          <pre><code>$ sorrel workflow validate         # parse + check sorrel.workflow.yml
-$ sorrel workflow run &lt;job&gt;        # execute locally, gated by Core policy
-$ sorrel policy evaluate ...       # Core policy decision for an action
-$ sorrel grant create ...          # record a real Core grant decision
-$ sorrel slice create ...          # slice manifest for a subproject</code></pre>
+          <pre><code>sorrel workflow validate         # parse + check sorrel.workflow.yml
+sorrel workflow run &lt;job&gt;        # execute locally, gated by Core policy
+sorrel policy evaluate ...       # Core policy decision for an action
+sorrel grant create ...          # record a real Core grant decision
+sorrel slice create ...          # slice manifest for a subproject</code></pre>
 
           <h2>Secrets, environments, and run logs</h2>
-          <pre><code>$ sorrel secret list                # handles only
-$ sorrel secret sync                # refresh secretspec.toml
-$ sorrel secret check --provider dotenv:.env
-$ sorrel env info                   # devenv or local-fallback
-$ sorrel workflow run test
-$ sorrel run list
-$ sorrel run show &lt;run-id&gt;
-$ sorrel run logs &lt;run-id&gt;</code></pre>
+          <pre><code>sorrel secret list                # handles only
+sorrel secret sync                # refresh secretspec.toml
+sorrel secret check --provider dotenv:.env
+sorrel env info                   # devenv or local-fallback
+sorrel workflow run test
+sorrel run list
+sorrel run show &lt;run-id&gt;
+sorrel run logs &lt;run-id&gt;</code></pre>
           <p>
             Secret resolution and injection use upstream SecretSpec only after Core grant
             checks. Values are injected into the child process, never Sorrel objects, and

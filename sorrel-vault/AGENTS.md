@@ -4,8 +4,9 @@
 
 Sorrel's secrets/environment layer: the secrets spec (`sorrel.secrets.yml`
 schema), a local development backend, and a dependency-free CLI
-(`vault-cli.mjs`) for import / list / grant / redact. Values are resolved only
-after a Core-grant policy decision allows the requesting principal.
+(`vault-cli.mjs`) for import / list / grant / redact. The backend requires an
+injected policy adapter before resolving values. The dev CLI explicitly wires
+a local YAML-grant adapter; it does not execute the Rust Core evaluator.
 
 ## Stack and conventions
 

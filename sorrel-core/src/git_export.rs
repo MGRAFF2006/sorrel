@@ -54,6 +54,17 @@ pub enum GitExportError {
         /// Human-readable reason.
         detail: String,
     },
+
+    /// Export would discard history from the destination branch.
+    #[error("Git branch '{branch}' is not a fast-forward from {current} to {exported}; pass --force to overwrite")]
+    NonFastForward {
+        /// Destination branch name.
+        branch: String,
+        /// Current destination Git commit.
+        current: String,
+        /// Exported Git commit.
+        exported: String,
+    },
 }
 
 /// Options controlling a one-way Sorrel → Git export.
@@ -115,9 +126,21 @@ pub struct ExportResult {
 ///
 /// Snapshots are walked in topological order (parents before children). Merge
 /// snapshots become Git merge commits when every parent was also exported.
+/// Existing destination branches must fast-forward to the exported commit.
 pub fn git_export(
     store: &impl ObjectStore,
     options: GitExportOptions,
+) -> GitExportResult<ExportResult> {
+    git_export_with_force(store, options, false)
+}
+
+/// Exports history, permitting a non-fast-forward destination update when `force` is true.
+///
+/// The existing [`git_export`] entry point always protects destination history.
+pub fn git_export_with_force(
+    store: &impl ObjectStore,
+    options: GitExportOptions,
+    force: bool,
 ) -> GitExportResult<ExportResult> {
     let repo = open_or_init_repository(&options.git_path, options.init_if_missing)?;
     let ordered = topological_ancestors(store, options.tip_snapshot)?;
@@ -188,7 +211,7 @@ pub fn git_export(
             detail: "tip snapshot missing from export map".to_owned(),
         })?;
 
-    update_branch(&repo, &options.branch, &head_git_sha)?;
+    update_branch(&repo, &options.branch, &head_git_sha, force)?;
 
     Ok(ExportResult {
         commits,
@@ -215,7 +238,12 @@ fn open_or_init_repository(
     }
 }
 
-fn update_branch(repo: &git2::Repository, branch: &str, tip_sha: &str) -> GitExportResult<()> {
+fn update_branch(
+    repo: &git2::Repository,
+    branch: &str,
+    tip_sha: &str,
+    force: bool,
+) -> GitExportResult<()> {
     let oid = git2::Oid::from_str(tip_sha)?;
     let commit = repo.find_commit(oid)?;
     let refname = format!("refs/heads/{branch}");
@@ -224,12 +252,22 @@ fn update_branch(repo: &git2::Repository, branch: &str, tip_sha: &str) -> GitExp
     // exists and the bootstrap checkout below would be skipped.
     let head_was_unborn = repo.head().is_err();
     match repo.find_reference(&refname) {
-        Ok(mut reference) => {
-            reference.set_target(oid, "sorrel git export")?;
+        Ok(reference) => {
+            let current = reference.peel_to_commit()?.id();
+            if !force && current != oid && !repo.graph_descendant_of(oid, current)? {
+                return Err(GitExportError::NonFastForward {
+                    branch: branch.to_owned(),
+                    current: current.to_string(),
+                    exported: tip_sha.to_owned(),
+                });
+            }
+            // Refuse a concurrent Git writer that moved the tip after validation.
+            repo.reference_matching(&refname, oid, true, current, "sorrel git export")?;
         }
-        Err(_) => {
-            repo.reference(&refname, oid, true, "sorrel git export")?;
+        Err(error) if error.code() == git2::ErrorCode::NotFound => {
+            repo.reference(&refname, oid, false, "sorrel git export")?;
         }
+        Err(error) => return Err(error.into()),
     }
     // Point HEAD at the branch when this is a fresh repo with no HEAD target yet.
     if head_was_unborn {
@@ -557,6 +595,33 @@ mod tests {
         let second = git_export(&store, options).expect("re-export");
         assert!(second.commits.iter().all(|c| !c.created));
         assert_eq!(second.head_git_sha, first.head_git_sha);
+    }
+
+    #[test]
+    fn export_guard_preserves_git_only_commits_unless_forced() {
+        let store = InMemoryObjectStore::new();
+        let tip = make_sorrel_history(&store);
+        let dest = TempDir::new().unwrap();
+        let first = git_export(&store, GitExportOptions::new(dest.path(), tip)).unwrap();
+        git(
+            dest.path(),
+            &["commit", "--allow-empty", "-m", "Git-only work"],
+        );
+        let repo = git2::Repository::open(dest.path()).unwrap();
+        let git_only_tip = repo.refname_to_id("refs/heads/main").unwrap();
+        let mut options = GitExportOptions::new(dest.path(), tip);
+        options.snapshot_to_git = first.snapshot_to_git;
+        assert!(matches!(
+            git_export(&store, options.clone()),
+            Err(GitExportError::NonFastForward { .. })
+        ));
+        assert_eq!(repo.refname_to_id("refs/heads/main").unwrap(), git_only_tip);
+        let forced = git_export_with_force(&store, options, true).unwrap();
+        assert_eq!(
+            repo.refname_to_id("refs/heads/main").unwrap().to_string(),
+            forced.head_git_sha
+        );
+        assert_ne!(forced.head_git_sha, git_only_tip.to_string());
     }
 
     #[test]
