@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { atomicWrite, decodePathSegment, encodePathSegment, filesystemName } from './fs-sync-store.js';
+import { atomicWrite, decodePathSegment, encodePathSegment, filesystemName, initializeStoreDirectory, PublishedWriteDurabilityError } from './fs-sync-store.js';
 import { InMemoryStore } from './store.js';
 
 /**
@@ -30,6 +30,7 @@ const COLLECTIONS = [
  * publishing it in memory. Corrupt JSON, unreadable files, and invalid record
  * identities are skipped with warnings. Other collection fields are not normalized
  * or repaired during hydration.
+ * Post-rename durability failures adopt the published record but still throw.
  *
  * Public methods match InMemoryStore exactly so routes stay unchanged.
  */
@@ -41,12 +42,18 @@ export class FsMetadataStore extends InMemoryStore {
       throw new TypeError('rootDir must be a non-empty string');
     }
     this.rootDir = path.resolve(rootDir);
-    fs.mkdirSync(this.rootDir, { recursive: true });
+    initializeStoreDirectory(this.rootDir);
     this.#hydrate();
   }
 
   storeRecord(collection, record) {
-    this.#persist(collection, record);
+    try {
+      this.#persist(collection, record);
+    } catch (error) {
+      // A post-rename failure must not leave live reads behind the disk state.
+      if (error instanceof PublishedWriteDurabilityError) super.storeRecord(collection, record);
+      throw error;
+    }
     super.storeRecord(collection, record);
   }
 
@@ -56,7 +63,7 @@ export class FsMetadataStore extends InMemoryStore {
 
   #persist(collection, record) {
     const payload = `${JSON.stringify(record)}\n`;
-    atomicWrite(this.#recordPath(collection, record.id), payload);
+    atomicWrite(this.#recordPath(collection, record.id), payload, this.rootDir);
   }
 
   #hydrate() {

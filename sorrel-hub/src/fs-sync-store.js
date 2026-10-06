@@ -103,7 +103,7 @@ export class FsRepoSyncStore {
       throw new TypeError('rootDir must be a non-empty string');
     }
     this.rootDir = path.resolve(rootDir);
-    fs.mkdirSync(this.rootDir, { recursive: true });
+    initializeStoreDirectory(this.rootDir);
   }
 
   #repoDir(repoId) {
@@ -156,7 +156,9 @@ export class FsRepoSyncStore {
 
     const target = this.#objectPath(repoId, id);
     if (!fs.existsSync(target) || !verifyObjectId(id, fs.readFileSync(target))) {
-      atomicWrite(target, bytes);
+      atomicWrite(target, bytes, this.rootDir);
+    } else {
+      syncStoredFile(target, this.rootDir);
     }
     return id;
   }
@@ -209,9 +211,11 @@ export class FsRepoSyncStore {
     return parsed ? parsed.snapshot : undefined;
   }
 
-  setRef(repoId, name, snapshotId) {
+  setRef(repoId, name, snapshotId, objectIds = []) {
+    // HTTP passes its already validated closure, including terminal blobs.
+    for (const id of objectIds) syncStoredFile(this.#objectPath(repoId, normalizeObjectId(id)), this.rootDir);
     const payload = JSON.stringify({ name, snapshot: snapshotId });
-    atomicWrite(this.#refPath(repoId, name), Buffer.from(`${payload}\n`, 'utf8'));
+    atomicWrite(this.#refPath(repoId, name), Buffer.from(`${payload}\n`, 'utf8'), this.rootDir);
     return snapshotId;
   }
 }
@@ -256,23 +260,84 @@ function readRefFile(filePath, expectedName) {
  *
  * @param {string} target
  * @param {Buffer | string} bytes
+ * @param {string} [rootDir] Directory boundary whose entries must be flushed.
  */
-export function atomicWrite(target, bytes) {
+export function atomicWrite(target, bytes, rootDir = path.dirname(target)) {
   filesystemName(path.basename(target));
   const dir = path.dirname(target);
   const tmp = path.join(dir, filesystemName(`.tmp-${process.pid}-${randomBytes(6).toString('hex')}`));
   fs.mkdirSync(dir, { recursive: true });
+  let created = false;
+  let published = false;
   try {
-    fs.writeFileSync(tmp, bytes);
-    fs.renameSync(tmp, target);
-  } catch (error) {
+    const fd = fs.openSync(tmp, 'wx');
+    created = true;
     try {
-      fs.rmSync(tmp, { force: true });
-    } catch {
-      // best effort cleanup
+      fs.writeFileSync(fd, bytes);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
     }
+    fs.renameSync(tmp, target);
+    published = true;
+    syncDirectoryChain(dir, rootDir);
+  } catch (error) {
+    if (created && !published) {
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        // best effort cleanup of our unpublished temporary
+      }
+    }
+    if (published) throw new PublishedWriteDurabilityError(error);
     throw error;
   }
+}
+
+/** A rename completed, but durability could not be established. */
+export class PublishedWriteDurabilityError extends Error {
+  constructor(cause) {
+    super('published write durability could not be established', { cause });
+    this.name = 'PublishedWriteDurabilityError';
+  }
+}
+
+/** Reconcile root creation from earlier failed writes, including after restart. */
+export function initializeStoreDirectory(rootDir) {
+  const root = path.resolve(rootDir);
+  fs.mkdirSync(root, { recursive: true });
+  syncDirectoryChain(root, path.parse(root).root);
+}
+
+function syncDirectoryChain(directory, rootDir) {
+  if (process.platform === 'win32') return;
+  const root = path.resolve(rootDir);
+  let current = path.resolve(directory);
+  const relative = path.relative(root, current);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new TypeError('write directory must be inside the store root');
+  }
+  for (;;) {
+    const fd = fs.openSync(current, 'r');
+    try {
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    if (current === root) break;
+    current = path.dirname(current);
+  }
+}
+
+function syncStoredFile(target, rootDir) {
+  if (process.platform === 'win32') return;
+  const fd = fs.openSync(target, 'r');
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  syncDirectoryChain(path.dirname(target), rootDir);
 }
 
 /**
