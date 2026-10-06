@@ -180,7 +180,7 @@ export function HubApp(props: HubAppOptions) {
   });
   onMount(() => setPrincipalProvider(effectivePrincipal));
 
-  const openCount = useOpenProposalsCountFromHub(() => apiOk() === true);
+  const openCount = useOpenProposalsCountFromHub(() => true);
 
   onMount(() => {
     void (async () => {
