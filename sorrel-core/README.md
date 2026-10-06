@@ -80,6 +80,16 @@ explicitly for wall-clock attribution. Read back with `read_snapshot_files`
 (into memory) or `restore_snapshot_to_directory` (overwrites files present in
 the snapshot, leaves other files untouched).
 
+Restoration rejects symlinks in destination paths and replaces file entries
+without writing through hard links. The CLI also uses
+`remove_snapshot_file_from_directory` to delete obsolete tracked paths and
+`write_snapshot_file_to_directory` for conflict overlays. On Unix these use
+held directory handles even if a parent is concurrently renamed. The Windows
+backend has path-based rename/removal operations; concurrent directory swaps
+there remain an unresolved confinement risk. These operations do not provide
+transactional checkout rollback; an I/O failure can still leave a partial
+working tree.
+
 ## Changes and diff
 
 `create_change` diffs two already-stored snapshots and writes the change

@@ -2,17 +2,22 @@ use crate::{
     stat_cache::{StatCache, StatCacheEntry},
     ObjectId, ObjectIdParseError, ObjectStore, ObjectStoreError,
 };
+use cap_fs_ext::DirExt;
+use cap_std::fs::{Dir, OpenOptions};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsStr,
-    fs, io,
+    fs,
+    io::{self, Write},
     path::{Component, Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     time::UNIX_EPOCH,
 };
 
 const PROTOCOL_VERSION: &str = "sorrel.protocol.v0";
 const BLOB_PREFIX: &[u8] = b"sorrel.blob.v0\n";
+static RESTORE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Result type used by snapshot object operations.
 pub type SnapshotResult<T> = Result<T, SnapshotError>;
@@ -612,7 +617,86 @@ pub fn restore_snapshot_to_directory(
     let snapshot = read_snapshot(store, snapshot_id)?;
     validate_restore_tree(store, &snapshot.root_tree.id, target)?;
     fs::create_dir_all(target).map_err(|source| SnapshotError::io(target, source))?;
-    restore_tree(store, &snapshot.root_tree.id, target)
+    let directory = Dir::open_ambient_dir(target, cap_std::ambient_authority())
+        .map_err(|source| SnapshotError::io(target, source))?;
+    restore_tree(store, &snapshot.root_tree.id, target, &directory)
+}
+
+/// Writes a relative working-tree file without following links, preserving existing permissions.
+pub fn write_snapshot_file_to_directory(
+    target: impl AsRef<Path>,
+    relative_path: impl AsRef<Path>,
+    bytes: &[u8],
+) -> SnapshotResult<()> {
+    let target = target.as_ref();
+    let relative_path = relative_path.as_ref();
+    let path = safe_target_path(target, relative_path)?;
+    let name = relative_path
+        .file_name()
+        .ok_or_else(|| SnapshotError::InvalidPath {
+            path: relative_path.to_path_buf(),
+        })?;
+    let directory = Dir::open_ambient_dir(target, cap_std::ambient_authority())
+        .map_err(|source| SnapshotError::io(target, source))?;
+    let parent = restore_parent(&directory, relative_path.parent().unwrap_or(Path::new("")))
+        .map_err(|source| SnapshotError::io(&path, source))?;
+    write_restored_file(&parent, name, &path, bytes, None)
+}
+
+/// Removes a relative tracked file and its empty parents without following links.
+/// Missing paths are ignored. The target directory itself is never removed.
+pub fn remove_snapshot_file_from_directory(
+    target: impl AsRef<Path>,
+    relative_path: impl AsRef<Path>,
+) -> SnapshotResult<()> {
+    let target = target.as_ref();
+    let relative_path = relative_path.as_ref();
+    let path = safe_target_path(target, relative_path)?;
+    let name = relative_path
+        .file_name()
+        .ok_or_else(|| SnapshotError::InvalidPath {
+            path: relative_path.to_path_buf(),
+        })?;
+    let mut parent = Dir::open_ambient_dir(target, cap_std::ambient_authority())
+        .map_err(|source| SnapshotError::io(target, source))?;
+    let mut ancestors = Vec::new();
+    for component in relative_path.parent().unwrap_or(Path::new("")).components() {
+        let Component::Normal(name) = component else {
+            return Err(SnapshotError::InvalidPath {
+                path: relative_path.to_path_buf(),
+            });
+        };
+        let child = match parent.open_dir_nofollow(name) {
+            Ok(child) => child,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(source) => return Err(SnapshotError::io(&path, source)),
+        };
+        ancestors.push((parent, name.to_owned()));
+        parent = child;
+    }
+    match parent.remove_file(name) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => return Err(SnapshotError::io(&path, source)),
+    }
+    drop(parent);
+    for (parent, name) in ancestors.into_iter().rev() {
+        match parent.remove_dir(name) {
+            Ok(()) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound
+                        | io::ErrorKind::DirectoryNotEmpty
+                        | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                break
+            }
+            Err(source) => return Err(SnapshotError::io(&path, source)),
+        }
+    }
+    Ok(())
 }
 
 fn write_file_blob(
@@ -813,31 +897,127 @@ fn validate_restore_tree(
     Ok(())
 }
 
-fn restore_tree(store: &impl ObjectStore, tree_id: &ObjectId, target: &Path) -> SnapshotResult<()> {
+fn restore_tree(
+    store: &impl ObjectStore,
+    tree_id: &ObjectId,
+    target: &Path,
+    directory: &Dir,
+) -> SnapshotResult<()> {
     let tree = read_tree(store, tree_id)?;
     for entry in tree.entries {
         let output_path = safe_target_path(target, &entry.path)?;
+        let name = entry
+            .path
+            .file_name()
+            .ok_or_else(|| SnapshotError::InvalidPath {
+                path: entry.path.clone(),
+            })?;
+        let parent = restore_parent(directory, entry.path.parent().unwrap_or(Path::new("")))
+            .map_err(|source| SnapshotError::io(&output_path, source))?;
         match entry.entry_type {
             EntryType::File => {
-                if let Some(parent) = output_path.parent() {
-                    fs::create_dir_all(parent)
-                        .map_err(|source| SnapshotError::io(parent, source))?;
-                }
-
                 let blob = read_blob(store, &entry.object.id)?;
-                fs::write(&output_path, blob.content)
-                    .map_err(|source| SnapshotError::io(&output_path, source))?;
-                set_file_mode(&output_path, entry.mode)?;
+                write_restored_file(&parent, name, &output_path, &blob.content, Some(entry.mode))?;
             }
             EntryType::Directory => {
-                fs::create_dir_all(&output_path)
+                match parent.create_dir(name) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                    Err(source) => return Err(SnapshotError::io(&output_path, source)),
+                }
+                parent
+                    .open_dir_nofollow(name)
                     .map_err(|source| SnapshotError::io(&output_path, source))?;
-                restore_tree(store, &entry.object.id, target)?;
+                restore_tree(store, &entry.object.id, target, directory)?;
             }
         }
     }
-
     Ok(())
+}
+
+fn restore_parent(directory: &Dir, path: &Path) -> io::Result<Dir> {
+    let mut parent = directory.try_clone()?;
+    for component in path.components() {
+        let Component::Normal(name) = component else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid restore path",
+            ));
+        };
+        match parent.create_dir(name) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        // Hold each directory handle and reject links atomically while traversing.
+        parent = parent.open_dir_nofollow(name)?;
+    }
+    Ok(parent)
+}
+
+fn write_restored_file(
+    parent: &Dir,
+    name: &OsStr,
+    path: &Path,
+    bytes: &[u8],
+    mode: Option<EntryMode>,
+) -> SnapshotResult<()> {
+    let permissions = match parent.symlink_metadata(name) {
+        Ok(metadata) if !metadata.is_file() => {
+            return Err(SnapshotError::UnsupportedFileType {
+                path: path.to_path_buf(),
+            })
+        }
+        Ok(metadata) if metadata.permissions().readonly() => {
+            return Err(SnapshotError::io(
+                path,
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "restore target is read-only",
+                ),
+            ))
+        }
+        Ok(metadata) => Some(metadata.permissions()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(source) => return Err(SnapshotError::io(path, source)),
+    };
+    let (temporary, mut file) = loop {
+        let sequence = RESTORE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let name = format!(".sorrel-restore-{}.{}.tmp", std::process::id(), sequence);
+        match parent.open_with(&name, OpenOptions::new().write(true).create_new(true)) {
+            Ok(file) => break (name, file),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(source) => return Err(SnapshotError::io(path, source)),
+        }
+    };
+    let result = (|| {
+        file.write_all(bytes)
+            .map_err(|source| SnapshotError::io(path, source))?;
+        if let Some(mode) = mode {
+            set_file_mode(&file, path, mode)?;
+        } else if let Some(permissions) = permissions {
+            file.set_permissions(permissions)
+                .map_err(|source| SnapshotError::io(path, source))?;
+        }
+        drop(file);
+        // Replacing a directory entry never writes through a symlink or hard link.
+        parent
+            .rename(&temporary, parent, name)
+            .map_err(|source| SnapshotError::io(path, source))
+    })();
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => match parent.remove_file(&temporary) {
+            Ok(()) => Err(error),
+            Err(cleanup) if cleanup.kind() == io::ErrorKind::NotFound => Err(error),
+            Err(cleanup) => Err(SnapshotError::io(
+                path,
+                io::Error::other(format!(
+                    "{error}; temporary restore file cleanup failed: {cleanup}"
+                )),
+            )),
+        },
+    }
 }
 
 fn sort_entries(entries: &mut [TreeEntry]) {
@@ -943,7 +1123,7 @@ fn file_mode(_path: &Path) -> SnapshotResult<EntryMode> {
 }
 
 #[cfg(unix)]
-fn set_file_mode(path: &Path, mode: EntryMode) -> SnapshotResult<()> {
+fn set_file_mode(file: &cap_std::fs::File, path: &Path, mode: EntryMode) -> SnapshotResult<()> {
     use std::os::unix::fs::PermissionsExt;
 
     let permissions = match mode {
@@ -951,11 +1131,12 @@ fn set_file_mode(path: &Path, mode: EntryMode) -> SnapshotResult<()> {
         EntryMode::Normal | EntryMode::Directory => fs::Permissions::from_mode(0o644),
     };
 
-    fs::set_permissions(path, permissions).map_err(|source| SnapshotError::io(path, source))
+    file.set_permissions(cap_std::fs::Permissions::from_std(permissions))
+        .map_err(|source| SnapshotError::io(path, source))
 }
 
 #[cfg(not(unix))]
-fn set_file_mode(_path: &Path, _mode: EntryMode) -> SnapshotResult<()> {
+fn set_file_mode(_file: &cap_std::fs::File, _path: &Path, _mode: EntryMode) -> SnapshotResult<()> {
     Ok(())
 }
 
@@ -1320,6 +1501,241 @@ mod tests {
             fs::read(restore_dir.path().join("src/lib.rs")).unwrap(),
             b"pub fn core() {}\n"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restoration_rejects_symlink_components_and_preserves_external_files() {
+        use std::os::unix::fs::symlink;
+        for final_link in [false, true] {
+            let source = tempfile::tempdir().unwrap();
+            fs::create_dir_all(source.path().join("linked")).unwrap();
+            write_file(source.path().join("linked/file"), b"replacement");
+            let store = InMemoryObjectStore::new();
+            let snapshot =
+                materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test"))
+                    .unwrap();
+            let target = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            write_file(outside.path().join("file"), b"private-original");
+            if final_link {
+                fs::create_dir(target.path().join("linked")).unwrap();
+                symlink(
+                    outside.path().join("file"),
+                    target.path().join("linked/file"),
+                )
+                .unwrap();
+            } else {
+                symlink(outside.path(), target.path().join("linked")).unwrap();
+            }
+            assert!(restore_snapshot_to_directory(&store, &snapshot.id, target.path()).is_err());
+            assert_eq!(
+                fs::read(outside.path().join("file")).unwrap(),
+                b"private-original"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restoration_rejects_internal_metadata_symlink_aliases() {
+        use std::os::unix::fs::symlink;
+        let source = tempfile::tempdir().unwrap();
+        fs::create_dir_all(source.path().join("alias")).unwrap();
+        write_file(source.path().join("alias/HEAD"), b"replacement");
+        let store = InMemoryObjectStore::new();
+        let snapshot =
+            materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test")).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        fs::create_dir(target.path().join(".sorrel")).unwrap();
+        write_file(target.path().join(".sorrel/HEAD"), b"original");
+        symlink(".sorrel", target.path().join("alias")).unwrap();
+        assert!(restore_snapshot_to_directory(&store, &snapshot.id, target.path()).is_err());
+        assert_eq!(
+            fs::read(target.path().join(".sorrel/HEAD")).unwrap(),
+            b"original"
+        );
+    }
+
+    #[test]
+    fn restoration_replaces_hard_links_without_modifying_other_names() {
+        let source = tempfile::tempdir().unwrap();
+        write_file(source.path().join("file"), b"replacement");
+        let store = InMemoryObjectStore::new();
+        let snapshot =
+            materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test")).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        write_file(target.path().join("outside"), b"original");
+        fs::hard_link(target.path().join("outside"), target.path().join("file")).unwrap();
+        restore_snapshot_to_directory(&store, &snapshot.id, target.path()).unwrap();
+        assert_eq!(
+            fs::read(target.path().join("outside")).unwrap(),
+            b"original"
+        );
+        assert_eq!(
+            fs::read(target.path().join("file")).unwrap(),
+            b"replacement"
+        );
+        assert_eq!(fs::read_dir(target.path()).unwrap().count(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tracked_file_removal_rejects_parent_links_and_unlinks_final_links() {
+        use std::os::unix::fs::symlink;
+        let target = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        write_file(outside.path().join("file"), b"private-original");
+        symlink(outside.path(), target.path().join("alias")).unwrap();
+        assert!(remove_snapshot_file_from_directory(target.path(), "alias/file").is_err());
+        assert_eq!(
+            fs::read(outside.path().join("file")).unwrap(),
+            b"private-original"
+        );
+        symlink(outside.path().join("file"), target.path().join("link")).unwrap();
+        remove_snapshot_file_from_directory(target.path(), "link").unwrap();
+        assert!(!target.path().join("link").exists());
+        assert_eq!(
+            fs::read(outside.path().join("file")).unwrap(),
+            b"private-original"
+        );
+        fs::create_dir_all(target.path().join("a/b")).unwrap();
+        write_file(target.path().join("a/b/file"), b"tracked");
+        remove_snapshot_file_from_directory(target.path(), "a/b/file").unwrap();
+        assert!(!target.path().join("a").exists());
+        assert!(target.path().exists());
+        remove_snapshot_file_from_directory(target.path(), "a/b/missing").unwrap();
+        assert!(remove_snapshot_file_from_directory(target.path(), "../file").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restoration_preserves_read_only_files_and_leaves_no_temporary_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let source = tempfile::tempdir().unwrap();
+        write_file(source.path().join("file"), b"replacement");
+        let store = InMemoryObjectStore::new();
+        let snapshot =
+            materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test")).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        write_file(target.path().join("file"), b"original");
+        fs::set_permissions(
+            target.path().join("file"),
+            fs::Permissions::from_mode(0o400),
+        )
+        .unwrap();
+        assert!(restore_snapshot_to_directory(&store, &snapshot.id, target.path()).is_err());
+        assert_eq!(fs::read(target.path().join("file")).unwrap(), b"original");
+        assert_eq!(fs::read_dir(target.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn tracked_removal_preserves_reserved_metadata() {
+        for name in [".sorrel", ".git", ".GIT", ".sorrel. "] {
+            let target = tempfile::tempdir().unwrap();
+            fs::create_dir(target.path().join(name)).unwrap();
+            write_file(target.path().join(name).join("keep"), b"metadata");
+            assert!(remove_snapshot_file_from_directory(
+                target.path(),
+                Path::new(name).join("keep")
+            )
+            .is_err());
+            assert_eq!(
+                fs::read(target.path().join(name).join("keep")).unwrap(),
+                b"metadata"
+            );
+        }
+    }
+
+    #[test]
+    fn restoration_temp_name_cannot_remove_destination() {
+        const CHILD: &str = "SORREL_RESTORE_COLLISION_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "snapshot::tests::restoration_temp_name_cannot_remove_destination",
+                    "--test-threads=1",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let source = tempfile::tempdir().unwrap();
+        let name = format!(".sorrel-restore-{}.0.tmp", std::process::id());
+        write_file(source.path().join(&name), b"restored");
+        let store = InMemoryObjectStore::new();
+        let snapshot =
+            materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test")).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        restore_snapshot_to_directory(&store, &snapshot.id, target.path()).unwrap();
+        assert_eq!(fs::read(target.path().join(name)).unwrap(), b"restored");
+        assert_eq!(fs::read_dir(target.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn working_tree_overlay_is_confined_and_preserves_permissions() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let target = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        write_file(outside.path().join("file"), b"outside");
+        symlink(outside.path(), target.path().join("alias")).unwrap();
+        assert!(write_snapshot_file_to_directory(target.path(), "alias/file", b"marker").is_err());
+        symlink(outside.path().join("file"), target.path().join("link")).unwrap();
+        assert!(write_snapshot_file_to_directory(target.path(), "link", b"marker").is_err());
+        fs::hard_link(outside.path().join("file"), target.path().join("hard")).unwrap();
+        fs::set_permissions(
+            target.path().join("hard"),
+            fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        write_snapshot_file_to_directory(target.path(), "hard", b"marker").unwrap();
+        assert_eq!(fs::read(outside.path().join("file")).unwrap(), b"outside");
+        assert_eq!(fs::read(target.path().join("hard")).unwrap(), b"marker");
+        assert_eq!(
+            fs::metadata(target.path().join("hard"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert!(
+            write_snapshot_file_to_directory(target.path(), ".sorrel/HEAD", b"marker").is_err()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn held_restore_parent_ignores_a_later_directory_symlink_swap() {
+        use std::os::unix::fs::symlink;
+        let target = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let root = Dir::open_ambient_dir(target.path(), cap_std::ambient_authority()).unwrap();
+        let parent = restore_parent(&root, Path::new("nested")).unwrap();
+        fs::rename(target.path().join("nested"), target.path().join("original")).unwrap();
+        symlink(outside.path(), target.path().join("nested")).unwrap();
+        write_restored_file(
+            &parent,
+            OsStr::new("file"),
+            &target.path().join("nested/file"),
+            b"restored",
+            Some(EntryMode::Normal),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(target.path().join("original/file")).unwrap(),
+            b"restored"
+        );
+        assert!(!outside.path().join("file").exists());
     }
 
     #[test]
