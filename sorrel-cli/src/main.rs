@@ -3294,12 +3294,45 @@ fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
     let before = repo::load_head()?.ok_or_else(|| io::Error::other("missing HEAD pointer"))?;
     let before_snapshot = parse_object_id_hex(&before.snapshot)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
+    if repo::merge_in_progress() {
+        return Err(io::Error::other(
+            "a merge is in progress; finish or abort it before pulling",
+        ));
+    }
+    let manifest = repo::load_manifest()?.ok_or_else(|| io::Error::other("missing manifest"))?;
+    let repo_id = manifest["repoId"]
+        .as_str()
+        .ok_or_else(|| io::Error::other("missing repoId"))?;
+    if worktree_is_dirty(&store, repo_id, &before_snapshot)? {
+        return Err(io::Error::other(
+            "working tree has uncommitted changes; record or discard them before pulling",
+        ));
+    }
     let result = sync::pull(&store, &remote, &remote_name, &args.r#ref, None)?;
     let after_snapshot = parse_object_id_hex(&result.snapshot)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
     if before_snapshot != after_snapshot {
+        let tracked = to_io(read_snapshot_files(&store, &before_snapshot))?;
+        for path in to_io(read_snapshot_files(&store, &after_snapshot))?.keys() {
+            if !tracked.contains_key(path) {
+                match fs::symlink_metadata(path) {
+                    Ok(_) => {
+                        return Err(io::Error::other(format!(
+                            "pull would overwrite an untracked path: {}; move it before pulling",
+                            path.display()
+                        )))
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
         restore_worktree_to_snapshot(&store, &before_snapshot, &after_snapshot)?;
     }
+    repo::write_head(&repo::Head {
+        lane: before.lane,
+        snapshot: result.snapshot.clone(),
+    })?;
 
     Ok(CommandOutput {
         json: json!({

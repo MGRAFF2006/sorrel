@@ -8,7 +8,8 @@ use std::io;
 
 use serde_json::{json, Value};
 use sorrel_core::{
-    collect_closure, parse_object_id_hex, FileObjectStore, ObjectId, ObjectStore, ObjectStoreError,
+    collect_closure, is_descendant, parse_object_id_hex, read_blob, read_snapshot, read_tree,
+    EntryType, FileObjectStore, ObjectId, ObjectKind, ObjectStore, ObjectStoreError,
 };
 
 use crate::repo::{self, Head, Remote};
@@ -45,7 +46,7 @@ pub struct PullResult {
     pub remote: String,
     /// Ref name read on the remote.
     pub ref_name: String,
-    /// Snapshot id now at local HEAD.
+    /// Validated remote snapshot id for the caller to check out.
     pub snapshot: String,
     /// Number of objects downloaded.
     pub downloaded: usize,
@@ -321,7 +322,9 @@ fn upload_object_ids(
     Ok(upload_items.len())
 }
 
-/// Pulls `ref_name` from `remote` and updates local HEAD to the remote snapshot.
+/// Downloads and validates `ref_name` without changing HEAD or the working tree.
+///
+/// The caller publishes the returned snapshot only after checkout succeeds.
 pub fn pull(
     store: &FileObjectStore,
     remote: &Remote,
@@ -368,11 +371,20 @@ pub fn pull(
         downloaded += 1;
     }
 
-    let lane = head.lane;
-    repo::write_head(&Head {
-        lane,
-        snapshot: remote_snapshot.to_hex(),
-    })?;
+    validate_pull_snapshot(store, remote_snapshot)?;
+    if let Some(local) = head_snapshot_id(&head)? {
+        let initial = read_snapshot(store, &local).map_err(snapshot_io)?;
+        let empty_initial = initial.parents.is_empty()
+            && read_tree(store, &initial.root_tree.id)
+                .map_err(snapshot_io)?
+                .entries
+                .is_empty();
+        if !empty_initial && !is_descendant(store, local, remote_snapshot).map_err(transport_io)? {
+            return Err(io::Error::other(
+                "remote history is not a fast-forward of local HEAD; refusing divergent or rewound pull",
+            ));
+        }
+    }
 
     Ok(PullResult {
         remote: remote_name.to_owned(),
@@ -380,6 +392,59 @@ pub fn pull(
         snapshot: remote_snapshot.to_hex(),
         downloaded,
     })
+}
+
+fn validate_pull_snapshot(store: &FileObjectStore, root: ObjectId) -> io::Result<()> {
+    let mut snapshots = vec![root];
+    let mut trees = Vec::new();
+    let mut seen_snapshots = std::collections::BTreeSet::new();
+    let mut seen_trees = std::collections::BTreeSet::new();
+    let mut seen_blobs = std::collections::BTreeSet::new();
+    while let Some(id) = snapshots.pop() {
+        if !seen_snapshots.insert(id) {
+            continue;
+        }
+        let snapshot = read_snapshot(store, &id).map_err(snapshot_io)?;
+        if snapshot.root_tree.kind != ObjectKind::Tree
+            || snapshot
+                .parents
+                .iter()
+                .any(|parent| parent.kind != ObjectKind::Snapshot)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid snapshot object reference kind",
+            ));
+        }
+        trees.push(snapshot.root_tree.id);
+        snapshots.extend(snapshot.parents.into_iter().map(|parent| parent.id));
+    }
+    while let Some(id) = trees.pop() {
+        if !seen_trees.insert(id) {
+            continue;
+        }
+        for entry in read_tree(store, &id).map_err(snapshot_io)?.entries {
+            match (entry.entry_type, entry.object.kind) {
+                (EntryType::Directory, ObjectKind::Tree) => trees.push(entry.object.id),
+                (EntryType::File, ObjectKind::Blob) => {
+                    if seen_blobs.insert(entry.object.id) {
+                        read_blob(store, &entry.object.id).map_err(snapshot_io)?;
+                    }
+                }
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "invalid tree object reference kind",
+                    ))
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn snapshot_io(error: sorrel_core::SnapshotError) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, error.to_string())
 }
 
 /// Collects the object closure for a snapshot id in the local store.
@@ -532,6 +597,111 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
+
+    #[test]
+    fn pull_validation_rejects_incomplete_and_invalid_object_closures() {
+        use sorrel_core::{
+            write_snapshot, write_tree, EntryMode, ObjectRef, SnapshotOptions, TreeEntry,
+        };
+
+        for invalid in [
+            "root",
+            "tree",
+            "blob",
+            "blob_kind",
+            "ancestor",
+            "corrupt_blob",
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let store = FileObjectStore::new(directory.path()).unwrap();
+            let missing = ObjectId::for_bytes(b"missing object");
+            if invalid == "root" {
+                assert!(validate_pull_snapshot(&store, missing).is_err());
+                continue;
+            }
+            let blob = sorrel_core::write_blob(&store, b"file content").unwrap();
+            let blob_id = match invalid {
+                "blob" => missing,
+                "blob_kind" => store.write(b"not a Sorrel blob").unwrap(),
+                _ => blob.id,
+            };
+            let tree = write_tree(
+                &store,
+                vec![TreeEntry {
+                    name: "file".to_owned(),
+                    path: "file".into(),
+                    entry_type: EntryType::File,
+                    object: ObjectRef::new(ObjectKind::Blob, blob_id),
+                    mode: EntryMode::Normal,
+                    size: Some(blob.size()),
+                    content_hash: Some(blob.content_hash),
+                }],
+            )
+            .unwrap();
+            let mut options = SnapshotOptions::new("repo_pull_validation");
+            if invalid == "ancestor" {
+                options
+                    .parents
+                    .push(ObjectRef::new(ObjectKind::Snapshot, missing));
+            }
+            let snapshot = write_snapshot(
+                &store,
+                if invalid == "tree" { missing } else { tree.id },
+                options,
+            )
+            .unwrap();
+            if invalid == "corrupt_blob" {
+                let hex = blob.id.to_hex();
+                std::fs::write(
+                    directory
+                        .path()
+                        .join("objects")
+                        .join(&hex[..2])
+                        .join(&hex[2..]),
+                    b"corrupt",
+                )
+                .unwrap();
+            }
+            assert!(
+                validate_pull_snapshot(&store, snapshot.id).is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn pull_validation_checks_typed_refs_and_ancestor_blobs() {
+        use sorrel_core::{
+            write_snapshot, write_tree, EntryMode, ObjectRef, SnapshotOptions, TreeEntry,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(directory.path()).unwrap();
+        let missing = ObjectId::for_bytes(b"missing ancestor blob");
+        for kind in [ObjectKind::Blob, ObjectKind::Tree] {
+            let tree = write_tree(
+                &store,
+                vec![TreeEntry {
+                    name: "file".to_owned(),
+                    path: "file".into(),
+                    entry_type: EntryType::File,
+                    object: ObjectRef::new(kind, missing),
+                    mode: EntryMode::Normal,
+                    size: None,
+                    content_hash: None,
+                }],
+            )
+            .unwrap();
+            let ancestor = write_snapshot(&store, tree.id, SnapshotOptions::new("repo")).unwrap();
+            let mut options = SnapshotOptions::new("repo");
+            options
+                .parents
+                .push(ObjectRef::new(ObjectKind::Snapshot, ancestor.id));
+            let tip =
+                write_snapshot(&store, write_tree(&store, vec![]).unwrap().id, options).unwrap();
+            assert!(validate_pull_snapshot(&store, tip.id).is_err());
+        }
+    }
 
     #[test]
     fn base64_roundtrip_length() {
