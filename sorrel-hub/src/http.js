@@ -1,3 +1,5 @@
+import { DEFAULT_LIMITS } from './resource-limits.js';
+
 export class HttpError extends Error {
   /**
    * @param {number} statusCode
@@ -15,11 +17,20 @@ export class HttpError extends Error {
   }
 }
 
-export async function readJsonBody(request) {
+export async function readJsonBody(request, maxBytes = DEFAULT_LIMITS.requestBodyBytes) {
+  const declaredLength = request.headers?.['content-length'];
+  if (declaredLength !== undefined && Number(declaredLength) > maxBytes) {
+    throw new HttpError(413, 'request body exceeds configured safety limit', 'request_body_too_large');
+  }
   const chunks = [];
+  let size = 0;
 
-  for await (const chunk of request) {
-    chunks.push(chunk);
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
+    size += Buffer.byteLength(chunk);
+    if (size > maxBytes) {
+      throw new HttpError(413, 'request body exceeds configured safety limit', 'request_body_too_large');
+    }
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
 
   if (chunks.length === 0) {

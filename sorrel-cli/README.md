@@ -39,6 +39,9 @@ vendored `sorrel-protocol` conformance manifest.
 unterminated final line. Human output marks missing final newlines and changed
 CRLF lines. JSON hunk lines retain terminator-free `text` and include
 `lineEnding: "crlf"` or `"none"` when applicable; omitted `lineEnding` means LF.
+LCS reconstruction uses linear auxiliary memory while retaining the same edit
+choices. CPU time remains quadratic in the old/new line counts; large files
+can still take longer to compare.
 
 ## Merge status
 
@@ -57,6 +60,24 @@ when ignored later. `.env`, `.env.*`, and configured local dotenv-provider paths
 are protected before contents enter the object store; `.env.example` remains an
 ordinary file. Ignore negation cannot reinclude protected secret files.
 
+Use `sorrel path explain <workspace-relative-path>` (or add `--json`) to inspect
+`included`, `tracked`, `ignored`, `protected`, and `metadata` flags without
+reading the target's contents or creating snapshots, blobs, or cache entries.
+Tracked ordinary files can be both ignored and included; protected files remain
+excluded. `included` means selection eligibility, including for missing paths;
+`exists`, `isDirectory`, and `supportedType` describe filesystem metadata.
+Reserved `.git` and `.sorrel` paths are classified without traversal; these three
+fields are `null` (`unknown` in human output) because their type and existence
+are not inspected, including when `.git` is a worktree pointer file.
+The command also works before `init`, without creating `.sorrel/`.
+
+Explanation reads current ignore/provider configuration and immutable HEAD
+snapshot/tree metadata. It does not replay pending metadata transactions or
+acquire the writer lock, so the result is a moment-in-time observation rather
+than an atomic view of concurrent changes. Parent components and absolute paths
+are rejected, symlink ancestors are not traversed, and unsupported leaf types
+are reported as excluded. No rule editing or preset configuration is included.
+
 For legacy workspaces that already track secrets, see the
 [workspace selection and recovery contract](../docs/ARCHITECTURE.md#change-lane-and-merge-flow).
 
@@ -72,6 +93,25 @@ after its busy error; the lock releases automatically when that process exits.
 Use separate workspaces for concurrent edits. Workflow child processes run
 outside the lock so they can invoke Sorrel. Head and change-index publication
 is journaled and an interrupted commit finishes on the next locked command.
+
+On Unix, metadata staging flushes contents and directory entries before the
+journal is published; target renames are flushed before journal removal, whose
+directory entry is then flushed as well. A failure after publication reports
+uncertain durability and preserves the journal and staged data while target
+publication is incomplete. Recovery retries barriers even for targets already
+renamed. If the final journal-removal flush fails, the targets are already
+flushed; the next locked command retries the root barrier, and a journal that
+reappears after restart can be replayed safely.
+
+HEAD and lane-head publication flush their validated snapshot closure, including
+terminal blobs and ancestor history. Change-index publication and journal recovery
+also flush referenced changes, their parent changes, and linked base/result
+snapshot closures. This can add work proportional to the closure and history.
+Recovery rechecks all changes present in a staged changes index, including history.
+A failed closure check publishes no further pointers and leaves pending recovery data intact.
+Directory-entry flushing is a Unix contract; Windows retains file flushes and
+atomic replacement without the same directory guarantee. Device-level power-loss
+behavior has not been verified.
 
 ## Features
 

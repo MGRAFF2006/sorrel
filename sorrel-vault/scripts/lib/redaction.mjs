@@ -8,8 +8,8 @@ const DEFAULT_POLICY = {
 
 export function redactValue(value, policy = DEFAULT_POLICY) {
   const text = String(value);
-  const prefixLength = Math.min(policy.visiblePrefix ?? 0, text.length);
-  const suffixLength = Math.min(policy.visibleSuffix ?? 0, Math.max(text.length - prefixLength, 0));
+  const prefixLength = Math.min(policy.visiblePrefix ?? 0, Math.max(text.length - 1, 0));
+  const suffixLength = Math.min(policy.visibleSuffix ?? 0, Math.max(text.length - prefixLength - 1, 0));
   const prefix = text.slice(0, prefixLength);
   const suffix = suffixLength > 0 ? text.slice(-suffixLength) : "";
 
@@ -22,10 +22,7 @@ export function redactText(text, secretValues, policy = DEFAULT_POLICY, { secret
 
   for (const value of uniqueSecretValues(secretValues)) {
     const secret = String(value);
-
-    if (secret.length < mergedPolicy.minSecretLength) {
-      continue;
-    }
+    if (secret.length === 0) continue;
 
     redacted = redacted.replaceAll(secret, () => redactValue(secret, mergedPolicy));
   }

@@ -20,6 +20,7 @@ capabilities and limitations.
 | `change`      | `Change` objects, path-level `snapshot_diff`, `apply_change` |
 | `history`     | snapshot-DAG operations: ancestry sets, merge bases (`git merge-base --all` equivalent) |
 | `merge`       | first three-way snapshot merge: entry-level merge against the best common ancestor with first-class conflicts |
+| `workspace`   | shared workspace selection and read-only `explain_workspace_path` eligibility diagnostics |
 | `stat_cache`  | metadata cache that skips re-hashing unchanged files |
 | `transport`   | sync push/pull helpers: object closure, missing-object negotiation, content-verified batch transfer, ancestry check |
 | `lane_stack`  | `Lane`/`Stack` metadata objects for agent-native work coordination |
@@ -214,3 +215,21 @@ No rebase, rename detection, automatic conflict resolution, recursive
 multi-base merge, packfiles or chunked large-file storage, production auth, or
 hosted compute. Those build on top of this foundation; shared contracts go
 through `sorrel-protocol`.
+
+## Filesystem durability
+
+On Unix, successful `FileObjectStore` writes flush file contents before rename
+and then flush the object shard, store directories, and temporary source
+directory. Opening a writable store flushes its root and ancestor directory
+entries, including entries left by an earlier failed startup. Duplicate writes
+verify existing bytes and retry file and destination-directory barriers.
+`flush_existing` performs the same check explicitly for reference publishers;
+opening an existing store for reading remains read-only.
+
+A post-publication flush error returns `ObjectStoreError::DurabilityUncertain`:
+the content address may already be visible, so retry its barriers before
+publishing a reference. This adds an enum variant that downstream exhaustive
+matches must handle. On Windows and other non-Unix targets, file flushing and
+atomic rename remain, but directory-entry durability is not promised. These
+barriers request operating-system persistence; they do not prove power-loss
+behavior of a particular device or filesystem.

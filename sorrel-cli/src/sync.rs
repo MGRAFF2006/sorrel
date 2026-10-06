@@ -476,7 +476,7 @@ fn base64_decode(encoded: &str) -> Option<Vec<u8>> {
         .bytes()
         .filter(|byte| !byte.is_ascii_whitespace())
         .collect();
-    if stripped.len() % 4 != 0 {
+    if !stripped.len().is_multiple_of(4) {
         return None;
     }
 

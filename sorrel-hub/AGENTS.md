@@ -28,8 +28,8 @@ marketing site.
   implementation that is not actually installed.
 - Shared Convex metadata schema lives in `convex/` (SaaS Cloud and self-host).
   VCS objects must not move into Convex.
-- Keep internal `CONVEX_URL` separate from browser-facing
-  `CONVEX_PUBLIC_URL`; service DNS names are not reachable from the browser.
+- Convex functions are internal; only the Hub server uses `CONVEX_URL` plus a
+  deployment/admin key. Product clients use the authenticated Hub API.
 
 ## Core boundary (do not violate)
 

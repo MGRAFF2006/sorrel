@@ -58,6 +58,7 @@ test('capabilities do not advertise unavailable modules or storage backends', ()
       SORREL_HUB_OBJECT_STORAGE: 's3',
       SORREL_HUB_SYNC_STORE: 'memory',
       CONVEX_URL: 'http://127.0.0.1:3210',
+      CONVEX_DEPLOY_KEY: 'test-admin-key',
     },
   });
   assert.equal(caps.modules.actions, false);
@@ -67,18 +68,22 @@ test('capabilities do not advertise unavailable modules or storage backends', ()
   assert.equal(caps.auth.mode, 'oidc');
   assert.equal(caps.deploy, 'selfhost');
   assert.equal(caps.convex.enabled, true);
-  assert.equal(caps.convex.url, 'http://127.0.0.1:3210');
+  assert.equal('url' in caps.convex, false);
 });
 
-test('capabilities prefer the browser-reachable Convex URL', () => {
-  const caps = resolveCapabilities({
-    env: {
-      CONVEX_URL: 'http://convex-backend:3210',
-      CONVEX_PUBLIC_URL: 'http://127.0.0.1:3210',
-    },
-  });
-  assert.equal(caps.convex.enabled, true);
-  assert.equal(caps.convex.url, 'http://127.0.0.1:3210');
+test('capabilities advertise only configured privileged mirrors and never backend URLs', () => {
+  for (const env of [
+    { CONVEX_URL: 'http://convex-backend:3210' },
+    { CONVEX_PUBLIC_URL: 'http://127.0.0.1:3210', SORREL_HUB_CONVEX: '1' },
+    { CONVEX_URL: 'http://convex-backend:3210', CONVEX_DEPLOY_KEY: 'test-key', SORREL_HUB_CONVEX: '0' },
+  ]) {
+    assert.deepEqual(resolveCapabilities({ env }).convex, { enabled: false });
+  }
+  assert.deepEqual(resolveCapabilities({ env: {
+    CONVEX_SELF_HOSTED_URL: 'http://convex-backend:3210',
+    CONVEX_SELF_HOSTED_ADMIN_KEY: 'test-key',
+    CONVEX_PUBLIC_URL: 'http://127.0.0.1:3210',
+  } }).convex, { enabled: true });
 });
 
 test('AuthAdapter factory selects WorkOS / OIDC / dev', () => {
@@ -141,15 +146,15 @@ test('bind safety refuses bootstrap grants on non-loopback without override', ()
   assert.match(denied.message, /BOOTSTRAP_GRANTS/);
 });
 
-test('GET /session returns null without credentials and principal with header', async () => {
-  const app = createApp({ env: { SORREL_HUB_AUTH: 'dev' } });
+test('explicit demo session defaults to local and accepts an acting principal header', async () => {
+  const app = createApp({ env: { SORREL_HUB_AUTH: 'dev', SORREL_HUB_LOCAL_DEMO: '1' } });
   const { server, url } = await listen(app);
   try {
     const anonymous = await fetch(`${url}/session`);
     assert.equal(anonymous.status, 200);
     const anonBody = await anonymous.json();
     assert.equal(anonBody.data.auth.mode, 'dev');
-    assert.equal(anonBody.data.session, null);
+    assert.deepEqual(anonBody.data.session.principal, { type: 'user', id: 'local' });
 
     const authed = await fetch(`${url}/session`, {
       headers: {

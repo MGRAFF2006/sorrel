@@ -1,8 +1,10 @@
 import { evaluateWithTrustedGrants } from '../core-policy.js';
+import { FilesystemNameTooLongError } from '../fs-sync-store.js';
 import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
-import { resolveActingPrincipal } from '../policy-guard.js';
+import { assertCoreAccess, resolveActingPrincipal } from '../policy-guard.js';
 import { browseTextFile, browseTree } from '../sync-browser.js';
 import {
+  createTraversalBudget,
   isDescendant,
   missingObjects,
   walkClosure,
@@ -34,6 +36,13 @@ export async function handleSyncRoute(request, response, context) {
 
   const repoId = parseRepoId(segments[0]);
   const resource = segments[1];
+  if (request.method === 'GET' || resource === 'objects' && segments[2] === 'missing') {
+    await assertCoreAccess(context, 'repo.read', { kind: 'repo', id: repoId });
+  } else if (request.method === 'POST' && resource === 'objects') {
+    await assertCoreAccess(context, POLICY_ACTION_OBJECT_WRITE, { kind: 'repo', id: repoId });
+  } else if (request.method === 'POST' && resource === 'refs') {
+    await assertCoreAccess(context, POLICY_ACTION_REF_WRITE, { kind: 'repo', id: repoId });
+  }
 
   if (resource === 'refs') {
     if (segments.length === 2) {
@@ -121,19 +130,19 @@ function listRefs(response, context, repoId) {
 }
 
 async function listMissing(request, response, context, repoId) {
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
   const want = normalizeIdList(body.want, 'want');
   if (want.length === 0) {
     throw new HttpError(400, 'want must contain at least one snapshot id', 'invalid_request');
   }
   const have = normalizeIdList(body.have ?? [], 'have');
 
-  const missing = missingObjects(want, have, repoId, context.store.sync);
+  const missing = missingObjects(want, have, repoId, context.store.sync, createTraversalBudget(context.limits));
   sendJson(response, 200, { missing });
 }
 
 async function uploadObjects(request, response, context, repoId) {
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
   await assertObjectUploadPolicy(request, body, repoId, context);
 
   const objects = body.objects;
@@ -184,7 +193,7 @@ function getObject(response, context, repoId, objectIdValue) {
 }
 
 async function advanceRef(request, response, context, repoId, refName) {
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
   const actingPrincipal = resolveActingPrincipal(request, context);
   const snapshot = normalizeObjectId(body.snapshot, 'snapshot');
   const expected = body.expected === null || body.expected === undefined
@@ -220,7 +229,8 @@ async function advanceRef(request, response, context, repoId, refName) {
     }
   }
 
-  const { incomplete, missingIds } = walkClosure(repoId, [snapshot], context.store.sync, 'snapshot');
+  const budget = createTraversalBudget(context.limits);
+  const { incomplete, missingIds } = walkClosure(repoId, [snapshot], context.store.sync, 'snapshot', budget);
   if (incomplete) {
     throw new HttpError(
       409,
@@ -230,7 +240,7 @@ async function advanceRef(request, response, context, repoId, refName) {
     );
   }
 
-  if (current && !force && !isDescendant(repoId, current, snapshot, context.store.sync)) {
+  if (current && !force && !isDescendant(repoId, current, snapshot, context.store.sync, budget)) {
     throw new HttpError(
       409,
       `snapshot ${snapshot} is not a descendant of ref ${refName}`,
@@ -319,6 +329,9 @@ function decodeObjectBytes(entry, index) {
 }
 
 export function mapSyncStoreError(error) {
+  if (error instanceof FilesystemNameTooLongError || error?.code === 'ENAMETOOLONG') {
+    return new HttpError(400, 'identifier or ref name exceeds filesystem component limits', 'filesystem_name_too_long');
+  }
   if (error instanceof SyncObjectIdMismatchError) {
     return new HttpError(400, error.message, error.code);
   }
