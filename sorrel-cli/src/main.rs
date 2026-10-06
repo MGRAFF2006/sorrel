@@ -927,14 +927,22 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
                             "oldLen": hunk.old_len,
                             "newStart": hunk.new_start,
                             "newLen": hunk.new_len,
-                            "lines": hunk.lines.iter().map(|line| json!({
-                                "kind": match line.kind {
-                                    linediff::LineKind::Context => "context",
-                                    linediff::LineKind::Added => "added",
-                                    linediff::LineKind::Removed => "removed",
-                                },
-                                "text": line.text,
-                            })).collect::<Vec<_>>()
+                            "lines": hunk.lines.iter().map(|line| {
+                                let mut value = json!({
+                                    "kind": match line.kind {
+                                        linediff::LineKind::Context => "context",
+                                        linediff::LineKind::Added => "added",
+                                        linediff::LineKind::Removed => "removed",
+                                    },
+                                    "text": line.text,
+                                });
+                                match line.line_ending {
+                                    linediff::LineEnding::Lf => {},
+                                    linediff::LineEnding::CrLf => value["lineEnding"] = json!("crlf"),
+                                    linediff::LineEnding::None => value["lineEnding"] = json!("none"),
+                                }
+                                value
+                            }).collect::<Vec<_>>()
                         })
                     })
                     .collect();

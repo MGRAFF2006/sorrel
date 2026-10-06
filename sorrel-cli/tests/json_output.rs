@@ -270,6 +270,49 @@ fn diff_reports_line_level_hunks_for_modified_text() {
 }
 
 #[test]
+fn diff_reports_final_newline_and_crlf_changes() {
+    for (old, new, removed_ending, added_ending, marker) in [
+        ("a\n", "a", None, Some("none"), "No newline at end of file"),
+        ("a", "a\n", Some("none"), None, "No newline at end of file"),
+        ("a\r\n", "a\n", Some("crlf"), None, "CRLF line ending"),
+        ("a\n", "a\r\n", None, Some("crlf"), "CRLF line ending"),
+    ] {
+        let temp = TempDir::new().unwrap();
+        std::fs::write(temp.path().join("a.txt"), old).unwrap();
+        command_json(temp.path(), &["init", "--json"]);
+        command_json(temp.path(), &["change", "create", "-m", "base", "--json"]);
+        std::fs::write(temp.path().join("a.txt"), new).unwrap();
+        let diff = command_json(temp.path(), &["diff", "--json"]);
+        let file = &diff["files"][0];
+        assert_eq!(file["kind"], "modified");
+        assert_eq!(file["binary"], false);
+        let lines = file["hunks"][0]["lines"].as_array().unwrap();
+        let removed = lines.iter().find(|line| line["kind"] == "removed").unwrap();
+        let added = lines.iter().find(|line| line["kind"] == "added").unwrap();
+        assert_eq!(removed["text"], "a");
+        assert_eq!(added["text"], "a");
+        assert_eq!(
+            removed.get("lineEnding").and_then(Value::as_str),
+            removed_ending
+        );
+        assert_eq!(
+            added.get("lineEnding").and_then(Value::as_str),
+            added_ending
+        );
+        let human = Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(temp.path())
+            .arg("diff")
+            .output()
+            .unwrap();
+        assert!(human.status.success());
+        let human = String::from_utf8(human.stdout).unwrap();
+        assert!(human.contains(marker));
+        assert!(human.contains("@@ -1,1 +1,1 @@"));
+    }
+}
+
+#[test]
 fn diff_reports_no_changes_when_clean() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     command_json(temp_dir.path(), &["init", "--json"]);
