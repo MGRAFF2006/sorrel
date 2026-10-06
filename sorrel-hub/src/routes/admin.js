@@ -195,7 +195,7 @@ async function createCollectionItem(request, response, context, collection, coll
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
   }
 
-  assertPrivilegedAdminAccess(request, body, collectionName, context);
+  await assertPrivilegedAdminAccess(request, body, collectionName, context);
 
   let item;
   try {
@@ -242,7 +242,7 @@ async function updateCollectionItem(
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
   }
 
-  assertPrivilegedAdminAccess(request, body, collectionName, context);
+  await assertPrivilegedAdminAccess(request, body, collectionName, context);
 
   let item;
   try {

@@ -17,10 +17,17 @@ import {
   SyncObjectNotFoundError,
 } from './sync-store.js';
 
+const DIAGNOSTIC_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'CONNECT', 'TRACE']);
+const FILESYSTEM_ERROR_CODES = new Set([
+  'EACCES', 'EPERM', 'ENOSPC', 'EDQUOT', 'EROFS', 'ENOENT', 'EEXIST',
+  'ENOTDIR', 'EISDIR', 'EMFILE', 'ENFILE', 'EIO', 'EXDEV', 'EBUSY', 'ELOOP', 'ENAMETOOLONG',
+]);
+
 export function createApp(options = {}) {
   const limits = resolveResourceLimits(options.env);
   const store = options.store ?? createInMemoryStore();
   const trustedGrantsById = options.trustedGrantsById ?? {};
+  const trustedPoliciesById = options.trustedPoliciesById ?? {};
   const authAdapter = options.authAdapter ?? createAuthAdapterFromEnv(options.env);
   const convexMirror = options.convexMirror ?? createConvexMirror(options.env);
   const capabilities =
@@ -33,6 +40,7 @@ export function createApp(options = {}) {
   return {
     store,
     trustedGrantsById,
+    trustedPoliciesById,
     authAdapter,
     convexMirror,
     capabilities,
@@ -87,6 +95,7 @@ export function createApp(options = {}) {
           limits,
           url,
           trustedGrantsById,
+          trustedPoliciesById,
           authAdapter,
           session,
           convexMirror,
@@ -111,7 +120,7 @@ export function createApp(options = {}) {
 
         return sendNotFound(response);
       } catch (error) {
-        return sendError(response, error);
+        return sendError(response, error, request.method);
       }
     },
   };
@@ -127,10 +136,10 @@ function isSyncPath(pathname) {
   return resource === 'refs' || resource === 'objects' || resource === 'tree' || resource === 'files';
 }
 
-function sendError(response, error) {
+function sendError(response, error, method) {
   const mapped = mapSyncStoreError(error);
   if (mapped !== error) {
-    return sendError(response, mapped);
+    return sendError(response, mapped, method);
   }
 
   if (error instanceof SyncObjectIdMismatchError) {
@@ -200,7 +209,7 @@ function sendError(response, error) {
   }
 
   if (error instanceof PolicyEvaluationError) {
-    return sendJson(response, 403, {
+    return sendJson(response, error.statusCode ?? 403, {
       error: {
         code: error.code,
         message: error.message,
@@ -208,6 +217,12 @@ function sendError(response, error) {
     });
   }
 
+  const code = FILESYSTEM_ERROR_CODES.has(error?.code) ? error.code : undefined;
+  console.error('[sorrel-hub] unexpected request failure', {
+    method: DIAGNOSTIC_METHODS.has(method) ? method : 'UNKNOWN',
+    category: code ? 'filesystem' : 'internal',
+    ...(code ? { code } : {}),
+  });
   return sendJson(response, 500, {
     error: {
       code: 'internal_server_error',

@@ -95,7 +95,8 @@ async function laneSubmit(request, response, context) {
   try {
     proposal = createProposal({
       projectId: projectId.trim(),
-      repositoryId: body.repositoryId,
+      repositoryId: body.syncRepoId !== undefined || store.getRepository(body.repositoryId)
+        ? body.repositoryId : undefined,
       syncRepoId,
       title: title.trim(),
       description: body.description,

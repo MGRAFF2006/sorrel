@@ -149,6 +149,7 @@ export function SyncView() {
       <div class="toolbar">
         <input
           type="search"
+          aria-label="Find a repository"
           placeholder="Find a repository…"
           autocomplete="off"
           value={query()}

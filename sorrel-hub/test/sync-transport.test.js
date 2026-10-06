@@ -13,6 +13,7 @@ const objectWriteGrant = {
   source: 'core',
   principal: { type: 'user', id: 'user_pusher' },
   action: 'repo.object.write',
+  effect: 'allow',
   resource: { kind: 'repo', id: repoId },
 };
 
@@ -21,6 +22,7 @@ const refWriteGrant = {
   source: 'core',
   principal: { type: 'user', id: 'user_pusher' },
   action: 'repo.ref.write',
+  effect: 'allow',
   resource: { kind: 'repo', id: repoId },
 };
 
@@ -107,6 +109,7 @@ test('proposal comparison uses recorded snapshots and previews added, modified, 
     const target = makeSnapshot(put(beforeTree));
     const source = makeSnapshot(put(afterTree), [put(target)]);
     put(source);
+    app.store.getProject('proj_test') ?? app.store.createProject({ id: 'proj_test', organizationId: 'org_local', name: 'Test' });
     const proposal = app.store.createProposal({ projectId: 'proj_test', title: 'Inspect changes', authorRef: 'user:local', syncRepoId: repoId, sourceSnapshot: source.id, targetSnapshot: target.id });
     const client = new HubClient({ baseUrl });
     app.store.sync.setRef(repoId, 'HEAD', target.id);
@@ -134,6 +137,7 @@ test('proposal comparison uses recorded snapshots and previews added, modified, 
 
 test('comparison reports unavailable snapshots and missing closure rather than an empty diff', async () => {
   await withSyncServer(async (baseUrl, app) => {
+    app.store.getProject('proj_test') ?? app.store.createProject({ id: 'proj_test', organizationId: 'org_local', name: 'Test' });
     const proposal = app.store.createProposal({ projectId: 'proj_test', title: 'Metadata only', authorRef: 'user:local' });
     const endpoint = `${baseUrl}/admin/proposals/${proposal.id}/changes`;
     const unavailable = await fetch(endpoint);
@@ -155,6 +159,7 @@ test('comparison traverses nested trees and bounds the changed-file count', asyn
     const before = makeSnapshot(put(makeTree([])));
     const after = makeSnapshot(put(makeTree([{ name: 'src', type: 'directory', object: put(nested) }])));
     put(before); put(after);
+    app.store.getProject('proj_test') ?? app.store.createProject({ id: 'proj_test', organizationId: 'org_local', name: 'Test' });
     const proposal = app.store.createProposal({ projectId: 'proj_test', title: 'Nested', authorRef: 'user:local', syncRepoId: repoId, sourceSnapshot: after.id, targetSnapshot: before.id });
     const endpoint = `${baseUrl}/admin/proposals/${proposal.id}/changes`;
     assert.equal((await fetch(endpoint).then((r) => r.json())).data.changes[0].path, 'src/nested.txt');
