@@ -6,6 +6,9 @@ Native and Expo.
 The app is deliberately a Hub companion: projects, reviews, discussion, and
 repository refs work against the current Hub HTTP API. It does not embed the
 local Sorrel engine yet. Core policy remains authoritative on the server.
+The repository screen includes explicitly linked project repositories, even
+before their first review, alongside repositories referenced by older proposals.
+Only repositories returned by the Hub sync listing are shown.
 
 ## Experience
 
