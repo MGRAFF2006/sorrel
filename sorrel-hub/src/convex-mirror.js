@@ -52,13 +52,23 @@ export function createConvexMirror(env = process.env) {
     }
   }
 
+  const pending = new Map();
+  function enqueue(hubId, body) {
+    const send = () => postMutation('/api/mutation', body);
+    const next = (pending.get(hubId) ?? Promise.resolve()).then(send, send);
+    pending.set(hubId, next);
+    return next.finally(() => {
+      if (pending.get(hubId) === next) pending.delete(hubId);
+    });
+  }
+
   return {
     enabled: true,
     /**
      * @param {{ id: string, status?: string, projectId?: string, title?: string, updatedAt?: string }} proposal
      */
     async upsertProposal(proposal) {
-      await postMutation('/api/mutation', {
+      await enqueue(proposal.id, {
         path: 'proposals:upsert',
         args: {
           hubId: proposal.id,
@@ -74,7 +84,7 @@ export function createConvexMirror(env = process.env) {
      * @param {string} hubId
      */
     async removeProposal(hubId) {
-      await postMutation('/api/mutation', {
+      await enqueue(hubId, {
         path: 'proposals:remove',
         args: { hubId },
         format: 'json',

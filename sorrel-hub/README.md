@@ -43,6 +43,14 @@ Core-authorized Hub proposal list, never a public Convex subscription.
 See [Convex setup and existing-deployment migration](convex/README.md); operators
 must redeploy the functions to revoke their former public visibility.
 
+Each server mirror instance sends mutations for a proposal ID in invocation
+order; different IDs can proceed concurrently. This prevents late successful
+upserts from overwriting newer ones within that instance. The queue is in memory
+and offers no ordering across Hub processes or restarts. Mirroring remains best
+effort: failed requests are logged without retries or reconciliation, and a
+transport failure can leave the backend outcome uncertain. Client-supplied
+timestamps do not determine mutation order.
+
 ### Policy conformance
 
 To keep Hub's administration guard aligned with Core, `test/policy-conformance.test.js`
