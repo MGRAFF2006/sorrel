@@ -243,7 +243,7 @@ Lightweight collection endpoints for administration data:
 - `GET|POST /admin/repositories` (filters: `organizationId`, `projectId`)
 - `GET /admin/repositories/:id`
 - `GET|POST /admin/proposals` (filters: `projectId`, `repositoryId`, `syncRepoId`, `status`, `sourceLane`)
-- `GET|PATCH /admin/proposals/:id` — detail; PATCH status (`draft`→`open`→`approved`/`rejected`/`merged`/`closed`) and editable fields
+- `GET|PATCH /admin/proposals/:id` — detail; PATCH status (`draft`→`open`→`approved`/`rejected`/`merged`/`closed`) and editable fields. Repository, branch, lane, and snapshot inputs cannot change in an update involving approved or merged status (`400 model_validation_failed`); title and description remain editable. Reopen an approved proposal in a separate status-only update before replacing its inputs.
 - `GET /admin/proposals/:id?include=comments` — proposal plus nested review comments
 - `GET /admin/proposals/:id/comments` — comments only
 - `GET|POST /admin/review-comments` (filters: `proposalId`, `state`)
