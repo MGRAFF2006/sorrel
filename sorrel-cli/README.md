@@ -69,6 +69,12 @@ is journaled and an interrupted commit finishes on the next locked command.
 - Workflow validation and policy-gated local job execution from
   `sorrel.workflow.yml`.
 
+`diff` includes each changed entry's `oldMode` and `newMode` in JSON:
+`normal`, `executable`, or `directory`, with `null` on the missing side of an
+addition or deletion. Human output shows mode transitions before content hunks.
+Executable-only and empty-directory changes remain visible with no text hunks;
+an unchanged binary file's mode change does not report a content change.
+
 Every command accepts the global `--json` flag and emits structured JSON.
 Repository state is real and persisted under `.sorrel/`; commands do not return
 fabricated domain data. Empty changes are rejected. See [`DEMO.md`](DEMO.md)

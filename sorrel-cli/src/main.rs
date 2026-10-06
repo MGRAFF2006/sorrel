@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -13,11 +14,11 @@ use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_import, is_descendant,
     materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree, parse_object_id_hex,
-    read_conflict, read_snapshot, read_snapshot_files, read_stack, restore_snapshot_to_directory,
-    snapshot_diff, write_snapshot, write_tree, ChangeOptions, ConflictType, FileObjectStore,
-    GitExportOptions, GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions,
-    ObjectId, ObjectKind, ObjectRef, ObjectStore, PathChangeKind, Principal, SnapshotOptions,
-    StackOptions, StatCache, Visibility,
+    read_conflict, read_snapshot, read_snapshot_files, read_stack, read_tree,
+    restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree, ChangeOptions,
+    ConflictType, EntryMode, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
+    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
+    PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -897,6 +898,8 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
 
     let base_files = to_io(read_snapshot_files(&store, &base_id))?;
     let current_files = to_io(read_snapshot_files(&store, &current))?;
+    let base_modes = snapshot_modes(&store, &base_id)?;
+    let current_modes = snapshot_modes(&store, &current)?;
 
     let mut files_json = Vec::new();
     let mut human = String::new();
@@ -912,7 +915,8 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
         let old_bytes = base_files.get(&path).map(Vec::as_slice).unwrap_or(&[]);
         let new_bytes = current_files.get(&path).map(Vec::as_slice).unwrap_or(&[]);
 
-        let (file_json, file_human) = match (
+        let header = format!("diff --sorrel {path_str} ({kind})\n");
+        let (mut file_json, mut file_human) = match (
             std::str::from_utf8(old_bytes),
             std::str::from_utf8(new_bytes),
         ) {
@@ -940,15 +944,36 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
                     .collect();
                 (
                     json!({ "path": path_str, "kind": kind, "binary": false, "hunks": hunks_json }),
-                    format!("diff --sorrel {path_str} ({kind})\n{rendered}"),
+                    format!("{header}{rendered}"),
                 )
             }
             _ => (
                 json!({ "path": path_str, "kind": kind, "binary": true, "hunks": [] }),
-                format!("diff --sorrel {path_str} ({kind})\nBinary file changed\n"),
+                format!(
+                    "{header}{}",
+                    if old_bytes == new_bytes {
+                        ""
+                    } else {
+                        "Binary file changed\n"
+                    }
+                ),
             ),
         };
 
+        let old_mode = base_modes.get(&path).copied();
+        let new_mode = current_modes.get(&path).copied();
+        file_json["oldMode"] = json!(old_mode);
+        file_json["newMode"] = json!(new_mode);
+        if old_mode != new_mode {
+            let mut mode_lines = String::new();
+            if let Some(mode) = old_mode {
+                mode_lines.push_str(&format!("old mode {mode}\n"));
+            }
+            if let Some(mode) = new_mode {
+                mode_lines.push_str(&format!("new mode {mode}\n"));
+            }
+            file_human.insert_str(header.len(), &mode_lines);
+        }
         files_json.push(file_json);
         human.push_str(&file_human);
     }
@@ -967,6 +992,39 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
         }),
         human: human.trim_end().to_owned(),
     })
+}
+
+fn snapshot_modes(
+    store: &impl ObjectStore,
+    snapshot: &ObjectId,
+) -> io::Result<BTreeMap<PathBuf, &'static str>> {
+    fn collect(
+        store: &impl ObjectStore,
+        tree: &ObjectId,
+        modes: &mut BTreeMap<PathBuf, &'static str>,
+    ) -> io::Result<()> {
+        for entry in to_io(read_tree(store, tree))?.entries {
+            modes.insert(
+                entry.path,
+                match entry.mode {
+                    EntryMode::Normal => "normal",
+                    EntryMode::Executable => "executable",
+                    EntryMode::Directory => "directory",
+                },
+            );
+            if entry.object.kind == ObjectKind::Tree {
+                collect(store, &entry.object.id, modes)?;
+            }
+        }
+        Ok(())
+    }
+    let mut modes = BTreeMap::new();
+    collect(
+        store,
+        &to_io(read_snapshot(store, snapshot))?.root_tree.id,
+        &mut modes,
+    )?;
+    Ok(modes)
 }
 
 fn log_output(args: LogArgs) -> io::Result<CommandOutput> {
