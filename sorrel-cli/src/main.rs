@@ -48,6 +48,11 @@ struct Cli {
 enum Commands {
     /// Initialize Sorrel metadata for the current repository.
     Init,
+    /// Explain how workspace paths are selected.
+    Path {
+        #[command(subcommand)]
+        command: PathCommand,
+    },
     /// Show working-tree changes and pending merge conflicts.
     Status,
     /// Show line-level differences between the working tree and HEAD.
@@ -243,6 +248,12 @@ struct ChangeCreateArgs {
     /// Optional longer description.
     #[arg(long)]
     description: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+enum PathCommand {
+    /// Explain inclusion, tracking, ignore, protection, and metadata rules without reading file contents.
+    Explain { path: PathBuf },
 }
 
 #[derive(Debug, Args)]
@@ -573,7 +584,7 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
                     command: GitCommand::Import(_)
                 }
         );
-    let _workspace_lock = if matches!(&command, Commands::Workflow { .. }) {
+    let _workspace_lock = if matches!(&command, Commands::Workflow { .. } | Commands::Path { .. }) {
         None
     } else if needs_workspace_lock {
         Some(repo::WorkspaceLock::acquire(&root)?)
@@ -583,6 +594,9 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
     match command {
         Commands::Init => init_output(),
         Commands::Status => status_output(),
+        Commands::Path {
+            command: PathCommand::Explain { path },
+        } => path_explain_output(&path),
         Commands::Diff(args) => diff_output(args),
         Commands::Log(args) => log_output(args),
         Commands::Change { command } => match command {
@@ -930,6 +944,41 @@ fn open_repo() -> io::Result<RepoContext> {
         head,
         store,
     })
+}
+
+fn path_explain_output(path: &Path) -> io::Result<CommandOutput> {
+    let root = std::env::current_dir()?;
+    let explanation = if repo::is_initialized() {
+        repo::load_manifest()?;
+        let head = repo::load_head()?.ok_or_else(|| io::Error::other("missing HEAD pointer"))?;
+        let store = to_io(FileObjectStore::open_existing(repo::object_store_root()))?;
+        let baseline = parse_object_id_hex(&head.snapshot).map_err(io::Error::other)?;
+        to_io(sorrel_core::explain_workspace_path(
+            &store,
+            &root,
+            Some(&baseline),
+            path,
+        ))?
+    } else {
+        to_io(sorrel_core::explain_workspace_path(
+            &sorrel_core::InMemoryObjectStore::new(),
+            &root,
+            None,
+            path,
+        ))?
+    };
+    let state = if explanation.included {
+        "Included"
+    } else {
+        "Excluded"
+    };
+    let fact =
+        |value: Option<bool>| value.map_or("unknown", |value| if value { "true" } else { "false" });
+    let human = format!("{state}: {}\ntracked={} ignored={} protected={} metadata={} exists={} directory={} supportedType={}", explanation.path.display(), explanation.tracked, explanation.ignored, explanation.protected, explanation.metadata, fact(explanation.exists), fact(explanation.is_directory), fact(explanation.supported_type));
+    let mut json = serde_json::to_value(&explanation)?;
+    json["command"] = json!("path explain");
+    json["mocked"] = json!(false);
+    Ok(CommandOutput { json, human })
 }
 
 fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {

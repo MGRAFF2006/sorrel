@@ -33,6 +33,24 @@ Hub model objects reference the Core permission spine (`Principal`, `ResourceRef
 `Policy`, `PolicyDecision`, `Grant`, and `SecretRef`) so Hub can administer and
 display policy without becoming the only source of truth.
 
+### Optional private Convex mirror
+
+Convex proposal functions are internal and require the server's deployment/admin
+key. Configure `CONVEX_URL` plus `CONVEX_DEPLOY_KEY` or
+`CONVEX_SELF_HOSTED_ADMIN_KEY`; otherwise the mirror stays disabled. Capabilities
+report configuration without a backend URL. Product counters use the
+Core-authorized Hub proposal list, never a public Convex subscription.
+See [Convex setup and existing-deployment migration](convex/README.md); operators
+must redeploy the functions to revoke their former public visibility.
+
+Each server mirror instance sends mutations for a proposal ID in invocation
+order; different IDs can proceed concurrently. This prevents late successful
+upserts from overwriting newer ones within that instance. The queue is in memory
+and offers no ordering across Hub processes or restarts. Mirroring remains best
+effort: failed requests are logged without retries or reconciliation, and a
+transport failure can leave the backend outcome uncertain. Client-supplied
+timestamps do not determine mutation order.
+
 ### Policy conformance
 
 To keep Hub's administration guard aligned with Core, `test/policy-conformance.test.js`
@@ -83,6 +101,13 @@ survives restarts:
 - `SORREL_HUB_SYNC_STORE=memory` — use ephemeral in-memory stores for both
   sync and metadata (the default inside tests via `createApp()`).
 
+Filesystem storage requires each complete percent-encoded component to fit
+255 bytes: repository IDs and ref names include all escaped bytes; metadata IDs
+also include the `.json` suffix. Oversized names return HTTP 400 with
+`filesystem_name_too_long` before writing. Filesystems with lower component
+limits can also return this error. The memory store keeps its existing identifier
+contract; storage encoding and existing filenames are unchanged.
+
 Unexpected HTTP 500 failures emit a server diagnostic with the HTTP method,
 fixed category, and recognized filesystem error code. Raw exceptions and
 request data are omitted; the client response remains redacted.
@@ -91,29 +116,115 @@ request data are omitted; the client response remains redacted.
 
 `SORREL_HUB_AUTH` selects one of these request-authentication adapters:
 
-- `dev` (default) trusts `x-sorrel-acting-principal` and is restricted to
-  loopback unless the insecure-demo override is explicit.
+- `dev` (default) provides no identity until `SORREL_HUB_LOCAL_DEMO=1` explicitly
+  enables development headers and anonymous `user:local` demo sessions. It is
+  restricted to loopback unless the insecure-demo bind override is explicit.
 - `oidc` verifies RS256/ES256 Bearer JWTs using
-  `SORREL_OIDC_ISSUER` and optional `SORREL_OIDC_AUDIENCE`; keys are read from
-  `<issuer>/.well-known/jwks.json`. Keys are cached for ten minutes. An unknown
-  signing-key ID triggers a shared refresh, limited to once per issuer URI every
-  30 seconds (including failed refreshes); HTTP fetches time out after five
-  seconds. A failed refresh rejects the new key while previously cached keys
+  required `SORREL_OIDC_ISSUER` and `SORREL_OIDC_AUDIENCE`; keys are read from
+  `<issuer>/.well-known/jwks.json`. Issuer-only configuration fails closed until
+  an audience identifying this Hub is supplied. Keys are cached for ten minutes.
+  An unknown signing-key ID triggers a shared refresh, limited to once per issuer
+  URI every 30 seconds (including failed refreshes); HTTP fetches time out after
+  five seconds. A failed refresh rejects the new key while previously cached keys
   remain usable until cache expiry. A rotation during cooldown may require a
   retry after the remaining cooldown.
-- `workos` uses `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, optional
-  `WORKOS_ISSUER`, and optional `WORKOS_AUDIENCE` for Bearer verification.
+- `workos` uses `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` to verify AuthKit
+  Bearer JWTs. It requires a string `client_id` exactly matching
+  `WORKOS_CLIENT_ID` and reads keys from
+  `<issuer>/sso/jwks/<encoded-client-id>`. The issuer defaults to
+  `https://api.workos.com`; `WORKOS_ISSUER` overrides it. AuthKit tokens do not
+  require `aud`; optional `WORKOS_AUDIENCE` adds an `aud` restriction without
+  replacing the `client_id` check. See the
+  [WorkOS session-token contract](https://workos.com/docs/reference/authkit/session-tokens).
+
+OIDC and WorkOS tokens must contain a finite numeric `exp` claim. Generic OIDC
+also requires an `aud` claim matching its configured audience (a string or
+array of strings). Expiry retains the existing 60-second clock-skew allowance.
+Tokens without expiry are rejected.
 
 These adapters authenticate a principal; authorization still requires trusted
 Core grant references. WorkOS remains an adapter skeleton without sealed
 sessions, and the browser UI does not provide an IdP login flow in this alpha.
 
-In OIDC/WorkOS mode, every mutation requires a verified session and returns
-`401 authentication_required` without one. A development acting-principal
-header cannot substitute for that session. Project, proposal, comment, and run
-attribution is bound to the session instead of trusting a claimed body author.
-Read endpoints remain public in this alpha; this is not complete production
-access control. Development-mode anonymous metadata callers remain compatible.
+Every collaboration, metadata and sync read or write requires an authenticated
+session and a native Core allow decision. Without one, private endpoints return
+`401 authentication_required`. Verified AuthAdapter identity wins over acting
+headers and claimed authors; organization ownership and mutation attribution are
+bound to that identity. Only `/healthz`, `/capabilities` and `/session` discovery
+remain public. No credentials are returned by discovery.
+
+`SORREL_HUB_LOCAL_DEMO=1` with `auth=dev` is the explicit compatibility mode for
+isolated local clients: absent headers act as `user:local`, and supplied acting
+headers select a development identity. Actual configured Core grants are still
+required. Set `SORREL_HUB_BOOTSTRAP_GRANTS=1` as well to provision the local demo
+read/write grants. This flag never supplies a development identity in OIDC or
+WorkOS mode.
+
+### Private route capabilities
+
+Capabilities are native Core strings. Resources are exact Core kind/id pairs;
+an organization grant does not implicitly grant access to its projects, and a
+project grant does not implicitly grant repository byte access. Operators may
+use native resource id `*` deliberately. All effective grants and policies apply,
+including denies that clients omit from references.
+
+| Routes | Capability | Resource |
+| --- | --- | --- |
+| `GET /projects`, `/projects/:id` | `project.read` | Each stored project id |
+| `POST /projects` | `project.create` | Requested organization namespace id |
+| `POST /projects/:id/repositories` | `project.read`, `project.write`, `repo.read` | URL project id; requested sync repository id |
+| Organization metadata GET / POST | `org.read` / `org.write` | Stored/new organization id |
+| Repository metadata GET | `repo.read` | Stored Hub repository record id |
+| Repository metadata POST | `project.read`, `policy.grant` | Actual stored parent project id; organization must match |
+| Policy metadata GET / POST | `policy.read` / `policy.grant` | Stored parent project id, or organization namespace id |
+| Proposal GET / POST / PATCH | `proposal.read` / `proposal.write` | Actual stored parent project id |
+| Approve, reject or merge a proposal | Also `proposal.review` | Same actual project id |
+| Review comments GET / POST / PATCH | `review.comment.read` / `review.comment.write` | Stored parent proposal's project id |
+| Workflow runs GET / POST / PATCH | `workflow.run.read` / `workflow.run.write` | Actual stored parent project id |
+| `/collaboration/lane-submit`, `/collaboration/proposal-summary` | `proposal.write` + `proposal.read` / `proposal.read` | Each actual project id |
+| `GET /admin/sync-repos`, `/:repo/refs`, `/:repo/objects/:id`, `/:repo/tree`, `/:repo/files`, `POST /:repo/objects/missing` | `repo.read` | Each sync repository id |
+| `GET /admin/proposals/:id/changes` | `proposal.read` + `repo.read` | Stored project id; stored sync repository id |
+| `POST /:repo/objects`, `POST /:repo/refs/*` | `repo.object.write` / `repo.ref.write` | URL sync repository id |
+
+Metadata creation and PATCH require the corresponding read capability as well
+as write capability on their existing parent scope. New organizations and
+projects use their creation capability. Comments additionally require reading
+the actual parent proposal; runs linked to a proposal require `proposal.read`.
+Proposal repository/workflow-run links require reading those actual targets and
+matching their stored project. A Hub repository metadata id can differ from its
+sync repository id: provision `repo.read` for both scopes when needed. None of
+these metadata links supplies Core authority.
+
+Lists, nested comments and summary counts contain only authorized records.
+Unreadable records and records with missing or inconsistent local
+project/proposal/repository parents return the same `404 not_found` response
+as missing records. Organization namespace ids do not require local organization
+records; external Core reference hydration remains separate. Sync authorization runs before looking up objects/refs, so
+private and absent repository scopes have the same denial. Snapshot comparison
+also requires whole-repository byte access. Subprocess errors propagate rather
+than producing a successful empty list. Within one request, repeated identical
+action/resource decisions are reused; request authorization references are
+validated separately on sync and privileged administration mutations.
+
+For example, an operator can configure this native project-reader record under
+its matching key in `SORREL_HUB_TRUSTED_GRANTS_FILE`:
+
+```json
+{
+  "grant_project_reader": {
+    "schemaVersion": "sorrel.protocol.v0",
+    "kind": "Grant",
+    "id": "grant_project_reader",
+    "principal": { "kind": "user", "id": "oidc:member-subject" },
+    "capabilities": ["project.read", "proposal.read", "review.comment.read", "workflow.run.read"],
+    "resource": { "kind": "project", "id": "proj_example" },
+    "effect": "allow"
+  }
+}
+```
+
+Creating a project does not automatically provision grants for the new id.
+Grant/policy metadata creation does not modify the configured effective records.
 
 ### Trusted grants (sync push/pull)
 
@@ -126,13 +237,15 @@ server has no local bootstrap grants by default. For local development only,
 the explicit opt-in below lets the CLI acting principal
 `{"type":"user","id":"local"}` push/pull without a separate grant service:
 
+- `grant_local_repo_read` → `repo.read`
 - `grant_local_object_write` → `repo.object.write`
 - `grant_local_ref_write` → `repo.ref.write`
 
 Environment:
 
-- `SORREL_HUB_BOOTSTRAP_GRANTS=1` — enable the two development-only,
-  repo-wide bootstrap grants. No other value enables them.
+- `SORREL_HUB_BOOTSTRAP_GRANTS=1` — enable the development-only,
+  repo-wide bootstrap grants. With `SORREL_HUB_LOCAL_DEMO=1`, also provision
+  the native local organization/project collaboration grants. No other value enables them.
 - `SORREL_HUB_TRUSTED_GRANTS_FILE` — path to a JSON object of extra
   `id → grant` records merged on top of bootstrap grants.
 - `SORREL_HUB_TRUSTED_POLICIES_FILE` — path to a JSON object of native Core
@@ -169,7 +282,7 @@ production authentication or authorization provisioning.
 For a local CLI-compatible development server:
 
 ```sh
-SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start
+SORREL_HUB_LOCAL_DEMO=1 SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start
 ```
 
 ### Deployment
@@ -195,11 +308,12 @@ has a built-in `/healthz` container health check.
 
 Binding `0.0.0.0` is required for a published Docker port, but it does not
 enable bootstrap grants or add authentication. Local Docker E2E that pushes
-must additionally pass `-e SORREL_HUB_BOOTSTRAP_GRANTS=1`. Likewise, root-repo
+must additionally pass `-e SORREL_HUB_LOCAL_DEMO=1` and
+`-e SORREL_HUB_BOOTSTRAP_GRANTS=1`. Likewise, root-repo
 E2E must opt in explicitly:
 
 ```sh
-SORREL_HUB_BOOTSTRAP_GRANTS=1 npm test
+SORREL_HUB_LOCAL_DEMO=1 SORREL_HUB_BOOTSTRAP_GRANTS=1 npm test
 ```
 
 The same variable must be forwarded when an E2E harness spawns
@@ -356,6 +470,10 @@ Proposal records may carry lane-submit fields: `syncRepoId`, `sourceLane`,
   updates likewise record metadata only.
 - `/capabilities` includes `collaboration.proposalTransitions`, derived from
   the same state-transition rules that validate proposal mutations.
+  Object storage and Convex availability describe the wired sync store and
+  server mirror, including instances supplied to `createApp()`. Mirror
+  availability reports configuration, not backend health. The standalone
+  `resolveCapabilities({ env })` helper retains environment-based defaults.
 
 Admin proposal creation, updates, and lane submissions share verified
 attribution and best-effort Convex mirroring. Lane-submit reuse is scoped to
@@ -444,3 +562,30 @@ Initial in-memory model factories live in `src/models.js` for:
 
 Organizations, projects, repositories, proposals, review comments, workflow
 runs, and policies carry Core principal/resource/policy references where useful.
+
+## Request and sync safety limits
+
+Hub rejects oversized JSON bodies and sync traversals with HTTP 413 and
+`request_body_too_large` or `sync_traversal_too_large`. Configure positive safe
+integer values before starting the server:
+
+| Environment variable | Default | Unit |
+| --- | --- | --- |
+| `SORREL_HUB_MAX_BODY_BYTES` | 67108864 (64 MiB) | Raw request-body bytes, including JSON/base64 overhead |
+| `SORREL_HUB_MAX_TRAVERSAL_LINKS` | 100000 | Queued roots and outgoing references, including duplicates |
+| `SORREL_HUB_MAX_TRAVERSAL_OBJECTS` | 100000 | Unique referenced object IDs, including missing objects |
+| `SORREL_HUB_MAX_TRAVERSAL_BYTES` | 268435456 (256 MiB) | Object bytes read during traversal |
+
+The body limit applies to every JSON-writing route. Traversal budgets apply to
+sync missing-object negotiation and ref validation; closure and ancestry checks
+share one request budget. Repeated references do not reread terminal blobs within
+a closure, but repeated links still consume the link budget. Bytes reread during
+ancestry checks count again. A ref is never published after exceeding its budget.
+Invalid settings fail startup rather than disabling limits.
+
+The CLI currently uploads objects in one JSON batch. Large pushes may require a
+higher body limit (allow for base64 expansion), and repositories with long
+histories or large closures may require higher traversal limits. Increase limits
+only to fit the deployment's memory budget; these limits do not provide a global
+concurrency quota or streaming uploads. Bytes are counted after each store read,
+so one already-stored large object can still be allocated before rejection.

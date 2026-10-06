@@ -71,7 +71,7 @@ export function createDevActingPrincipalAdapter() {
  * WorkOS SaaS adapter skeleton — org SSO/SAML + directory sync.
  * Session verification happens once; do not round-trip WorkOS per diff fetch.
  *
- * Accepts Bearer access tokens that look like JWTs and maps `sub` when present.
+ * Verifies AuthKit Bearer JWTs against client-specific JWKS and `client_id`.
  * Full WorkOS session/cookie verification lands with sealed-session support.
  *
  * @param {{ apiKey?: string, clientId?: string, issuer?: string, audience?: string }} [options]
@@ -93,7 +93,9 @@ export function createWorkOsAdapter(options = {}) {
       try {
         const payload = await verifyOidcAccessToken(bearer, {
           issuer,
-          audience: options.audience ?? options.clientId,
+          clientId: options.clientId,
+          jwksUri: `${issuer.replace(/\/$/, '')}/sso/jwks/${encodeURIComponent(options.clientId)}`,
+          audience: options.audience,
         });
         const subject = payload.sub;
         if (typeof subject !== 'string' || !subject.trim()) {
@@ -189,7 +191,7 @@ export function createAuthAdapterFromEnv(env = process.env) {
       apiKey: env.WORKOS_API_KEY,
       clientId: env.WORKOS_CLIENT_ID,
       issuer: env.WORKOS_ISSUER,
-      audience: env.WORKOS_AUDIENCE ?? env.WORKOS_CLIENT_ID,
+      audience: env.WORKOS_AUDIENCE,
     });
   }
   if (mode === 'oidc') {
