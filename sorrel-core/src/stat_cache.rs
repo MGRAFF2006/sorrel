@@ -528,11 +528,26 @@ mod tests {
         assert!(!cache.matches_fingerprint("data.txt", &metadata));
     }
 
+    #[cfg(unix)]
     #[test]
     fn changed_during_read_does_not_seed_reusable_fingerprint() {
+        use std::os::unix::fs::MetadataExt;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("data.txt");
         std::fs::write(&path, b"old").unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        if !(1..1_000_000_000).contains(&metadata.ctime_nsec()) || metadata.ino() == 0 {
+            // This regression requires a reusable Unix fingerprint.
+            return;
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while ChangeFingerprint::from_metadata(&metadata).is_none() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "clock did not advance"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         let changed_path = path.clone();
         let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
         let did_change = std::sync::atomic::AtomicBool::new(false);
@@ -560,6 +575,10 @@ mod tests {
             .unwrap()
         };
         materialize(&mut cache);
+        assert!(
+            cache.entries["data.txt"].fingerprint.is_none(),
+            "a file changed during verification must not persist a reusable fingerprint"
+        );
         assert!(!cache.matches_fingerprint("data.txt", &std::fs::metadata(&path).unwrap()));
         materialize(&mut cache);
         let blob = crate::read_blob(&store, &cache.get("data.txt").unwrap().object_id).unwrap();
