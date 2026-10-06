@@ -243,9 +243,9 @@ test('sync transport over fs store survives a server restart', async (t) => {
 
   const blob = makeBytes('persistent blob');
   const tree = makeBytes(
-    JSON.stringify({ kind: 'Tree', entries: [{ name: 'a.txt', object: blob.id }] }),
+    JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Tree', entries: [{ name: 'a.txt', object: blob.id }] }),
   );
-  const snapshot = makeBytes(JSON.stringify({ kind: 'Snapshot', tree: tree.id, parents: [] }));
+  const snapshot = makeBytes(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: tree.id, parents: [] }));
 
   await withServer(makeApp(dataDir), async (baseUrl) => {
     const upload = await postJson(
