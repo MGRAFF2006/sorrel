@@ -209,8 +209,10 @@ impl ObjectStore for FileObjectStore {
     fn write(&self, bytes: &[u8]) -> ObjectStoreResult<ObjectId> {
         let id = ObjectId::for_bytes(bytes);
         let path = self.object_path(&id);
-        if path.exists() {
-            return Ok(id);
+        match self.read(&id) {
+            Ok(_) => return Ok(id),
+            Err(ObjectStoreError::NotFound(_)) => {}
+            Err(error) => return Err(error),
         }
 
         let shard_dir = self.shard_dir(&id);
@@ -253,6 +255,32 @@ impl ObjectStore for FileObjectStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rewriting_an_existing_corrupt_object_reports_corruption() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(directory.path()).unwrap();
+        let id = store.write(b"good content").unwrap();
+        fs::write(store.object_path(&id), b"corrupt content").unwrap();
+        assert!(
+            matches!(store.write(b"good content"), Err(ObjectStoreError::ContentMismatch { expected, .. }) if expected == id)
+        );
+        assert_eq!(
+            fs::read(store.object_path(&id)).unwrap(),
+            b"corrupt content"
+        );
+    }
+
+    #[test]
+    fn existing_object_directory_is_not_a_successful_write() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(directory.path()).unwrap();
+        let id = ObjectId::for_bytes(b"good content");
+        fs::create_dir_all(store.object_path(&id)).unwrap();
+        assert!(store.write(b"good content").is_err());
+        assert!(store.object_path(&id).is_dir());
+    }
+
     use std::path::Path;
 
     fn assert_content_addressed_store(store: &impl ObjectStore) {

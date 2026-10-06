@@ -91,7 +91,12 @@ survives restarts:
   loopback unless the insecure-demo override is explicit.
 - `oidc` verifies RS256/ES256 Bearer JWTs using
   `SORREL_OIDC_ISSUER` and optional `SORREL_OIDC_AUDIENCE`; keys are read from
-  `<issuer>/.well-known/jwks.json`.
+  `<issuer>/.well-known/jwks.json`. Keys are cached for ten minutes. An unknown
+  signing-key ID triggers a shared refresh, limited to once per issuer URI every
+  30 seconds (including failed refreshes); HTTP fetches time out after five
+  seconds. A failed refresh rejects the new key while previously cached keys
+  remain usable until cache expiry. A rotation during cooldown may require a
+  retry after the remaining cooldown.
 - `workos` uses `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, optional
   `WORKOS_ISSUER`, and optional `WORKOS_AUDIENCE` for Bearer verification.
 
@@ -108,7 +113,11 @@ access control. Development-mode anonymous metadata callers remain compatible.
 
 ### Trusted grants (sync push/pull)
 
-Mutating sync routes evaluate Core policy against a trusted grant map. The
+Mutating sync routes and privileged repository/policy administration evaluate
+authorization through the packaged `sorrel-core-policy` Rust executable. Hub has
+no JavaScript policy evaluator. The adapter calls Core `evaluate_policy` with all
+configured trusted grants and policies, including denies omitted from request
+references. Only a native Core `allow` decision authorizes the operation. The
 server has no local bootstrap grants by default. For local development only,
 the explicit opt-in below lets the CLI acting principal
 `{"type":"user","id":"local"}` push/pull without a separate grant service:
@@ -122,6 +131,31 @@ Environment:
   repo-wide bootstrap grants. No other value enables them.
 - `SORREL_HUB_TRUSTED_GRANTS_FILE` — path to a JSON object of extra
   `id → grant` records merged on top of bootstrap grants.
+- `SORREL_HUB_TRUSTED_POLICIES_FILE` — path to a JSON object of native Core
+  `id → policy` records. Every configured policy participates in evaluation.
+- `SORREL_HUB_CORE_POLICY_BIN` — explicit executable path when using a packaged
+  or separately built adapter. Local runs default to the workspace debug binary
+  under `CARGO_TARGET_DIR` (or `target`); `npm run setup` and Hub `npm test` build it.
+
+Trusted grants use native Core shapes: `schemaVersion: "sorrel.protocol.v0"`,
+`kind: "Grant"`, `principal: { kind, id }`, string `capabilities`, a concrete
+`resource: { kind, id }`, and an explicit `effect`. Concrete plural `resources`
+are also supported. Older `action` / `principal.type` records require explicit
+`effect` and `resource`; omitted effects or universal missing resources are rejected.
+Grant `status`, `issuedAt`, `expiresAt`, and `revokedAt` are enforced in the
+Core-owned adapter. Invalid dates/versions, unresolved protocol object references,
+nonempty conditions, unsupported fields, and path-scoped resources fail closed.
+Native policies use Core `resource`, `rules`, and optional `defaultDecision`.
+Service IDs map to `service:<id>` and workflow IDs to `workflow:<id>` in Core's
+service domain, consistently for native and legacy inputs, keeping them distinct.
+
+The configured files are an operator trust boundary; Hub does not verify their
+authority-chain signatures. Request `authorityRootRef` is metadata, not proof of
+verified authority. Request policy references must resolve to configured policies;
+request grant/policy payloads never supply authority. Each subprocess has a
+five-second timeout and one-MiB request/response limit; at most 16 run concurrently.
+An unavailable, invalid, overloaded, or timed-out adapter fails closed with
+`503 policy_evaluation_failed`. Denials carry a native Core `PolicyDecision`.
 
 The CLI sends matching `grantRefs` on `POST /objects` and `POST /refs/*`.
 Because the bootstrap grants match every repository id, never enable them for
@@ -145,7 +179,7 @@ for the verified download and hosting flow.
 To build the API image from the current checkout instead:
 
 ```sh
-docker build -t sorrel-hub .
+docker build -t sorrel-hub --file Dockerfile ..
 docker run --rm -p 3000:3000 \
   -e HOST=0.0.0.0 \
   -v hub-data:/app/data \
@@ -213,7 +247,7 @@ Required JSON fields:
 
 Optional JSON fields:
 
-- `slug`
+- `slug` (optional string; omitted, null, or blank derives it from the name)
 - `description`
 - `status`
 - `repositoryIds`
@@ -243,7 +277,7 @@ Lightweight collection endpoints for administration data:
 - `GET|POST /admin/repositories` (filters: `organizationId`, `projectId`)
 - `GET /admin/repositories/:id`
 - `GET|POST /admin/proposals` (filters: `projectId`, `repositoryId`, `syncRepoId`, `status`, `sourceLane`)
-- `GET|PATCH /admin/proposals/:id` — detail; PATCH status (`draft`→`open`→`approved`/`rejected`/`merged`/`closed`) and editable fields
+- `GET|PATCH /admin/proposals/:id` — detail; PATCH status (`draft`→`open`→`approved`/`rejected`/`merged`/`closed`) and editable fields. Repository, branch, lane, and snapshot inputs cannot change in an update involving approved or merged status (`400 model_validation_failed`); title and description remain editable. Reopen an approved proposal in a separate status-only update before replacing its inputs.
 - `GET /admin/proposals/:id?include=comments` — proposal plus nested review comments
 - `GET /admin/proposals/:id/comments` — comments only
 - `GET|POST /admin/review-comments` (filters: `proposalId`, `state`)
@@ -251,6 +285,16 @@ Lightweight collection endpoints for administration data:
 - `GET|POST /admin/workflow-runs` (filters: `projectId`, `proposalId`, `status`)
 - `GET|PATCH /admin/workflow-runs/:id` — status updates (`queued`→`in_progress`→`succeeded`/…)
 - `GET|POST /admin/policies`
+
+Metadata with a `projectId` must refer to an existing Hub project. Repository and
+project-scoped policy organization IDs must match that project's organization
+namespace. Proposal repository IDs and workflow-run proposal IDs must belong to
+the same project; proposal workflow-run links must resolve in that project and
+cannot identify a run attached to another proposal. Missing parents return
+`404 not_found`; scope mismatches return `400 model_validation_failed` before
+any record is saved. Project organization IDs remain namespace identifiers and
+do not require a local organization record. Core references and external sync,
+lane, snapshot, and provider IDs do not require local metadata records.
 - `GET /admin/policies/:id`
 - `GET /admin/sync-repos` — sync transport repos (`{ "repos": [ { "id", "refCount" } ] }`)
 

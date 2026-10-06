@@ -1,4 +1,5 @@
 import {
+  ModelValidationError,
   createOrganization,
   createPolicy,
   createProject,
@@ -43,6 +44,31 @@ export class InMemoryStore {
   /** Publish a validated record. Persistent stores write it before publication. */
   storeRecord(collection, record) {
     this[collection].set(record.id, record);
+  }
+
+  validateProjectParents(record) {
+    const project = this.getProject(record.projectId);
+    if (!project) {
+      throw new StoreNotFoundError(`project ${record.projectId} not found`);
+    }
+    if (record.organizationId !== undefined && record.organizationId !== project.organizationId) {
+      throw new ModelValidationError('organizationId must match the parent project organizationId');
+    }
+    for (const [field, collection] of [['repositoryId', this.repositories], ['proposalId', this.proposals]]) {
+      if (record[field] === undefined) continue;
+      const parent = collection.get(record[field]);
+      if (!parent) throw new StoreNotFoundError(`${field} ${record[field]} not found`);
+      if (parent.projectId !== project.id) {
+        throw new ModelValidationError(`${field} must belong to the parent project`);
+      }
+    }
+    for (const runId of record.workflowRunIds ?? []) {
+      const run = this.getWorkflowRun(runId);
+      if (!run) throw new StoreNotFoundError(`workflow run ${runId} not found`);
+      if (run.projectId !== project.id || (run.proposalId !== undefined && run.proposalId !== record.id)) {
+        throw new ModelValidationError('workflowRunIds must belong to the proposal project and cannot reference another proposal');
+      }
+    }
   }
 
   createOrganization(attributes) {
@@ -109,6 +135,7 @@ export class InMemoryStore {
 
   createRepository(attributes) {
     const repository = createRepository(attributes);
+    this.validateProjectParents(repository);
     if (this.repositories.has(repository.id)) {
       throw new StoreConflictError(`repository ${repository.id} already exists`);
     }
@@ -136,6 +163,7 @@ export class InMemoryStore {
 
   createProposal(attributes) {
     const proposal = createProposal(attributes);
+    this.validateProjectParents(proposal);
     if (this.proposals.has(proposal.id)) {
       throw new StoreConflictError(`proposal ${proposal.id} already exists`);
     }
@@ -153,6 +181,7 @@ export class InMemoryStore {
       throw new StoreNotFoundError(`proposal ${id} not found`);
     }
     const updated = updateProposal(existing, attributes);
+    this.validateProjectParents(updated);
     this.storeRecord('proposals', updated);
     return updated;
   }
@@ -225,6 +254,7 @@ export class InMemoryStore {
 
   createWorkflowRun(attributes) {
     const workflowRun = createWorkflowRun(attributes);
+    this.validateProjectParents(workflowRun);
     if (this.workflowRuns.has(workflowRun.id)) {
       throw new StoreConflictError(`workflowRun ${workflowRun.id} already exists`);
     }
@@ -242,6 +272,7 @@ export class InMemoryStore {
       throw new StoreNotFoundError(`workflow run ${id} not found`);
     }
     const updated = updateWorkflowRun(existing, attributes);
+    this.validateProjectParents(updated);
     this.storeRecord('workflowRuns', updated);
     return updated;
   }
@@ -266,6 +297,7 @@ export class InMemoryStore {
 
   createPolicy(attributes) {
     const policy = createPolicy(attributes);
+    if (policy.projectId !== undefined) this.validateProjectParents(policy);
     if (this.policies.has(policy.id)) {
       throw new StoreConflictError(`policy ${policy.id} already exists`);
     }

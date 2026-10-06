@@ -19,6 +19,7 @@ import {
 export function createApp(options = {}) {
   const store = options.store ?? createInMemoryStore();
   const trustedGrantsById = options.trustedGrantsById ?? {};
+  const trustedPoliciesById = options.trustedPoliciesById ?? {};
   const authAdapter = options.authAdapter ?? createAuthAdapterFromEnv(options.env);
   const convexMirror = options.convexMirror ?? createConvexMirror(options.env);
   const capabilities =
@@ -31,6 +32,7 @@ export function createApp(options = {}) {
   return {
     store,
     trustedGrantsById,
+    trustedPoliciesById,
     authAdapter,
     convexMirror,
     capabilities,
@@ -84,6 +86,7 @@ export function createApp(options = {}) {
           store,
           url,
           trustedGrantsById,
+          trustedPoliciesById,
           authAdapter,
           session,
           convexMirror,
@@ -196,7 +199,7 @@ function sendError(response, error) {
   }
 
   if (error instanceof PolicyEvaluationError) {
-    return sendJson(response, 403, {
+    return sendJson(response, error.statusCode ?? 403, {
       error: {
         code: error.code,
         message: error.message,

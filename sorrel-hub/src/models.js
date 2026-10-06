@@ -242,7 +242,7 @@ export function createOrganization(attributes) {
   return {
     id: metadataId(attributes, 'org'),
     name,
-    slug: attributes.slug ? slugify(attributes.slug) : slugify(name),
+    slug: slugify(optionalString(attributes, 'slug') || name),
     ownerPrincipal: optionalPrincipal(attributes, 'ownerPrincipal'),
     principalRefs: arrayOfPrincipals(attributes, 'principalRefs'),
     ...corePolicyRefs(attributes),
@@ -281,7 +281,7 @@ export function createProject(attributes) {
     id: metadataId(attributes, 'proj'),
     organizationId: requiredString(attributes, 'organizationId'),
     name,
-    slug: attributes.slug ? slugify(attributes.slug) : slugify(name),
+    slug: slugify(optionalString(attributes, 'slug') || name),
     description: optionalString(attributes, 'description'),
     status: enumValue(attributes, 'status', PROJECT_STATUSES, 'active'),
     repositoryIds: arrayOfStrings(attributes, 'repositoryIds'),
@@ -426,6 +426,9 @@ export function updateProposal(proposal, attributes) {
     next.status = status;
   }
 
+  const reviewInputsLocked = [proposal.status, next.status]
+    .some((status) => status === 'approved' || status === 'merged');
+
   for (const field of [
     'description',
     'repositoryId',
@@ -438,7 +441,13 @@ export function updateProposal(proposal, attributes) {
     'targetSnapshot',
   ]) {
     if (attributes[field] !== undefined) {
-      next[field] = optionalString(attributes, field);
+      const value = optionalString(attributes, field);
+      if (field !== 'description' && reviewInputsLocked && value !== proposal[field]) {
+        throw new ModelValidationError(
+          `cannot change ${field} in an update involving approved or merged status`,
+        );
+      }
+      next[field] = value;
     }
   }
 
