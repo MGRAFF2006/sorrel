@@ -94,15 +94,27 @@ request data are omitted; the client response remains redacted.
 - `dev` (default) trusts `x-sorrel-acting-principal` and is restricted to
   loopback unless the insecure-demo override is explicit.
 - `oidc` verifies RS256/ES256 Bearer JWTs using
-  `SORREL_OIDC_ISSUER` and optional `SORREL_OIDC_AUDIENCE`; keys are read from
-  `<issuer>/.well-known/jwks.json`. Keys are cached for ten minutes. An unknown
-  signing-key ID triggers a shared refresh, limited to once per issuer URI every
-  30 seconds (including failed refreshes); HTTP fetches time out after five
-  seconds. A failed refresh rejects the new key while previously cached keys
+  required `SORREL_OIDC_ISSUER` and `SORREL_OIDC_AUDIENCE`; keys are read from
+  `<issuer>/.well-known/jwks.json`. Issuer-only configuration fails closed until
+  an audience identifying this Hub is supplied. Keys are cached for ten minutes.
+  An unknown signing-key ID triggers a shared refresh, limited to once per issuer
+  URI every 30 seconds (including failed refreshes); HTTP fetches time out after
+  five seconds. A failed refresh rejects the new key while previously cached keys
   remain usable until cache expiry. A rotation during cooldown may require a
   retry after the remaining cooldown.
-- `workos` uses `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, optional
-  `WORKOS_ISSUER`, and optional `WORKOS_AUDIENCE` for Bearer verification.
+- `workos` uses `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` to verify AuthKit
+  Bearer JWTs. It requires a string `client_id` exactly matching
+  `WORKOS_CLIENT_ID` and reads keys from
+  `<issuer>/sso/jwks/<encoded-client-id>`. The issuer defaults to
+  `https://api.workos.com`; `WORKOS_ISSUER` overrides it. AuthKit tokens do not
+  require `aud`; optional `WORKOS_AUDIENCE` adds an `aud` restriction without
+  replacing the `client_id` check. See the
+  [WorkOS session-token contract](https://workos.com/docs/reference/authkit/session-tokens).
+
+OIDC and WorkOS tokens must contain a finite numeric `exp` claim. Generic OIDC
+also requires an `aud` claim matching its configured audience (a string or
+array of strings). Expiry retains the existing 60-second clock-skew allowance.
+Tokens without expiry are rejected.
 
 These adapters authenticate a principal; authorization still requires trusted
 Core grant references. WorkOS remains an adapter skeleton without sealed
