@@ -994,8 +994,13 @@ fn write_restored_file(
         file.write_all(bytes)
             .map_err(|source| SnapshotError::io(path, source))?;
         if let Some(mode) = mode {
-            set_file_mode(&file, path, mode)?;
+            set_file_mode(&file, path, mode, permissions)?;
         } else if let Some(permissions) = permissions {
+            #[cfg(unix)]
+            let permissions = {
+                use cap_std::fs::PermissionsExt;
+                cap_std::fs::Permissions::from_mode(permissions.mode() & 0o777)
+            };
             file.set_permissions(permissions)
                 .map_err(|source| SnapshotError::io(path, source))?;
         }
@@ -1123,20 +1128,46 @@ fn file_mode(_path: &Path) -> SnapshotResult<EntryMode> {
 }
 
 #[cfg(unix)]
-fn set_file_mode(file: &cap_std::fs::File, path: &Path, mode: EntryMode) -> SnapshotResult<()> {
+fn set_file_mode(
+    file: &cap_std::fs::File,
+    path: &Path,
+    mode: EntryMode,
+    existing: Option<cap_std::fs::Permissions>,
+) -> SnapshotResult<()> {
+    use cap_std::fs::PermissionsExt as _;
     use std::os::unix::fs::PermissionsExt;
 
-    let permissions = match mode {
-        EntryMode::Executable => fs::Permissions::from_mode(0o755),
-        EntryMode::Normal | EntryMode::Directory => fs::Permissions::from_mode(0o644),
+    // Snapshots track executability, not read/write access. New files retain umask.
+    let permissions = match existing {
+        Some(permissions) => permissions,
+        None => file
+            .metadata()
+            .map_err(|source| SnapshotError::io(path, source))?
+            .permissions(),
     };
-
+    let read_write = permissions.mode() & 0o666;
+    let executable = match mode {
+        EntryMode::Executable => (read_write & 0o444) >> 2,
+        EntryMode::Normal | EntryMode::Directory => 0,
+    };
+    // Do not carry set-id bits onto replacement content.
+    let permissions = fs::Permissions::from_mode(read_write | executable);
     file.set_permissions(cap_std::fs::Permissions::from_std(permissions))
         .map_err(|source| SnapshotError::io(path, source))
 }
 
 #[cfg(not(unix))]
-fn set_file_mode(_file: &cap_std::fs::File, _path: &Path, _mode: EntryMode) -> SnapshotResult<()> {
+fn set_file_mode(
+    _file: &cap_std::fs::File,
+    _path: &Path,
+    _mode: EntryMode,
+    existing: Option<cap_std::fs::Permissions>,
+) -> SnapshotResult<()> {
+    if let Some(permissions) = existing {
+        _file
+            .set_permissions(permissions)
+            .map_err(|source| SnapshotError::io(_path, source))?;
+    }
     Ok(())
 }
 
@@ -1647,6 +1678,91 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn restoration_preserves_read_write_permissions_and_adjusts_only_execute_bits() {
+        use std::os::unix::fs::PermissionsExt;
+        for (snapshot_mode, existing_mode, expected) in [
+            (0o644, 0o600, 0o600),
+            (0o755, 0o600, 0o700),
+            (0o755, 0o640, 0o750),
+            (0o644, 0o750, 0o640),
+            (0o755, 0o620, 0o720),
+            (0o644, 0o6750, 0o640),
+        ] {
+            let source = tempfile::tempdir().unwrap();
+            write_file(source.path().join("file"), b"new");
+            fs::set_permissions(
+                source.path().join("file"),
+                fs::Permissions::from_mode(snapshot_mode),
+            )
+            .unwrap();
+            let store = InMemoryObjectStore::new();
+            let snapshot =
+                materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test"))
+                    .unwrap();
+            let target = tempfile::tempdir().unwrap();
+            write_file(target.path().join("file"), b"old");
+            fs::set_permissions(
+                target.path().join("file"),
+                fs::Permissions::from_mode(existing_mode),
+            )
+            .unwrap();
+            restore_snapshot_to_directory(&store, &snapshot.id, target.path()).unwrap();
+            assert_eq!(fs::read(target.path().join("file")).unwrap(), b"new");
+            assert_eq!(
+                fs::metadata(target.path().join("file"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o7777,
+                expected
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restoration_of_new_files_respects_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        const CHILD: &str = "SORREL_RESTORE_UMASK_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new("sh")
+                .args(["-c", "umask 077; exec \"$1\" --exact snapshot::tests::restoration_of_new_files_respects_umask --test-threads=1", "sorrel-umask-test"])
+                .arg(std::env::current_exe().unwrap())
+                .env(CHILD, "1")
+                .output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let source = tempfile::tempdir().unwrap();
+        for (name, mode) in [("normal", 0o644), ("executable", 0o755)] {
+            write_file(source.path().join(name), b"new");
+            fs::set_permissions(source.path().join(name), fs::Permissions::from_mode(mode))
+                .unwrap();
+        }
+        let store = InMemoryObjectStore::new();
+        let snapshot =
+            materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test")).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        restore_snapshot_to_directory(&store, &snapshot.id, target.path()).unwrap();
+        for (name, mode) in [("normal", 0o600), ("executable", 0o700)] {
+            assert_eq!(
+                fs::metadata(target.path().join(name))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                mode
+            );
+        }
+    }
+
     #[test]
     fn restoration_temp_name_cannot_remove_destination() {
         const CHILD: &str = "SORREL_RESTORE_COLLISION_CHILD";
@@ -1694,7 +1810,7 @@ mod tests {
         fs::hard_link(outside.path().join("file"), target.path().join("hard")).unwrap();
         fs::set_permissions(
             target.path().join("hard"),
-            fs::Permissions::from_mode(0o700),
+            fs::Permissions::from_mode(0o4700),
         )
         .unwrap();
         write_snapshot_file_to_directory(target.path(), "hard", b"marker").unwrap();
@@ -1705,7 +1821,7 @@ mod tests {
                 .unwrap()
                 .permissions()
                 .mode()
-                & 0o777,
+                & 0o7777,
             0o700
         );
         assert!(
