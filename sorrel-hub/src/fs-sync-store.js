@@ -10,6 +10,19 @@ import {
 
 const OBJECT_ID_PATTERN = /^[0-9a-f]{64}$/;
 
+export class FilesystemNameTooLongError extends Error {
+  constructor() {
+    super('encoded filesystem component exceeds the supported 255-byte limit');
+    this.name = 'FilesystemNameTooLongError';
+    this.code = 'filesystem_name_too_long';
+  }
+}
+
+export function filesystemName(name) {
+  if (Buffer.byteLength(name, 'utf8') > 255) throw new FilesystemNameTooLongError();
+  return name;
+}
+
 /**
  * Encode an arbitrary identifier (repo id, ref name) into a filesystem-safe
  * single path segment. Alphanumerics, `-` and `_` pass through; every other
@@ -93,7 +106,7 @@ export class FsRepoSyncStore {
   }
 
   #repoDir(repoId) {
-    return path.join(this.rootDir, encodePathSegment(repoId));
+    return path.join(this.rootDir, filesystemName(encodePathSegment(repoId)));
   }
 
   #objectPath(repoId, id) {
@@ -101,7 +114,7 @@ export class FsRepoSyncStore {
   }
 
   #refPath(repoId, name) {
-    return path.join(this.#repoDir(repoId), 'refs', encodePathSegment(name));
+    return path.join(this.#repoDir(repoId), 'refs', filesystemName(encodePathSegment(name)));
   }
 
   has(repoId, id) {
@@ -244,9 +257,10 @@ function readRefFile(filePath) {
  * @param {Buffer | string} bytes
  */
 export function atomicWrite(target, bytes) {
+  filesystemName(path.basename(target));
   const dir = path.dirname(target);
+  const tmp = path.join(dir, filesystemName(`.tmp-${process.pid}-${randomBytes(6).toString('hex')}`));
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = path.join(dir, `.tmp-${process.pid}-${randomBytes(6).toString('hex')}`);
   try {
     fs.writeFileSync(tmp, bytes);
     fs.renameSync(tmp, target);

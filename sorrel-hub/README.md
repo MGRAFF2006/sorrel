@@ -83,6 +83,13 @@ survives restarts:
 - `SORREL_HUB_SYNC_STORE=memory` — use ephemeral in-memory stores for both
   sync and metadata (the default inside tests via `createApp()`).
 
+Filesystem storage requires each complete percent-encoded component to fit
+255 bytes: repository IDs and ref names include all escaped bytes; metadata IDs
+also include the `.json` suffix. Oversized names return HTTP 400 with
+`filesystem_name_too_long` before writing. Filesystems with lower component
+limits can also return this error. The memory store keeps its existing identifier
+contract; storage encoding and existing filenames are unchanged.
+
 ### Authentication adapters
 
 `SORREL_HUB_AUTH` selects one of these request-authentication adapters:
