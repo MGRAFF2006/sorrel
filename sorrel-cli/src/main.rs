@@ -922,7 +922,9 @@ fn path_explain_output(path: &Path) -> io::Result<CommandOutput> {
     } else {
         "Excluded"
     };
-    let human = format!("{state}: {}\ntracked={} ignored={} protected={} metadata={} exists={} directory={} supportedType={}", explanation.path.display(), explanation.tracked, explanation.ignored, explanation.protected, explanation.metadata, explanation.exists, explanation.is_directory, explanation.supported_type);
+    let fact =
+        |value: Option<bool>| value.map_or("unknown", |value| if value { "true" } else { "false" });
+    let human = format!("{state}: {}\ntracked={} ignored={} protected={} metadata={} exists={} directory={} supportedType={}", explanation.path.display(), explanation.tracked, explanation.ignored, explanation.protected, explanation.metadata, fact(explanation.exists), fact(explanation.is_directory), fact(explanation.supported_type));
     let mut json = serde_json::to_value(&explanation)?;
     json["command"] = json!("path explain");
     json["mocked"] = json!(false);

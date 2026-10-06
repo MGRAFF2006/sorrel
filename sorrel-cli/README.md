@@ -45,6 +45,9 @@ reading the target's contents or creating snapshots, blobs, or cache entries.
 Tracked ordinary files can be both ignored and included; protected files remain
 excluded. `included` means selection eligibility, including for missing paths;
 `exists`, `isDirectory`, and `supportedType` describe filesystem metadata.
+Reserved `.git` and `.sorrel` paths are classified without traversal; these three
+fields are `null` (`unknown` in human output) because their type and existence
+are not inspected, including when `.git` is a worktree pointer file.
 The command also works before `init`, without creating `.sorrel/`.
 
 Explanation reads current ignore/provider configuration and immutable HEAD

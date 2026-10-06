@@ -60,9 +60,9 @@ pub struct WorkspacePathExplanation {
     pub ignored: bool,
     pub protected: bool,
     pub metadata: bool,
-    pub exists: bool,
-    pub is_directory: bool,
-    pub supported_type: bool,
+    pub exists: Option<bool>,
+    pub is_directory: Option<bool>,
+    pub supported_type: Option<bool>,
 }
 
 /// Explains selection using the same rules as workspace snapshotting.
@@ -91,6 +91,25 @@ pub fn explain_workspace_path(
     let metadata = relative.components().next().is_some_and(|component| {
         component.as_os_str() == ".sorrel" || component.as_os_str() == ".git"
     });
+    if metadata {
+        // Root metadata names are excluded before type inspection in snapshotting.
+        // Their descendants may be unreachable through a Git worktree pointer file
+        // or lead outside the workspace through a metadata symlink.
+        return Ok(WorkspacePathExplanation {
+            tracked: selection
+                .tracked
+                .iter()
+                .any(|path| path.starts_with(&relative)),
+            protected: selection.is_protected(&relative),
+            path: relative,
+            included: false,
+            ignored: false,
+            metadata: true,
+            exists: None,
+            is_directory: None,
+            supported_type: None,
+        });
+    }
     let mut protected = selection.is_protected(&relative);
     let mut parent = PathBuf::new();
     for component in relative.parent().unwrap_or(Path::new("")).components() {
@@ -105,9 +124,7 @@ pub fn explain_workspace_path(
             Err(error) => return Err(config_io(&absolute, error)),
         }
         protected |= selection.is_protected(&parent);
-        if !metadata {
-            selection.allows(&parent, true)?;
-        }
+        selection.allows(&parent, true)?;
     }
     let absolute = selection.root.join(&relative);
     let info = match fs::symlink_metadata(&absolute) {
@@ -139,9 +156,9 @@ pub fn explain_workspace_path(
         ignored,
         protected,
         metadata,
-        exists: info.is_some(),
-        is_directory,
-        supported_type,
+        exists: Some(info.is_some()),
+        is_directory: Some(is_directory),
+        supported_type: Some(supported_type),
     })
 }
 

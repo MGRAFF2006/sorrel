@@ -138,3 +138,41 @@ fn invalid_paths_and_unknown_manifest_versions_fail_without_mutations() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("unsupported workspace schema"));
     assert_eq!(state(root.path()), before);
 }
+
+#[test]
+fn git_worktree_pointer_descendants_report_metadata_without_type_traversal() {
+    let root = TempDir::new().unwrap();
+    fs::write(
+        root.path().join(".git"),
+        "gitdir: /synthetic-external-worktree",
+    )
+    .unwrap();
+    let before = state(root.path());
+    for path in [".git", ".git/config", ".git/objects/anything"] {
+        let value = explain(root.path(), path);
+        assert_eq!(value["included"], false);
+        assert_eq!(value["metadata"], true);
+        assert!(value["exists"].is_null());
+        assert!(value["isDirectory"].is_null());
+        assert!(value["supportedType"].is_null());
+    }
+    assert_eq!(state(root.path()), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn excluded_metadata_symlink_descendants_are_not_traversed() {
+    let root = TempDir::new().unwrap();
+    let external = TempDir::new().unwrap();
+    fs::write(
+        external.path().join(".sorrelignore"),
+        "[invalid external pattern",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(external.path(), root.path().join(".git")).unwrap();
+    let value = explain(root.path(), ".git/private/child");
+    assert_eq!(value["metadata"], true);
+    assert_eq!(value["included"], false);
+    assert!(value["exists"].is_null());
+    assert!(!root.path().join(".sorrel").exists());
+}

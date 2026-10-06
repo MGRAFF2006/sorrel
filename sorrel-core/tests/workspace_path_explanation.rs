@@ -104,7 +104,7 @@ fn explanation_matches_materialization_and_reads_only_baseline_metadata() {
             (included, tracked, ignored, protected, metadata),
             "{path}"
         );
-        assert!(explanation.exists);
+        assert_eq!(explanation.exists, if metadata { None } else { Some(true) });
     }
     assert_eq!(store.len(), before);
     let snapshot = materialize_workspace_snapshot(
@@ -172,7 +172,11 @@ fn missing_relative_paths_can_be_explained_but_escape_paths_are_rejected() {
     let store = InMemoryObjectStore::new();
     let explanation =
         explain_workspace_path(&MetadataOnly(&store), root.path(), None, "./missing.txt").unwrap();
-    assert!(explanation.included && !explanation.exists && explanation.supported_type);
+    assert!(
+        explanation.included
+            && explanation.exists == Some(false)
+            && explanation.supported_type == Some(true)
+    );
     for path in [Path::new("../outside"), root.path()] {
         assert!(explain_workspace_path(&MetadataOnly(&store), root.path(), None, path).is_err());
     }
@@ -189,7 +193,11 @@ fn symlink_ancestors_are_never_traversed_and_leaf_links_are_not_supported() {
     std::os::unix::fs::symlink(external.path(), root.path().join("link")).unwrap();
     let explanation =
         explain_workspace_path(&MetadataOnly(&store), root.path(), None, "link").unwrap();
-    assert!(!explanation.included && !explanation.supported_type && explanation.exists);
+    assert!(
+        !explanation.included
+            && explanation.supported_type == Some(false)
+            && explanation.exists == Some(true)
+    );
     assert!(explain_workspace_path(&MetadataOnly(&store), root.path(), None, "link/file").is_err());
 }
 
