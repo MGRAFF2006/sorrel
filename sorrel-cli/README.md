@@ -102,6 +102,12 @@ acknowledgments apply only to that continuation attempt, and text markers still
 block continuation even when their paths are acknowledged. Use `merge --abort`
 to discard the tentative merge.
 
+`diff` includes each changed entry's `oldMode` and `newMode` in JSON:
+`normal`, `executable`, or `directory`, with `null` on the missing side of an
+addition or deletion. Human output shows mode transitions before content hunks.
+Executable-only and empty-directory changes remain visible with no text hunks;
+an unchanged binary file's mode change does not report a content change.
+
 Every command accepts the global `--json` flag and emits structured JSON.
 Repository state is real and persisted under `.sorrel/`; commands do not return
 fabricated domain data. Empty changes are rejected. See [`DEMO.md`](DEMO.md)
@@ -388,6 +394,15 @@ sorrel env ensure
 Sorrel supplies an operation-specific SecretSpec access reason by default.
 Set `SECRETSPEC_REASON` to a more specific non-empty reason when your audit
 policy requires caller context.
+
+Secret resolution and checks use only the selected handles, grouped by provider
+and environment profile. Missing unselected secrets do not block a selected
+handle. Mixed selections report `"mixed"` in the provider or profile string;
+check reports retain each secret's provider attribution. An explicit provider
+override applies to every selected profile. Selecting distinct handles with
+the same environment-variable name fails before reading values. Composed
+secrets must include their dependencies in the same selected provider/profile
+group; an excluded dependency is rejected before provider access.
 
 List secret handles without resolving values:
 

@@ -1938,6 +1938,90 @@ fn secret_refs_lists_declared_handles() {
     assert!(value["objects"].as_array().expect("array").is_empty());
 }
 
+#[test]
+fn secret_check_json_reports_mixed_providers_and_profiles_without_values() {
+    let directory = TempDir::new().unwrap();
+    let root = directory.path();
+    command_json(root, &["init", "--json"]);
+    std::fs::write(root.join(".gitignore"), ".first\n.test-config/\n").unwrap();
+    std::fs::write(
+        root.join(".first"),
+        "SORREL_TEST_RESOLUTION_ALPHA=synthetic-dotenv\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("sorrel.secrets.yml"),
+        r#"
+secretRefs:
+  - id: secret_alpha
+    name: SORREL_TEST_RESOLUTION_ALPHA
+    provider: dotenv:.first
+    environment: dev
+    required: true
+  - id: secret_beta
+    name: SORREL_TEST_RESOLUTION_BETA
+    provider: env
+    environment: prod
+    required: true
+"#,
+    )
+    .unwrap();
+    for (id, environment) in [("secret_alpha", "dev"), ("secret_beta", "prod")] {
+        command_json(
+            root,
+            &[
+                "grant",
+                "create",
+                "--local-demo",
+                "--action",
+                "secret.read",
+                "--secret",
+                id,
+                "--environment",
+                environment,
+                "--json",
+            ],
+        );
+    }
+    let config = root.join(".test-config");
+    std::fs::create_dir_all(config.join("secretspec")).unwrap();
+    std::fs::write(
+        config.join("secretspec/config.toml"),
+        "[audit]\nenabled = false\n",
+    )
+    .unwrap();
+    let output = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .env("XDG_CONFIG_HOME", config)
+        .env("SORREL_LOCAL_DEMO", "1")
+        .env("SORREL_TEST_RESOLUTION_BETA", "synthetic-env")
+        .env("SECRETSPEC_SCOPE", "unselected-scope")
+        .args(["secret", "check", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(!text.contains("synthetic-dotenv"));
+    assert!(!text.contains("synthetic-env"));
+    let value: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(value["command"], "secret check");
+    assert_eq!(value["provider"], "mixed");
+    assert_eq!(value["report"]["provider"], "mixed");
+    assert_eq!(value["report"]["profile"], "mixed");
+    let secrets = value["report"]["secrets"].as_array().unwrap();
+    assert_eq!(secrets.len(), 2);
+    assert!(secrets.iter().all(|secret| secret["status"] == "resolved"));
+    assert!(secrets
+        .iter()
+        .all(|secret| secret["source_provider"].is_string()));
+    assert!(secrets.iter().all(|secret| secret.get("value").is_none()));
+}
+
 fn assert_json(args: &[&str], expected: Value) {
     let temp_dir = TempDir::new().expect("temp dir is available");
     assert_json_in_dir(temp_dir.path(), args, expected);
