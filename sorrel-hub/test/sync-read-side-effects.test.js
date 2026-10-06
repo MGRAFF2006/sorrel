@@ -37,6 +37,9 @@ for (const kind of ['memory', 'fs']) {
     const app = createApp({
       store: createInMemoryStore({ sync }),
       env: { SORREL_HUB_LOCAL_DEMO: '1' },
+      trustedGrantsById: { grant_phantom_read: { id: 'grant_phantom_read', source: 'core',
+        principal: { type: 'user', id: 'local' }, action: 'repo.read',
+        resource: { kind: 'repo', id: '*' }, effect: 'allow' } },
     });
     const server = http.createServer(app.handleRequest);
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
