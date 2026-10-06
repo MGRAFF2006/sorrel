@@ -150,11 +150,15 @@ test('writes use stored parents and reject forged identity, parent moves and cro
   assert.equal((await json('/admin/workflow-runs', 'POST', { projectId: 'proj_a', proposalId: 'prop_b', name: 'Cross proposal' })).status, 404);
   assert.equal((await json('/projects/proj_a/repositories', 'POST', { syncRepoId: 'repo_b' })).status, 403);
   assert.deepEqual(store.getProject('proj_a').repositoryIds, []);
+  const wrongOrganization = await json('/admin/repositories', 'POST', { projectId: 'proj_a', organizationId: 'org_b', provider: 'sorrel', owner: 'local', name: 'Wrong parent' });
+  assert.equal(wrongOrganization.status, 400);
+  assert.equal(wrongOrganization.body.error.code, 'model_validation_failed');
   assert.equal((await json('/projects/proj_b/repositories', 'POST', { syncRepoId: 'repo_a' })).status, 404);
   assert.equal((await json('/repo_b/refs/main', 'POST', { snapshot: snapshots.a.snapshot, grantRefs: [] })).status, 403);
   assert.equal(store.sync.getRef('repo_b', 'main'), snapshots.b.snapshot);
   assert.equal((await json('/admin/proposals/prop_a', 'PATCH', { status: 'approved' })).status, 200);
   assert.equal((await json('/admin/review-comments/comment_a', 'PATCH', { body: 'Edited' })).status, 200);
+  assert.equal((await json('/admin/workflow-runs/run_a', 'PATCH', { status: 'in_progress' })).status, 200);
   assert.equal((await json('/admin/workflow-runs/run_a', 'PATCH', { status: 'succeeded' })).status, 200);
 });
 

@@ -82,12 +82,12 @@ function makeProtocolBlob(content) {
 }
 
 function makeTree(entries) {
-  const bytes = Buffer.from(JSON.stringify({ kind: 'Tree', entries }));
+  const bytes = Buffer.from(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Tree', entries }));
   return { id: objectId(bytes), bytes };
 }
 
 function makeSnapshot(treeId, parents = []) {
-  const bytes = Buffer.from(JSON.stringify({ kind: 'Snapshot', tree: treeId, parents }));
+  const bytes = Buffer.from(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: treeId, parents }));
   return { id: objectId(bytes), bytes };
 }
 
@@ -110,6 +110,7 @@ test('proposal comparison uses recorded snapshots and previews added, modified, 
     const target = makeSnapshot(put(beforeTree));
     const source = makeSnapshot(put(afterTree), [put(target)]);
     put(source);
+    app.store.getProject('proj_test') ?? app.store.createProject({ id: 'proj_test', organizationId: 'org_local', name: 'Test' });
     const proposal = app.store.createProposal({ projectId: 'proj_test', title: 'Inspect changes', authorRef: 'user:local', syncRepoId: repoId, sourceSnapshot: source.id, targetSnapshot: target.id });
     const client = new HubClient({ baseUrl });
     app.store.sync.setRef(repoId, 'HEAD', target.id);
@@ -137,6 +138,7 @@ test('proposal comparison uses recorded snapshots and previews added, modified, 
 
 test('comparison reports unavailable snapshots and missing closure rather than an empty diff', async () => {
   await withSyncServer(async (baseUrl, app) => {
+    app.store.getProject('proj_test') ?? app.store.createProject({ id: 'proj_test', organizationId: 'org_local', name: 'Test' });
     const proposal = app.store.createProposal({ projectId: 'proj_test', title: 'Metadata only', authorRef: 'user:local' });
     const endpoint = `${baseUrl}/admin/proposals/${proposal.id}/changes`;
     const unavailable = await fetch(endpoint);
@@ -158,6 +160,7 @@ test('comparison traverses nested trees and bounds the changed-file count', asyn
     const before = makeSnapshot(put(makeTree([])));
     const after = makeSnapshot(put(makeTree([{ name: 'src', type: 'directory', object: put(nested) }])));
     put(before); put(after);
+    app.store.getProject('proj_test') ?? app.store.createProject({ id: 'proj_test', organizationId: 'org_local', name: 'Test' });
     const proposal = app.store.createProposal({ projectId: 'proj_test', title: 'Nested', authorRef: 'user:local', syncRepoId: repoId, sourceSnapshot: after.id, targetSnapshot: before.id });
     const endpoint = `${baseUrl}/admin/proposals/${proposal.id}/changes`;
     assert.equal((await fetch(endpoint).then((r) => r.json())).data.changes[0].path, 'src/nested.txt');
@@ -305,7 +308,7 @@ test('browse flow: list a nested tree and read a UTF-8 file', async () => {
       },
     ]);
     const snapshotBytes = Buffer.from(JSON.stringify({
-      kind: 'Snapshot',
+      schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot',
       rootTree: { kind: 'Tree', id: rootTree.id },
       parents: [],
       message: 'Build the product shell',
@@ -641,7 +644,7 @@ test('closure_incomplete lists missing ids; non_fast_forward carries current', a
     app.store.sync.setRef(repoId, 'main', snapshot.id);
 
     // A divergent snapshot (no parent link to `snapshot`) over the same tree.
-    const otherBytes = Buffer.from(JSON.stringify({ kind: 'Snapshot', tree: tree.id, parents: [], marker: 1 }));
+    const otherBytes = Buffer.from(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: tree.id, parents: [], marker: 1 }));
     const otherSnapshot = { id: objectId(otherBytes), bytes: otherBytes };
     app.store.sync.put(repoId, otherSnapshot.bytes);
     assert.notEqual(otherSnapshot.id, snapshot.id);
@@ -689,9 +692,9 @@ test('ref updates reject malformed closure objects without changing the ref', as
     app.store.sync.put(repoId, validTree.bytes);
     const malformed = [
       Buffer.from('sorrel.blob.v0\nnot a snapshot'),
-      Buffer.from(JSON.stringify({ kind: 'Snapshot', parents: [] })),
-      Buffer.from(JSON.stringify({ kind: 'Snapshot', tree: validTree.id, parents: 'bad' })),
-      Buffer.from(JSON.stringify({ kind: 'Snapshot', tree: validTree.id, parents: [null] })),
+      Buffer.from(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', parents: [] })),
+      Buffer.from(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: validTree.id, parents: 'bad' })),
+      Buffer.from(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: validTree.id, parents: [null] })),
       Buffer.from(JSON.stringify({ kind: 42 })),
     ];
     const invalidTree = makeTree([null]);

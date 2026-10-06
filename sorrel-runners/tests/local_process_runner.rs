@@ -436,3 +436,58 @@ fn assert_policy_error(error: RunnerError, capability: &str, status: PolicyDecis
         other => panic!("expected policy error, got {other:?}"),
     }
 }
+
+#[test]
+fn inherited_environment_redacts_native_results_and_jsonl() {
+    const SECRET: &str = "synthetic-native-inherited-value-95173";
+    const CHILD: &str = "SORREL_REDACTION_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "inherited_environment_redacts_native_results_and_jsonl",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("SORREL_NATIVE_TOKEN", SECRET)
+            .env("SORREL_NATIVE_PUBLIC", "ordinary-native-value")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let runner = LocalProcessRunner::default_local();
+    let bundle = sample_bundle(
+        "bundle_inherited",
+        "printf '%s|%s' \"$SORREL_NATIVE_TOKEN\" \"$SORREL_NATIVE_PUBLIC\"; printf '%s' \"$SORREL_NATIVE_TOKEN\" >&2",
+    );
+    let result = runner
+        .run(&bundle, &grant_runner_use(runner.capabilities(), &bundle))
+        .unwrap();
+    assert_eq!(result.jobs[0].stdout, "***|ordinary-native-value");
+    assert_eq!(result.jobs[0].stderr, "***");
+    assert!(!result.jobs[0].log.to_json_lines().unwrap().contains(SECRET));
+    assert!(!serde_json::to_string(&result).unwrap().contains(SECRET));
+    let metadata = sorrel_runners::RedactionMetadata {
+        mask: "[masked]".into(),
+        visible_prefix: 2,
+        visible_suffix: 2,
+        ..sorrel_runners::RedactionMetadata::default()
+    };
+    assert_eq!(
+        sorrel_runners::redact_inherited_env(SECRET, &metadata),
+        "sy[masked]73"
+    );
+    let disabled = sorrel_runners::RedactionMetadata {
+        detect_env_keys: vec![],
+        ..metadata
+    };
+    assert_eq!(
+        sorrel_runners::redact_inherited_env(SECRET, &disabled),
+        SECRET
+    );
+}
