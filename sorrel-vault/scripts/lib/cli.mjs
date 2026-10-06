@@ -1,7 +1,6 @@
 import path from "node:path";
 import { loadDotEnvFile } from "./dotenv.mjs";
 import {
-  AccessDeniedError,
   POLICY_DECISION_STATUS,
   coreSecretCapabilityForAction,
   evaluateCorePolicyFromGrants
@@ -291,7 +290,7 @@ function boundKeysFromBackend(spec, backend, environment) {
  * Resolution requires a Core policy; for the CLI we wire the local-dev adapter
  * (createLocalDevCorePolicy semantics via evaluateCorePolicyFromGrants) so that
  * only granted handles contribute their values to the redaction set. Handles
- * that are not granted are skipped silently (their values are never emitted).
+ * that are not granted cause failure before any sanitized text is emitted.
  */
 export async function redactInput(
   spec,
@@ -322,22 +321,14 @@ export async function redactInput(
       continue;
     }
 
-    try {
-      resolved.push(
-        backend.resolve({
-          secret: { kind: "SecretRef", id: secretRef.id },
-          environment: secretRef.environment,
-          action: "redact",
-          actor
-        })
-      );
-    } catch (error) {
-      if (error instanceof AccessDeniedError) {
-        // Not granted for this actor; skip. Its value is never surfaced.
-        continue;
-      }
-      throw error;
-    }
+    resolved.push(
+      backend.resolve({
+        secret: { kind: "SecretRef", id: secretRef.id },
+        environment: secretRef.environment,
+        action: "redact",
+        actor
+      })
+    );
   }
 
   const redacted = redactText(text, collectResolvedSecretValues(resolved), spec.redaction, {

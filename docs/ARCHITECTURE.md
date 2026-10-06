@@ -153,6 +153,12 @@ Hub separates product metadata from VCS transport:
 - Product metadata—projects, repositories, proposals, comments, workflow runs,
   and policy references—is stored as atomic JSON records. A record becomes
   visible in the running server only after its filesystem write succeeds.
+- Privileged sync and repository/policy administration call the packaged Rust
+  Core policy adapter over bounded asynchronous JSON subprocess requests. All
+  operator-configured trusted grants and native policies participate; client
+  references cannot omit denies. Unsupported constraints fail closed. These
+  configured records are the trust boundary; authority-chain verification and
+  private authorization of every route remain separate work.
 - Sync objects and refs use a filesystem store with digest verification,
   missing-object negotiation, closure checks, and fast-forward/expected-head
   enforcement.
