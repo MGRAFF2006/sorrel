@@ -181,6 +181,11 @@ Filesystem-backed metadata becomes visible to requests only after persistence
 succeeds; failed creates, updates, and project/repository links leave the prior
 in-memory records intact so a failed request can be retried. Duplicate record
 IDs return `409`.
+On restart, metadata records load only when their canonical encoded filename
+matches their valid record ID; malformed identities and alias filenames are
+skipped with a diagnostic that omits record contents. Files remain untouched.
+This identity check does not validate or repair every collection field; backups
+with malformed field schemas still need separate validation before restoration.
 
 ## License
 
