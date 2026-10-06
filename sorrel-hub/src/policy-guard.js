@@ -137,15 +137,15 @@ export function collectionResource(collection, item, context) {
   }
   const project = projectScope(context, item.projectId);
   if (item.organizationId && context.store.getProject(project.id).organizationId !== item.organizationId.trim()) {
-    throw new HttpError(400, 'organizationId must match the project organization', 'invalid_parent');
+    throw new HttpError(400, 'organizationId must match the project organization', 'model_validation_failed');
   }
   if (collection === 'proposals' && item.repositoryId) {
     const repository = context.store.getRepository(item.repositoryId);
     if (!repository) notFound();
-    if (repository.projectId !== project.id) throw new HttpError(400, 'repositoryId must belong to the project', 'invalid_parent');
+    if (repository.projectId !== project.id) throw new HttpError(400, 'repositoryId must belong to the project', 'model_validation_failed');
   }
   if (collection === 'workflow-runs' && item.proposalId && proposalScope(context, item.proposalId).id !== project.id) {
-    throw new HttpError(400, 'proposalId must belong to the project', 'invalid_parent');
+    throw new HttpError(400, 'proposalId must belong to the project', 'model_validation_failed');
   }
   if (collection === 'repositories' && item.id) return { kind: 'repo', id: item.id };
   return project;
@@ -164,7 +164,7 @@ export async function assertCollectionRead(context, collection, item) {
   if (!item) notFound();
   let resource;
   try { resource = collectionResource(collection, item, context); }
-  catch (error) { if (error instanceof HttpError && ['not_found', 'invalid_parent'].includes(error.code)) notFound(); throw error; }
+  catch (error) { if (error instanceof HttpError && ['not_found', 'model_validation_failed'].includes(error.code)) notFound(); throw error; }
   if (!await canAccess(context, READ_ACTIONS[collection], resource)) notFound();
 }
 
@@ -173,7 +173,7 @@ export async function filterCollection(context, collection, items) {
   for (const item of items) {
     let resource;
     try { resource = collectionResource(collection, item, context); }
-    catch (error) { if (error instanceof HttpError && ['not_found', 'invalid_parent'].includes(error.code)) continue; throw error; }
+    catch (error) { if (error instanceof HttpError && ['not_found', 'model_validation_failed'].includes(error.code)) continue; throw error; }
     if (await canAccess(context, READ_ACTIONS[collection], resource)) visible.push(item);
   }
   return visible;
@@ -200,7 +200,7 @@ export async function assertCollectionWrite(context, collection, body, existing)
   }
   if (body.organizationId && resource.kind === 'project' &&
       context.store.getProject(resource.id).organizationId !== body.organizationId) {
-    throw new HttpError(400, 'organizationId must match the project organization', 'invalid_parent');
+    throw new HttpError(400, 'organizationId must match the project organization', 'model_validation_failed');
   }
   if (collection === 'review-comments' && !existing) {
     await assertCollectionRead(context, 'proposals', context.store.getProposal(item.proposalId));
@@ -216,7 +216,7 @@ export async function assertCollectionWrite(context, collection, body, existing)
     const proposal = context.store.getProposal(item.proposalId);
     await assertCollectionRead(context, 'proposals', proposal);
     const parent = proposalScope(context, item.proposalId);
-    if (parent.id !== resource.id) throw new HttpError(400, 'proposalId must belong to the project', 'invalid_parent');
+    if (parent.id !== resource.id) throw new HttpError(400, 'proposalId must belong to the project', 'model_validation_failed');
     await assertCoreAccess(context, 'proposal.read', parent);
   }
 }
@@ -227,7 +227,7 @@ export async function assertProposalReferences(context, item) {
     const repository = context.store.getRepository(scopeString(item.repositoryId, 'repositoryId'));
     if (!repository) notFound();
     await assertCollectionRead(context, 'repositories', repository);
-    if (repository.projectId !== project.id) throw new HttpError(400, 'repositoryId must belong to the project', 'invalid_parent');
+    if (repository.projectId !== project.id) throw new HttpError(400, 'repositoryId must belong to the project', 'model_validation_failed');
   }
   if (item.syncRepoId) await assertCoreAccess(context, 'repo.read', { kind: 'repo', id: scopeString(item.syncRepoId, 'syncRepoId') });
   if (item.workflowRunIds !== undefined && !Array.isArray(item.workflowRunIds)) {
@@ -237,6 +237,6 @@ export async function assertProposalReferences(context, item) {
     const run = context.store.getWorkflowRun(id);
     if (!run) notFound();
     await assertCollectionRead(context, 'workflow-runs', run);
-    if (run.projectId !== project.id) throw new HttpError(400, 'workflowRunIds must belong to the project', 'invalid_parent');
+    if (run.projectId !== project.id) throw new HttpError(400, 'workflowRunIds must belong to the project', 'model_validation_failed');
   }
 }

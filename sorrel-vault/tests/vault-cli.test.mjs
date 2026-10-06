@@ -152,16 +152,15 @@ test("redact masks known secret values in sample text", async () => {
   assert.equal(result.redactedSecretCount, 2);
 });
 
-test("redact does not surface values for an ungranted principal", async () => {
+test("redact rejects an incomplete protected-value set without echoing denied values", async () => {
   const { spec, baseDir } = await loadSpec();
   const sample = `NPM token is ${RAW_NPM_TOKEN}.`;
-
-  const result = await redactInput(spec, sample, {
+  await assert.rejects(redactInput(spec, sample, {
     baseDir,
     principal: "Workflow:not_a_real_workflow"
+  }), (error) => {
+    assert.equal(error.name, "AccessDeniedError");
+    assert.equal(error.message.includes(RAW_NPM_TOKEN), false);
+    return true;
   });
-
-  // No grants resolved; nothing contributed to the secret-value set, but the
-  // env-key detector still redacts and no raw value is ever emitted by the lib.
-  assert.equal(result.redactedSecretCount, 0);
 });

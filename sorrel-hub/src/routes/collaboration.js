@@ -70,9 +70,8 @@ async function laneSubmit(request, response, context) {
   }
 
   const normalized = { ...body, projectId: projectId.trim(), syncRepoId };
-  if (body.syncRepoId === undefined && body.repositoryId === syncRepoId && !store.getRepository(body.repositoryId)) {
-    normalized.repositoryId = undefined;
-  }
+  normalized.repositoryId = body.syncRepoId !== undefined || store.getRepository(body.repositoryId)
+    ? body.repositoryId : undefined;
   await assertCollectionWrite(context, 'proposals', normalized);
   await assertCoreAccess(context, 'proposal.read', projectScope(context, normalized.projectId));
 
