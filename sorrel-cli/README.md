@@ -25,7 +25,11 @@ aliases. Legacy `shell` strings retain their `<shell> -c` invocation.
 Workflow failures, invalid/missing files or jobs, and policy denials return
 nonzero process status after printing JSON. A failed child preserves its exit
 code. Human output includes redacted output and a `sorrel run logs <id>` hint;
-JSON includes `runId` when persisted. Failure to save logs is reported as
+Inherited process variables remain available to jobs. Values under secret-like
+keys (`TOKEN`, `SECRET`, `PASSWORD`, or `KEY` by default) join the existing
+runner masking terms, including for devenv output, before JSON or persisted
+stream logs are returned. These terms are kept in memory only and follow the
+bundle masking settings. JSON includes `runId` when persisted. Failure to save logs is reported as
 `run_log_failed`, even when the child succeeded.
 
 `tests/policy_conformance.rs` checks the CLI policy evaluator against the
