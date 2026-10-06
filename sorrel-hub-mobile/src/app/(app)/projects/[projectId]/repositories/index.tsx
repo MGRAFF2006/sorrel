@@ -16,9 +16,9 @@ import {
 } from '@/components/ui';
 import { useHub } from '@/context/hub-context';
 import { useHubQuery } from '@/hooks/use-hub-query';
-import { unwrapList } from '@/lib/domain';
+import { connectedSyncRepos, unwrapList } from '@/lib/domain';
 import { useSorrelTheme } from '@/lib/theme';
-import type { Proposal, Repository, SyncRepo } from '@/lib/types';
+import type { DataResponse, Project, Proposal, Repository, SyncRepo } from '@/lib/types';
 
 export default function RepositoriesScreen() {
   const router = useRouter();
@@ -28,7 +28,8 @@ export default function RepositoriesScreen() {
   const { client } = useHub();
   const load = useCallback(async () => {
     if (!client) throw new Error('No Hub connection.');
-    const [syncPayload, proposalPayload, repositoryPayload] = await Promise.all([
+    const [projectPayload, syncPayload, proposalPayload, repositoryPayload] = await Promise.all([
+      client.getProject<DataResponse<Project>>(projectId),
       client.listSyncRepos(),
       client.listProposals({ projectId }),
       client.listRepositories({ projectId }),
@@ -36,14 +37,9 @@ export default function RepositoriesScreen() {
     const allSyncRepos = unwrapList<SyncRepo>(syncPayload);
     const proposals = unwrapList<Proposal>(proposalPayload);
     const repositories = unwrapList<Repository>(repositoryPayload);
-    const linked = new Set(
-      proposals
-        .map((proposal) => proposal.syncRepoId)
-        .filter((id): id is string => typeof id === 'string' && id.length > 0),
-    );
     return {
       repositories,
-      syncRepos: allSyncRepos.filter((repo) => linked.has(repo.id)),
+      syncRepos: connectedSyncRepos(projectPayload.data, proposals, allSyncRepos),
     };
   }, [client, projectId]);
   const query = useHubQuery(load);
@@ -103,7 +99,7 @@ export default function RepositoriesScreen() {
           ) : (
             <EmptyState
               title="No sync repository connected"
-              body="Push a local workspace or submit a lane to connect its repository to this project."
+              body="Link a synchronized repository to this project or submit a lane from the CLI."
             />
           )}
         </Section>

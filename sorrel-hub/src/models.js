@@ -250,7 +250,7 @@ export function createOrganization(attributes) {
   return {
     id: metadataId(attributes, 'org'),
     name,
-    slug: attributes.slug ? slugify(attributes.slug) : slugify(name),
+    slug: slugify(optionalString(attributes, 'slug') || name),
     ownerPrincipal: optionalPrincipal(attributes, 'ownerPrincipal'),
     principalRefs: arrayOfPrincipals(attributes, 'principalRefs'),
     ...corePolicyRefs(attributes),
@@ -289,7 +289,7 @@ export function createProject(attributes) {
     id: metadataId(attributes, 'proj'),
     organizationId: requiredString(attributes, 'organizationId'),
     name,
-    slug: attributes.slug ? slugify(attributes.slug) : slugify(name),
+    slug: slugify(optionalString(attributes, 'slug') || name),
     description: optionalString(attributes, 'description'),
     status: enumValue(attributes, 'status', PROJECT_STATUSES, 'active'),
     repositoryIds: arrayOfStrings(attributes, 'repositoryIds'),
