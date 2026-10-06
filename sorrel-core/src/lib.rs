@@ -4,6 +4,7 @@ pub mod authority;
 pub mod change;
 pub mod conflict;
 pub mod dag;
+pub mod durability;
 pub mod git_export;
 pub mod git_import;
 pub mod history;

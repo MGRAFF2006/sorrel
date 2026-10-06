@@ -67,6 +67,25 @@ Use separate workspaces for concurrent edits. Workflow child processes run
 outside the lock so they can invoke Sorrel. Head and change-index publication
 is journaled and an interrupted commit finishes on the next locked command.
 
+On Unix, metadata staging flushes contents and directory entries before the
+journal is published; target renames are flushed before journal removal, whose
+directory entry is then flushed as well. A failure after publication reports
+uncertain durability and preserves the journal and staged data while target
+publication is incomplete. Recovery retries barriers even for targets already
+renamed. If the final journal-removal flush fails, the targets are already
+flushed; the next locked command retries the root barrier, and a journal that
+reappears after restart can be replayed safely.
+
+HEAD and lane-head publication flush their validated snapshot closure, including
+terminal blobs and ancestor history. Change-index publication and journal recovery
+also flush referenced changes, their parent changes, and linked base/result
+snapshot closures. This can add work proportional to the closure and history.
+Recovery rechecks all changes present in a staged changes index, including history.
+A failed closure check publishes no further pointers and leaves pending recovery data intact.
+Directory-entry flushing is a Unix contract; Windows retains file flushes and
+atomic replacement without the same directory guarantee. Device-level power-loss
+behavior has not been verified.
+
 ## Features
 
 - Persistent repositories: `init`, `status`, `diff`, `log`, and
