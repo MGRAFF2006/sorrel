@@ -3,6 +3,7 @@ import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAl
 import { resolveActingPrincipal } from '../policy-guard.js';
 import { browseTextFile, browseTree } from '../sync-browser.js';
 import {
+  createTraversalBudget,
   isDescendant,
   missingObjects,
   walkClosure,
@@ -121,19 +122,19 @@ function listRefs(response, context, repoId) {
 }
 
 async function listMissing(request, response, context, repoId) {
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
   const want = normalizeIdList(body.want, 'want');
   if (want.length === 0) {
     throw new HttpError(400, 'want must contain at least one snapshot id', 'invalid_request');
   }
   const have = normalizeIdList(body.have ?? [], 'have');
 
-  const missing = missingObjects(want, have, repoId, context.store.sync);
+  const missing = missingObjects(want, have, repoId, context.store.sync, createTraversalBudget(context.limits));
   sendJson(response, 200, { missing });
 }
 
 async function uploadObjects(request, response, context, repoId) {
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
   assertObjectUploadPolicy(request, body, repoId, context);
 
   const objects = body.objects;
@@ -184,7 +185,7 @@ function getObject(response, context, repoId, objectIdValue) {
 }
 
 async function advanceRef(request, response, context, repoId, refName) {
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
   const actingPrincipal = resolveActingPrincipal(request, context);
   const snapshot = normalizeObjectId(body.snapshot, 'snapshot');
   const expected = body.expected === null || body.expected === undefined
@@ -219,7 +220,8 @@ async function advanceRef(request, response, context, repoId, refName) {
     }
   }
 
-  const { incomplete, missingIds } = walkClosure(repoId, [snapshot], context.store.sync, 'snapshot');
+  const budget = createTraversalBudget(context.limits);
+  const { incomplete, missingIds } = walkClosure(repoId, [snapshot], context.store.sync, 'snapshot', budget);
   if (incomplete) {
     throw new HttpError(
       409,
@@ -229,7 +231,7 @@ async function advanceRef(request, response, context, repoId, refName) {
     );
   }
 
-  if (current && !force && !isDescendant(repoId, current, snapshot, context.store.sync)) {
+  if (current && !force && !isDescendant(repoId, current, snapshot, context.store.sync, budget)) {
     throw new HttpError(
       409,
       `snapshot ${snapshot} is not a descendant of ref ${refName}`,

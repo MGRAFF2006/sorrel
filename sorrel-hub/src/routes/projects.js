@@ -9,7 +9,7 @@ export async function handleProjectsRoute(request, response, context) {
 
   if (segments.length === 3 && segments[2] === 'repositories') {
     if (request.method !== 'POST') return sendMethodNotAllowed(response, ['POST']);
-    const body = await readJsonBody(request);
+    const body = await readJsonBody(request, context.limits.requestBodyBytes);
     if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.syncRepoId !== 'string' || !body.syncRepoId.trim()) {
       throw new HttpError(400, 'syncRepoId is required', 'invalid_request_body');
     }
@@ -55,7 +55,7 @@ function listProjects(response, { store, url }) {
 }
 
 async function createProject(request, response, context) {
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');

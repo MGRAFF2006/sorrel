@@ -6,6 +6,7 @@ import { createConvexMirror } from './convex-mirror.js';
 import { PolicyDeniedError, PolicyEvaluationError } from './core-policy.js';
 import { HttpError, sendJson, sendNotFound } from './http.js';
 import { ModelValidationError } from './models.js';
+import { resolveResourceLimits } from './resource-limits.js';
 import { handleAdminRoute } from './routes/admin.js';
 import { handleCollaborationRoute } from './routes/collaboration.js';
 import { handleProjectsRoute } from './routes/projects.js';
@@ -17,6 +18,7 @@ import {
 } from './sync-store.js';
 
 export function createApp(options = {}) {
+  const limits = resolveResourceLimits(options.env);
   const store = options.store ?? createInMemoryStore();
   const trustedGrantsById = options.trustedGrantsById ?? {};
   const authAdapter = options.authAdapter ?? createAuthAdapterFromEnv(options.env);
@@ -82,6 +84,7 @@ export function createApp(options = {}) {
 
         const routeContext = {
           store,
+          limits,
           url,
           trustedGrantsById,
           authAdapter,
@@ -149,6 +152,7 @@ function sendError(response, error) {
   }
 
   if (error instanceof HttpError) {
+    if (error.statusCode === 413) response.setHeader('connection', 'close');
     return sendJson(response, error.statusCode, {
       error: {
         code: error.code,
