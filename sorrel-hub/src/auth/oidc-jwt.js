@@ -21,10 +21,12 @@ import { createPublicKey, createVerify } from 'node:crypto';
  * }} Jwk
  */
 
-/** @type {Map<string, { fetchedAt: number, keys: Jwk[] }>} */
+/** @type {Map<string, { fetchedAt: number, keys?: Jwk[], retryAt: number, inFlight?: Promise<Jwk[]> }>} */
 const jwksCache = new Map();
 
 const JWKS_TTL_MS = 10 * 60 * 1000;
+const JWKS_REFRESH_COOLDOWN_MS = 30 * 1000;
+const JWKS_FETCH_TIMEOUT_MS = 5000;
 
 /**
  * @param {string} token
@@ -114,9 +116,9 @@ export async function verifyOidcAccessToken(token, options) {
   }
 
   const jwksUri = options.jwksUri ?? `${issuer}/.well-known/jwks.json`;
-  const keys =
-    (await options.fetchJwks?.(jwksUri)) ?? (await fetchJwksCached(jwksUri));
   const kid = typeof header.kid === 'string' ? header.kid : undefined;
+  const keys =
+    (await options.fetchJwks?.(jwksUri)) ?? (await fetchJwksCached(jwksUri, kid));
   const candidates = keys.filter((key) => {
     if (kid !== undefined && key.kid !== kid) return false;
     if (key.use && key.use !== 'sig') return false;
@@ -161,24 +163,46 @@ export function verifyWithJwk(signingInput, signature, alg, jwk) {
 
 /**
  * @param {string} uri
+ * @param {string | undefined} kid
  * @returns {Promise<Jwk[]>}
  */
-async function fetchJwksCached(uri) {
-  const cached = jwksCache.get(uri);
+async function fetchJwksCached(uri, kid) {
+  let cached = jwksCache.get(uri);
+  if (!cached) {
+    cached = { fetchedAt: 0, retryAt: 0 };
+    jwksCache.set(uri, cached);
+  }
   const now = Date.now();
-  if (cached && now - cached.fetchedAt < JWKS_TTL_MS) {
-    return cached.keys;
+  const fresh = cached.keys !== undefined && now - cached.fetchedAt < JWKS_TTL_MS;
+  const unknownKid = kid !== undefined && !cached.keys?.some((key) => key.kid === kid);
+  if (fresh && !unknownKid) return cached.keys;
+  if (cached.inFlight) return await cached.inFlight;
+  if (now < cached.retryAt) {
+    if (fresh) return cached.keys;
+    throw new Error('jwks refresh temporarily unavailable');
   }
-  const response = await fetch(uri, {
-    headers: { accept: 'application/json' },
-  });
-  if (!response.ok) {
-    throw new Error(`jwks fetch failed: ${response.status}`);
+
+  const hadKeys = cached.keys !== undefined;
+  cached.retryAt = now + JWKS_REFRESH_COOLDOWN_MS;
+  cached.inFlight = (async () => {
+    const response = await fetch(uri, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(JWKS_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`jwks fetch failed: ${response.status}`);
+    const body = /** @type {{ keys?: Jwk[] }} */ (await response.json());
+    const keys = Array.isArray(body.keys) ? body.keys : [];
+    cached.keys = keys;
+    cached.fetchedAt = Date.now();
+    // The first successful load must allow an immediate rotation refresh.
+    if (!hadKeys) cached.retryAt = 0;
+    return keys;
+  })();
+  try {
+    return await cached.inFlight;
+  } finally {
+    cached.inFlight = undefined;
   }
-  const body = /** @type {{ keys?: Jwk[] }} */ (await response.json());
-  const keys = Array.isArray(body.keys) ? body.keys : [];
-  jwksCache.set(uri, { fetchedAt: now, keys });
-  return keys;
 }
 
 /** Clear JWKS cache (tests). */

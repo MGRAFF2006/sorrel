@@ -38,11 +38,15 @@ const maintainerGrant = {
   source: 'core',
   principal: { type: 'user', id: 'user_maintainer' },
   action: 'policy.grant',
+  effect: 'allow',
   resource: { kind: 'org', id: 'org_policy' },
 };
 
 async function withPolicyServer(callback) {
+  const trustedPoliciesById = Object.fromEntries(['policy_project_access', 'policy_repo_access', 'policy_repo_ci']
+    .map((id) => [id, { schemaVersion: 'sorrel.protocol.v0', kind: 'Policy', id, resource: { kind: 'org', id: 'org_policy' }, rules: [] }]));
   const app = createApp({
+    trustedPoliciesById,
     trustedGrantsById: {
       [maintainerGrant.id]: maintainerGrant,
     },
@@ -292,7 +296,7 @@ test('POST /admin/repositories exposes Core policy references', async () => {
     app.store.getProject('proj_policy') ?? app.store.createProject({ id: 'proj_policy', organizationId: 'org_policy', name: 'Policy' });
     const policyRef = { kind: 'Policy', id: 'policy_repo_access' };
     const authorityRootRef = { kind: 'AuthorityRoot', id: 'authority_org_policy' };
-    const policyRefs = [{ kind: 'AgentPolicy', id: 'agent_policy_repo_ci' }];
+    const policyRefs = [{ kind: 'Policy', id: 'policy_repo_ci' }];
     const grantRefs = [{ id: maintainerGrant.id, source: 'core' }];
 
     const response = await postJson(
@@ -352,7 +356,7 @@ test('POST /admin/repositories denies unauthorized agents for policy.grant', asy
 
     assert.equal(response.status, 403);
     assert.equal(body.error.code, 'policy_denied');
-    assert.equal(body.error.decision.outcome, 'deny');
+    assert.equal(body.error.decision.decision, 'needs_grant');
   });
 });
 
