@@ -116,7 +116,10 @@ jobs:
 
 fn command_json(cwd: &Path, args: &[&str]) -> Value {
     let mut command = Command::cargo_bin("sorrel").expect("sorrel binary is available");
-    command.current_dir(cwd).args(args);
+    command
+        .current_dir(cwd)
+        .env("SORREL_LOCAL_DEMO", "1")
+        .args(args);
 
     let output = command.output().expect("command runs");
     let json: Value = serde_json::from_slice(&output.stdout).expect("command emits json");
@@ -162,6 +165,7 @@ secretRefs:
         &[
             "grant",
             "create",
+            "--local-demo",
             "--json",
             "--action",
             "secret.inject",

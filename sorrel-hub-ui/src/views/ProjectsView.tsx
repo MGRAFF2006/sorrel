@@ -99,6 +99,7 @@ export function ProjectsHome() {
       <div class="toolbar">
         <input
           type="search"
+          aria-label="Filter by organization"
           placeholder="Filter by organization…"
           autocomplete="off"
           value={orgFilter()}

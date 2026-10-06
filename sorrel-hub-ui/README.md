@@ -28,6 +28,14 @@ adapters; see `sorrel-hub-desktop`.
 - `/orgs/:id` — organization README and projects
 - `/profile` — the active principal, authored work, and profile README surface
 
+The global **Switch project** button opens a searchable picker from any route.
+**Ctrl+K** (Windows/Linux) or **Cmd+K** (macOS) opens it when focus is outside
+editable controls and no dialog is already open. Search names, ids, or
+organizations; use Tab and Enter to choose a result, or Escape to dismiss. Each
+opening loads the current Hub project list and selection opens the project
+home. The picker has loading, retry, and empty states; it saves no project list
+or preference locally.
+
 The UI presents Hub/Core state without creating a parallel permission or issue
 model. Project repository ids, repository records, or submitted proposal sync
 ids connect the Code page to a synchronized repository.

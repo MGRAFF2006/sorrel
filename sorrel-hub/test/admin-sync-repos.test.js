@@ -16,12 +16,12 @@ function makeBlob(content) {
 }
 
 function makeTree(entries) {
-  const bytes = Buffer.from(JSON.stringify({ kind: 'Tree', entries }));
+  const bytes = Buffer.from(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Tree', entries }));
   return { id: objectId(bytes), bytes };
 }
 
 function makeSnapshot(treeId, parents = []) {
-  const bytes = Buffer.from(JSON.stringify({ kind: 'Snapshot', tree: treeId, parents }));
+  const bytes = Buffer.from(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: treeId, parents }));
   return { id: objectId(bytes), bytes };
 }
 
@@ -31,6 +31,7 @@ function grantsFor(repoId) {
     source: 'core',
     principal: { type: 'user', id: 'user_pusher' },
     action: 'repo.object.write',
+    effect: 'allow',
     resource: { kind: 'repo', id: repoId },
   };
   const refWriteGrant = {
@@ -38,6 +39,7 @@ function grantsFor(repoId) {
     source: 'core',
     principal: { type: 'user', id: 'user_pusher' },
     action: 'repo.ref.write',
+    effect: 'allow',
     resource: { kind: 'repo', id: repoId },
   };
   return { objectWriteGrant, refWriteGrant };

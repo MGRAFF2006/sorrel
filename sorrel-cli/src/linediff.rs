@@ -16,13 +16,40 @@ pub enum LineKind {
     Removed,
 }
 
+/// The original terminator of a source line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineEnding {
+    Lf,
+    CrLf,
+    /// An unterminated final line.
+    None,
+}
+
 /// A line entry within a hunk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HunkLine {
     /// Whether the line is context, added, or removed.
     pub kind: LineKind,
-    /// The line content (without trailing newline).
+    /// The line content without its LF or CRLF terminator.
     pub text: String,
+    pub line_ending: LineEnding,
+}
+
+impl HunkLine {
+    fn from_raw(kind: LineKind, raw: &str) -> Self {
+        let (text, line_ending) = if let Some(text) = raw.strip_suffix("\r\n") {
+            (text, LineEnding::CrLf)
+        } else if let Some(text) = raw.strip_suffix('\n') {
+            (text, LineEnding::Lf)
+        } else {
+            (raw, LineEnding::None)
+        };
+        Self {
+            kind,
+            text: text.to_owned(),
+            line_ending,
+        }
+    }
 }
 
 /// A contiguous group of changes with surrounding context.
@@ -49,12 +76,8 @@ enum Edit {
 }
 
 fn split_lines(text: &str) -> Vec<String> {
-    if text.is_empty() {
-        return Vec::new();
-    }
-    // `lines()` drops a trailing newline's empty final element, which is the
-    // behavior we want for diffing whole files.
-    text.lines().map(str::to_owned).collect()
+    // Compare complete source segments so terminator-only edits remain changes.
+    text.split_inclusive('\n').map(str::to_owned).collect()
 }
 
 /// Builds an LCS-based edit script between `old` and `new` line vectors.
@@ -154,25 +177,16 @@ pub fn hunks(old_text: &str, new_text: &str, context: usize) -> Vec<Hunk> {
         for edit in &edits[from..to] {
             match edit {
                 Edit::Equal(text) => {
-                    lines.push(HunkLine {
-                        kind: LineKind::Context,
-                        text: text.clone(),
-                    });
+                    lines.push(HunkLine::from_raw(LineKind::Context, text));
                     old_len += 1;
                     new_len += 1;
                 }
                 Edit::Delete(text) => {
-                    lines.push(HunkLine {
-                        kind: LineKind::Removed,
-                        text: text.clone(),
-                    });
+                    lines.push(HunkLine::from_raw(LineKind::Removed, text));
                     old_len += 1;
                 }
                 Edit::Insert(text) => {
-                    lines.push(HunkLine {
-                        kind: LineKind::Added,
-                        text: text.clone(),
-                    });
+                    lines.push(HunkLine::from_raw(LineKind::Added, text));
                     new_len += 1;
                 }
             }
@@ -208,6 +222,11 @@ pub fn render_unified(hunks: &[Hunk]) -> String {
             out.push(prefix);
             out.push_str(&line.text);
             out.push('\n');
+            if line.line_ending == LineEnding::None {
+                out.push_str("\\ No newline at end of file\n");
+            } else if line.line_ending == LineEnding::CrLf && line.kind != LineKind::Context {
+                out.push_str("\\ CRLF line ending\n");
+            }
         }
     }
     out
@@ -216,6 +235,50 @@ pub fn render_unified(hunks: &[Hunk]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn byte_distinct_line_endings_produce_hunks() {
+        for (old, new) in [
+            ("a\n", "a"),
+            ("a", "a\n"),
+            ("a\r\n", "a\n"),
+            ("a\n", "a\r\n"),
+            ("a\r\n", "a"),
+            ("a\nb", "a\nb\n"),
+            ("a\r\nb\r\n", "a\r\nb\n"),
+        ] {
+            assert!(!hunks(old, new, 3).is_empty(), "old={old:?}, new={new:?}");
+        }
+    }
+
+    #[test]
+    fn render_and_metadata_identify_missing_newline_and_crlf() {
+        let result = hunks("a\r\n", "a", 3);
+        assert_eq!(result[0].old_len, 1);
+        assert_eq!(result[0].new_len, 1);
+        assert_eq!(result[0].lines[0].text, "a");
+        assert_eq!(result[0].lines[0].line_ending, LineEnding::CrLf);
+        assert_eq!(result[0].lines[1].line_ending, LineEnding::None);
+        assert_eq!(
+            render_unified(&result),
+            "@@ -1,1 +1,1 @@\n-a\n\\ CRLF line ending\n+a\n\\ No newline at end of file\n"
+        );
+    }
+
+    #[test]
+    fn splitting_preserves_empty_lines_and_bare_carriage_returns() {
+        assert!(hunks("", "", 3).is_empty());
+        assert!(hunks("a\r\n\r\n", "a\r\n\r\n", 3).is_empty());
+        let blank = hunks("", "\n", 3);
+        assert_eq!(blank[0].new_len, 1);
+        assert_eq!(blank[0].lines[0].text, "");
+        assert_eq!(blank[0].lines[0].line_ending, LineEnding::Lf);
+        let bare = hunks("a\r", "a\r\n", 3);
+        assert_eq!(bare[0].lines[0].text, "a\r");
+        assert_eq!(bare[0].lines[0].line_ending, LineEnding::None);
+        assert_eq!(bare[0].lines[1].text, "a");
+        assert_eq!(bare[0].lines[1].line_ending, LineEnding::CrLf);
+    }
 
     #[test]
     fn identical_text_has_no_hunks() {

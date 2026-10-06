@@ -63,8 +63,9 @@ jobs:
           git add CHANGELOG.md sorrel-*/CHANGELOG.md sorrel-web/docs/CHANGELOG.md
           git commit -m "chore: prepare v${NEXT_VERSION} changelogs"
           git push origin "$branch"
+          node scripts/changelog-pr-body.mjs "$NEXT_VERSION" "$RELEASE_DATE" > "$RUNNER_TEMP/changelog-pr-body.md"
           gh pr create \
             --base main \
             --head "$branch" \
             --title "chore: prepare v${NEXT_VERSION} changelogs" \
-            --body "Automated changelog preparation for v${NEXT_VERSION} (${RELEASE_DATE}). Entries were derived from merged PR metadata and mapped to affected packages by changed paths. Review and edit the generated prose where additional compatibility or migration context is useful."
+            --body-file "$RUNNER_TEMP/changelog-pr-body.md"
