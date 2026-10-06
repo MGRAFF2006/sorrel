@@ -40,6 +40,15 @@ unterminated final line. Human output marks missing final newlines and changed
 CRLF lines. JSON hunk lines retain terminator-free `text` and include
 `lineEnding: "crlf"` or `"none"` when applicable; omitted `lineEnding` means LF.
 
+## Merge status
+
+`status --json` reports recorded pending merge conflicts in `worktree.conflicts`
+and whether a merge awaits completion in `worktree.mergeInProgress`. The count
+includes conflicts without text markers and stays pending after manual editing
+until `merge --continue` or `merge --abort`. `status` still exits successfully
+when it can report the state; `status` and `worktree.dirty` continue to describe
+changes against HEAD. Human output includes a pending-merge hint.
+
 ## Workspace file selection
 
 `status`, `diff`, and `change create` honor nested `.gitignore` and
