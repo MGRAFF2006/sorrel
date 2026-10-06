@@ -14,7 +14,7 @@ async function withServer(callback) {
   const baseUrl = `http://${address.address}:${address.port}`;
 
   try {
-    return await callback(baseUrl);
+    return await callback(baseUrl, app);
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -55,7 +55,7 @@ async function withPolicyServer(callback) {
   const baseUrl = `http://${address.address}:${address.port}`;
 
   try {
-    return await callback(baseUrl);
+    return await callback(baseUrl, app);
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -199,7 +199,9 @@ test('POST /projects records Core policy references', async () => {
 });
 
 test('POST /admin/proposals records policy references without merge queue behavior', async () => {
-  await withServer(async (baseUrl) => {
+  await withServer(async (baseUrl, app) => {
+    app.store.getProject('proj_policy') ?? app.store.createProject({ id: 'proj_policy', organizationId: 'org_policy', name: 'Policy' });
+    app.store.createRepository({ id: 'repo_policy', projectId: 'proj_policy', organizationId: 'org_policy', provider: 'sorrel', owner: 'local', name: 'Policy' });
     const policyRefs = [{ kind: 'Policy', id: 'policy_proposal_review' }];
 
     const response = await postJson(`${baseUrl}/admin/proposals`, {
@@ -225,7 +227,9 @@ test('POST /admin/proposals records policy references without merge queue behavi
 });
 
 test('POST /admin/workflow-runs records policy references without hosted compute', async () => {
-  await withServer(async (baseUrl) => {
+  await withServer(async (baseUrl, app) => {
+    app.store.getProject('proj_policy') ?? app.store.createProject({ id: 'proj_policy', organizationId: 'org_policy', name: 'Policy' });
+    app.store.createProposal({ id: 'prop_policy', projectId: 'proj_policy', title: 'Policy', authorRef: 'user:local' });
     const policyRefs = [{ kind: 'AgentPolicy', id: 'agent_policy_workflow_ci' }];
 
     const response = await postJson(`${baseUrl}/admin/workflow-runs`, {
@@ -284,7 +288,8 @@ test('POST /admin/policies rejects Hub-local authorization rules', async () => {
 });
 
 test('POST /admin/repositories exposes Core policy references', async () => {
-  await withPolicyServer(async (baseUrl) => {
+  await withPolicyServer(async (baseUrl, app) => {
+    app.store.getProject('proj_policy') ?? app.store.createProject({ id: 'proj_policy', organizationId: 'org_policy', name: 'Policy' });
     const policyRef = { kind: 'Policy', id: 'policy_repo_access' };
     const authorityRootRef = { kind: 'AuthorityRoot', id: 'authority_org_policy' };
     const policyRefs = [{ kind: 'AgentPolicy', id: 'agent_policy_repo_ci' }];
@@ -352,7 +357,8 @@ test('POST /admin/repositories denies unauthorized agents for policy.grant', asy
 });
 
 test('POST /admin/repositories allows maintainers via hydrated Core grants', async () => {
-  await withPolicyServer(async (baseUrl) => {
+  await withPolicyServer(async (baseUrl, app) => {
+    app.store.getProject('proj_policy') ?? app.store.createProject({ id: 'proj_policy', organizationId: 'org_policy', name: 'Policy' });
     const response = await postJson(
       `${baseUrl}/admin/repositories`,
       {
