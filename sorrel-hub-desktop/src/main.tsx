@@ -27,5 +27,4 @@ mountHubApp(root, {
   platform,
   apiBase: 'http://127.0.0.1:3000',
   fetch: tauriFetch,
-  convexUrl: import.meta.env.VITE_CONVEX_URL as string | undefined,
 });

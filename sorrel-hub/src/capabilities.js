@@ -1,3 +1,4 @@
+import { isConvexMirrorEnabled } from './convex-mirror.js';
 import { PROPOSAL_STATUS_TRANSITIONS } from './models.js';
 
 /**
@@ -16,7 +17,7 @@ import { PROPOSAL_STATUS_TRANSITIONS } from './models.js';
  *     objectStorage: 'fs' | 'memory',
  *   },
  *   auth: { mode: 'dev' | 'workos' | 'oidc', session: 'cookie' | 'bearer' | 'none' },
- *   convex: { enabled: boolean, url?: string },
+ *   convex: { enabled: boolean },
  *   deploy: 'saas' | 'selfhost' | 'dev',
  * }} HubCapabilities
  */
@@ -41,15 +42,6 @@ export function resolveCapabilities(options = {}) {
   const secrets = false;
   const objectStorage = env.SORREL_HUB_SYNC_STORE === 'memory' ? 'memory' : 'fs';
 
-  // Browsers cannot use an internal Compose/service URL. Operators can expose
-  // a separate public origin while the Hub mirror keeps using CONVEX_URL.
-  const convexUrl =
-    env.CONVEX_PUBLIC_URL || env.VITE_CONVEX_URL || env.CONVEX_URL || undefined;
-  const convexEnabled =
-    env.SORREL_HUB_CONVEX === '0' || env.SORREL_HUB_CONVEX === 'false'
-      ? false
-      : Boolean(convexUrl) || env.SORREL_HUB_CONVEX === '1' || env.SORREL_HUB_CONVEX === 'true';
-
   let deploy = /** @type {'saas'|'selfhost'|'dev'} */ ('dev');
   if (env.SORREL_HUB_DEPLOY === 'saas' || env.SORREL_HUB_DEPLOY === 'selfhost') {
     deploy = env.SORREL_HUB_DEPLOY;
@@ -73,8 +65,7 @@ export function resolveCapabilities(options = {}) {
       session: authMode === 'dev' ? 'none' : 'bearer',
     },
     convex: {
-      enabled: convexEnabled,
-      ...(convexUrl ? { url: convexUrl } : {}),
+      enabled: isConvexMirrorEnabled(env),
     },
     deploy,
   };

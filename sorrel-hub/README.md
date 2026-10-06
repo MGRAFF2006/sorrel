@@ -33,6 +33,16 @@ Hub model objects reference the Core permission spine (`Principal`, `ResourceRef
 `Policy`, `PolicyDecision`, `Grant`, and `SecretRef`) so Hub can administer and
 display policy without becoming the only source of truth.
 
+### Optional private Convex mirror
+
+Convex proposal functions are internal and require the server's deployment/admin
+key. Configure `CONVEX_URL` plus `CONVEX_DEPLOY_KEY` or
+`CONVEX_SELF_HOSTED_ADMIN_KEY`; otherwise the mirror stays disabled. Capabilities
+report configuration without a backend URL. Product counters use the
+Core-authorized Hub proposal list, never a public Convex subscription.
+See [Convex setup and existing-deployment migration](convex/README.md); operators
+must redeploy the functions to revoke their former public visibility.
+
 ### Policy conformance
 
 To keep Hub's administration guard aligned with Core, `test/policy-conformance.test.js`

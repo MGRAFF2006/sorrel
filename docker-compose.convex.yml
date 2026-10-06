@@ -2,7 +2,7 @@ services:
   hub:
     environment:
       CONVEX_URL: http://convex-backend:3210
-      CONVEX_PUBLIC_URL: "${CONVEX_PUBLIC_URL:-http://127.0.0.1:3210}"
+      CONVEX_SELF_HOSTED_ADMIN_KEY: "${CONVEX_SELF_HOSTED_ADMIN_KEY:-}"
       SORREL_HUB_CONVEX: "1"
     depends_on:
       convex-backend:

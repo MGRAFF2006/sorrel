@@ -46,7 +46,7 @@ Coordinated releases also publish the unprivileged Linux amd64/arm64 image as
 complete flow and alpha security boundary are documented in
 [`docs/GETTING_STARTED.md`](../docs/GETTING_STARTED.md#host-a-release-server).
 
-Optional live Convex URL: `VITE_CONVEX_URL=http://127.0.0.1:3210`.
+Proposal counters use the authenticated Hub API; browsers do not connect to Convex.
 
 ## Tests
 

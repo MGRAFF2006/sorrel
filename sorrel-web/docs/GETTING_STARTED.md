@@ -274,12 +274,15 @@ optional Convex metadata mirror, configure the documented Convex environment
 variables and layer the profile over the normal stack:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.convex.yml up --build
+docker compose --profile convex -f docker-compose.yml -f docker-compose.convex.yml up --build
 ```
 
-`CONVEX_URL` is the Hub's internal endpoint; `CONVEX_PUBLIC_URL` is the
-browser-visible endpoint injected into the web build. This profile is an
-integration spike, not a production deployment recipe.
+`CONVEX_URL` is the Hub's internal endpoint. Configure a server-only
+`CONVEX_SELF_HOSTED_ADMIN_KEY` and deploy the internal functions as described in
+[`sorrel-hub/convex/README.md`](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-hub/convex/README.md). Without the key,
+the mirror stays disabled. Product clients and counters use the authenticated
+Hub API; no browser Convex URL is required. This profile is an integration
+spike, not a production deployment recipe.
 
 ## CLI ↔ Hub sync
 

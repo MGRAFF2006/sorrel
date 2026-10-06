@@ -164,7 +164,7 @@ Important Hub variables:
 | `SORREL_HUB_BOOTSTRAP_GRANTS=1` | Broad local demo grants; never production |
 | `SORREL_HUB_ALLOW_INSECURE_DEV_AUTH=1` | Allow dev auth on non-loopback for isolated demos |
 | `CONVEX_URL` | Hub-to-Convex internal URL |
-| `CONVEX_PUBLIC_URL` | Browser-reachable Convex URL advertised in capabilities |
+| `CONVEX_DEPLOY_KEY` / `CONVEX_SELF_HOSTED_ADMIN_KEY` | Server-only privileged key required for the optional mirror |
 
 See `sorrel-hub/README.md` for OIDC/WorkOS settings and complete API details.
 
