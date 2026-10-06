@@ -17,7 +17,7 @@ async function withServer(t, persistent, callback) {
   if (dir) t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const store = persistent ? createFsMetadataStore(dir) : new InMemoryStore();
   const trustedGrantsById = Object.fromEntries([['org', 'org_a'], ['org', 'org_b'], ['project', 'project_a'], ['project', 'missing']]
-    .map(([kind, id]) => [`grant_${id}`, { id: `grant_${id}`, source: 'core', principal: { type: 'user', id: 'local' }, action: 'policy.grant', resource: { kind, id } }]));
+    .map(([kind, id]) => [`grant_${id}`, { id: `grant_${id}`, source: 'core', principal: { type: 'user', id: 'local' }, action: 'policy.grant', effect: 'allow', resource: { kind, id } }]));
   trustedGrantsById.grant_parent_fixture = {
     schemaVersion: 'sorrel.protocol.v0', kind: 'Grant', id: 'grant_parent_fixture',
     principal: { kind: 'user', id: 'local' }, effect: 'allow',
