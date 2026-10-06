@@ -158,6 +158,8 @@ fn status_reports_real_persisted_state_for_initialized_workspace() {
     assert_eq!(value["initialized"], true);
     assert_eq!(value["status"], "clean");
     assert_eq!(value["worktree"]["dirty"], false);
+    assert_eq!(value["worktree"]["conflicts"], 0);
+    assert_eq!(value["worktree"]["mergeInProgress"], false);
     assert_eq!(value["currentLane"]["id"], "lane_main");
     // status must reflect the SAME repo + HEAD that init persisted.
     assert_eq!(value["repoId"], init["repoId"]);
@@ -1143,6 +1145,18 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
 
     let status = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(status["status"], "dirty");
+    assert_eq!(status["worktree"]["conflicts"], 1);
+    assert_eq!(status["worktree"]["mergeInProgress"], true);
+    let human_status = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .arg("status")
+        .output()
+        .unwrap();
+    assert!(human_status.status.success());
+    let text = String::from_utf8(human_status.stdout).unwrap();
+    assert!(text.contains("merge in progress") && text.contains("1 pending conflict"));
+
     assert_eq!(status["headSnapshot"]["id"], main_snapshot);
 
     let aborted = command_json(temp_dir.path(), &["merge", "--abort", "--json"]);
@@ -1166,6 +1180,9 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
     assert!(!temp_dir.path().join("clean-add.txt").exists());
     let status = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(status["status"], "clean");
+    assert_eq!(status["worktree"]["conflicts"], 0);
+    assert_eq!(status["worktree"]["mergeInProgress"], false);
+
     assert_eq!(status["headSnapshot"]["id"], main_snapshot);
 }
 
@@ -1247,6 +1264,10 @@ fn merge_continue_after_manual_resolution() {
     assert!(String::from_utf8_lossy(&blocked.stderr).contains("unresolved conflict markers"));
 
     std::fs::write(temp_dir.path().join("a.txt"), b"resolved\n").expect("resolve");
+    let pending = command_json(temp_dir.path(), &["status", "--json"]);
+    assert_eq!(pending["worktree"]["conflicts"], 1);
+    assert_eq!(pending["worktree"]["mergeInProgress"], true);
+
     let continued = command_json(temp_dir.path(), &["merge", "--continue", "--json"]);
     assert_eq!(continued["command"], "merge");
     assert_eq!(continued["status"], "merged");
@@ -1268,6 +1289,72 @@ fn merge_continue_after_manual_resolution() {
     assert!(!temp_dir.path().join("clean-delete.txt").exists());
     let status = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(status["status"], "clean");
+    assert_eq!(status["worktree"]["conflicts"], 0);
+    assert_eq!(status["worktree"]["mergeInProgress"], false);
+}
+
+#[test]
+fn status_reports_binary_conflicts_without_text_markers() {
+    let dir = TempDir::new().unwrap();
+    command_json(dir.path(), &["init", "--json"]);
+    let path = dir.path().join("binary.dat");
+    std::fs::write(&path, b"base\xff").unwrap();
+    command_json(dir.path(), &["change", "create", "-m", "base", "--json"]);
+    let lane = command_json(
+        dir.path(),
+        &["lane", "create", "--name", "binary-feature", "--json"],
+    );
+    let lane_id = lane["object"]["id"].as_str().unwrap();
+    std::fs::write(&path, b"ours\xff").unwrap();
+    command_json(dir.path(), &["change", "create", "-m", "ours", "--json"]);
+    command_json(dir.path(), &["lane", "switch", lane_id, "--json"]);
+    std::fs::write(&path, b"theirs\xff").unwrap();
+    command_json(dir.path(), &["change", "create", "-m", "theirs", "--json"]);
+    command_json(dir.path(), &["lane", "switch", "lane_main", "--json"]);
+    let merge = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["merge", lane_id, "--json"])
+        .output()
+        .unwrap();
+    assert!(!merge.status.success());
+    assert_eq!(std::fs::read(&path).unwrap(), b"ours\xff");
+    let status = command_json(dir.path(), &["status", "--json"]);
+    assert_eq!(status["status"], "clean", "working bytes still match ours");
+    assert_eq!(status["worktree"]["conflicts"], 1);
+    assert_eq!(status["worktree"]["mergeInProgress"], true);
+    command_json(dir.path(), &["merge", "--abort", "--json"]);
+    let cleared = command_json(dir.path(), &["status", "--json"]);
+    assert_eq!(cleared["worktree"]["conflicts"], 0);
+    assert_eq!(cleared["worktree"]["mergeInProgress"], false);
+}
+
+#[test]
+fn status_fails_for_unreadable_merge_result_state() {
+    for state in [
+        json!({}),
+        json!({"mergeResult": "invalid"}),
+        json!({"mergeResult": "a".repeat(64)}),
+    ] {
+        let dir = TempDir::new().unwrap();
+        command_json(dir.path(), &["init", "--json"]);
+        std::fs::write(
+            dir.path().join(".sorrel/MERGE_STATE"),
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let status = Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(dir.path())
+            .args(["status", "--json"])
+            .output()
+            .unwrap();
+        assert!(
+            !status.status.success(),
+            "corrupt merge state cannot report no conflicts"
+        );
+        assert!(status.stdout.is_empty());
+    }
 }
 
 #[test]

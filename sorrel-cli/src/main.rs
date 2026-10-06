@@ -13,9 +13,9 @@ use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_export_with_force, git_import,
     is_descendant, materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree,
-    parse_object_id_hex, read_conflict, read_snapshot, read_snapshot_files, read_stack,
-    restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree, ChangeOptions,
-    ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
+    parse_object_id_hex, read_conflict, read_merge_result, read_snapshot, read_snapshot_files,
+    read_stack, restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree,
+    ChangeOptions, ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
     ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
     PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
 };
@@ -47,7 +47,7 @@ struct Cli {
 enum Commands {
     /// Initialize Sorrel metadata for the current repository.
     Init,
-    /// Show Sorrel repository status (real dirty detection vs HEAD).
+    /// Show working-tree changes and pending merge conflicts.
     Status,
     /// Show line-level differences between the working tree and HEAD.
     Diff(DiffArgs),
@@ -745,6 +745,20 @@ fn status_output() -> io::Result<CommandOutput> {
     // Real working-tree dirty detection: snapshot the current tree (minus
     // `.sorrel/`) and diff it against HEAD.
     let store = to_io(FileObjectStore::new(repo::object_store_root()))?;
+    let merge_in_progress = repo::merge_in_progress();
+    let conflicts = if merge_in_progress {
+        let merge_result = repo::load_merge_state()?
+            .ok_or_else(|| io::Error::other("MERGE_STATE has no merge result id"))?;
+        let merge_result_id = merge_result
+            .parse::<ObjectId>()
+            .map_err(|_| io::Error::other("invalid merge result id in MERGE_STATE"))?;
+        to_io(read_merge_result(&store, &merge_result_id))?
+            .conflicts
+            .len()
+    } else {
+        0
+    };
+
     let (worktree_json, dirty, status_label) = match head.as_ref().and_then(|head| {
         head_snapshot_id(head)
             .transpose()
@@ -759,23 +773,28 @@ fn status_output() -> io::Result<CommandOutput> {
             let (changes, total) = diff_json(&diff);
             let dirty = total > 0;
             (
-                json!({ "dirty": dirty, "changes": changes, "conflicts": 0 }),
+                json!({ "dirty": dirty, "changes": changes, "conflicts": conflicts, "mergeInProgress": merge_in_progress }),
                 dirty,
                 if dirty { "dirty" } else { "clean" },
             )
         }
         None => (
-            json!({ "dirty": false, "changes": json!({"added": [], "modified": [], "deleted": []}), "conflicts": 0 }),
+            json!({ "dirty": false, "changes": json!({"added": [], "modified": [], "deleted": []}), "conflicts": conflicts, "mergeInProgress": merge_in_progress }),
             false,
             "clean",
         ),
     };
 
-    let human = if dirty {
+    let mut human = if dirty {
         format!("Sorrel repository {repo_id} on lane {lane}: dirty")
     } else {
         format!("Sorrel repository {repo_id} on lane {lane}: clean")
     };
+    if merge_in_progress {
+        human.push_str(&format!(
+            "; merge in progress ({conflicts} pending conflict(s)); use `sorrel merge --continue` or `sorrel merge --abort`"
+        ));
+    }
 
     Ok(CommandOutput {
         json: json!({
