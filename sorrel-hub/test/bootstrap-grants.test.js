@@ -53,11 +53,11 @@ test('bootstrap grants allow CLI-shaped push for user:local', async () => {
     const blobBytes = Buffer.from('bootstrap hello', 'utf8');
     const blob = { id: objectId(blobBytes), bytes: blobBytes };
     const treeBytes = Buffer.from(
-      JSON.stringify({ kind: 'Tree', entries: [{ name: 'hello.txt', object: blob.id }] }),
+      JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Tree', entries: [{ name: 'hello.txt', object: blob.id }] }),
     );
     const tree = { id: objectId(treeBytes), bytes: treeBytes };
     const snapshotBytes = Buffer.from(
-      JSON.stringify({ kind: 'Snapshot', tree: tree.id, parents: [] }),
+      JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: tree.id, parents: [] }),
     );
     const snapshot = { id: objectId(snapshotBytes), bytes: snapshotBytes };
 
@@ -126,11 +126,11 @@ test('server.js defaults to localhost and accepts a push with bootstrap opt-in',
     const blobBytes = Buffer.from('server bootstrap', 'utf8');
     const blobId = objectId(blobBytes);
     const treeBytes = Buffer.from(
-      JSON.stringify({ kind: 'Tree', entries: [{ name: 'note.txt', object: blobId }] }),
+      JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Tree', entries: [{ name: 'note.txt', object: blobId }] }),
     );
     const treeId = objectId(treeBytes);
     const snapshotBytes = Buffer.from(
-      JSON.stringify({ kind: 'Snapshot', tree: treeId, parents: [] }),
+      JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: treeId, parents: [] }),
     );
     const snapshotId = objectId(snapshotBytes);
 

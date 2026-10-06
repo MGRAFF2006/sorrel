@@ -891,7 +891,12 @@ impl Runner for ContainerRunner {
 
         let mut jobs = Vec::with_capacity(bundle.jobs.len());
         for job in &bundle.jobs {
-            jobs.push(run_container_job(self.engine, &self.image, bundle, job)?);
+            let result = run_container_job(self.engine, &self.image, bundle, job)?;
+            let failed = result.status != RunStatus::Succeeded;
+            jobs.push(result);
+            if failed && bundle.workflow.is_some() {
+                break;
+            }
         }
 
         Ok(BundleRunResult::from_jobs(bundle.id.clone(), jobs))

@@ -8,13 +8,16 @@
 
 import { HttpError } from './http.js';
 
+const PROTOCOL_VERSION = 'sorrel.protocol.v0';
+const TYPED_KINDS = { snapshot: 'Snapshot', tree: 'Tree' };
+
 /**
  * @typedef {import('./sync-store.js').RepoSyncStore} RepoSyncStore
  */
 
 /**
  * @param {Buffer} bytes
- * @returns {{ kind?: string, tree?: unknown, root?: unknown, rootTree?: unknown, parents?: unknown[], entries?: Array<Record<string, unknown>> } | null}
+ * @returns {{ schemaVersion?: string, kind?: string, tree?: unknown, root?: unknown, rootTree?: unknown, parents?: unknown[], entries?: Array<Record<string, unknown>> } | null}
  */
 export function parseJsonObject(bytes) {
   try {
@@ -26,6 +29,17 @@ export function parseJsonObject(bytes) {
   } catch {
     return null;
   }
+}
+
+/** Match Core's exact persisted kind/version boundary for snapshots and trees. */
+export function requireTypedObject(parsed, objectId, expectedKind) {
+  if (!Object.hasOwn(TYPED_KINDS, expectedKind) || parsed?.kind !== TYPED_KINDS[expectedKind]) {
+    throw new HttpError(422, `object ${objectId} is not a ${expectedKind}`, 'invalid_sync_object');
+  }
+  if (parsed.schemaVersion !== PROTOCOL_VERSION) {
+    throw new HttpError(422, `object ${objectId} has an unsupported schemaVersion`, 'invalid_sync_object');
+  }
+  return parsed;
 }
 
 function normalizeId(value) {
@@ -90,12 +104,14 @@ export function walkClosure(repoId, rootIds, store, rootKind) {
     }
 
     closure.add(normalized);
+    // Terminal blobs still need the store's digest verification before publication.
+    const bytes = store.get(repoId, normalized);
     if (terminal) continue;
 
-    const parsed = parseJsonObject(store.get(repoId, normalized));
+    const parsed = parseJsonObject(bytes);
     const kind = typeof parsed?.kind === 'string' ? parsed.kind.toLowerCase() : undefined;
-    if (expectedKind && kind !== expectedKind) {
-      throw new HttpError(422, `object ${normalized} is not a ${expectedKind}`, 'invalid_sync_object');
+    if (expectedKind || kind === 'snapshot' || kind === 'tree') {
+      requireTypedObject(parsed, normalized, expectedKind ?? kind);
     }
     if (expanded.has(normalized)) {
       continue;
