@@ -182,12 +182,12 @@ fn status_detects_dirty_working_tree() {
 }
 
 #[test]
-fn status_persists_stat_cache_across_unchanged_resnapshots() {
+fn status_saves_only_durable_stat_cache_entries() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     command_json(temp_dir.path(), &["init", "--json"]);
     std::fs::write(temp_dir.path().join("tracked.txt"), b"cached bytes\n").expect("write file");
 
-    // First status materializes the working tree and must persist the cache.
+    // A preview must save the cache without retaining temporary blob references.
     let first = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(first["status"], "dirty");
     let cache_path = temp_dir.path().join(".sorrel/stat-cache.json");
@@ -196,13 +196,13 @@ fn status_persists_stat_cache_across_unchanged_resnapshots() {
         "status must persist .sorrel/stat-cache.json"
     );
 
-    // The cache records the tracked file with the v0 schema version.
+    // The new file is not committed, so its preview-only blob must not be cached.
     let cache: Value = serde_json::from_slice(&std::fs::read(&cache_path).expect("read cache"))
         .expect("cache json");
     assert_eq!(cache["schemaVersion"], PROTOCOL_VERSION);
     assert!(
-        cache["entries"].get("tracked.txt").is_some(),
-        "cache should contain the tracked file entry"
+        cache["entries"].get("tracked.txt").is_none(),
+        "cache must not reference a deleted preview blob"
     );
 
     // Re-running status with an unchanged working tree must still succeed and
@@ -228,6 +228,8 @@ fn status_persists_stat_cache_across_unchanged_resnapshots() {
     assert!(cache_path.is_file(), "change create must persist the cache");
     let after = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(after["status"], "clean");
+    let cache: Value = serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+    assert!(cache["entries"].get("tracked.txt").is_some());
 }
 
 #[test]
