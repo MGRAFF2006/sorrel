@@ -1233,7 +1233,7 @@ fn slice_create_persists_real_manifest() {
     assert_eq!(value["object"]["name"], "auth-lib");
     // Non-JS sources are now a real "generic" slice, not a mock.
     assert_eq!(value["object"]["metadata"]["language"], "generic");
-    assert_eq!(value["object"]["metadata"]["mocked"], true);
+    assert_eq!(value["object"]["metadata"]["mocked"], false);
     assert!(value["object"]["id"]
         .as_str()
         .is_some_and(|id| id.starts_with("slice_")));
