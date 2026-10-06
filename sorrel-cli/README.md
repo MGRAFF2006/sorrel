@@ -42,6 +42,12 @@ ordinary file. Ignore negation cannot reinclude protected secret files.
 For legacy workspaces that already track secrets, see the
 [workspace selection and recovery contract](../docs/ARCHITECTURE.md#change-lane-and-merge-flow).
 
+`status` compares against temporary preview objects under `.sorrel/tmp`, then
+removes them without adding objects to `.sorrel/objects`. It saves cache entries
+for unchanged committed files; changed files are hashed again until recorded.
+Existing unreferenced objects are retained. An abruptly terminated status can
+leave a temporary preview directory, but does not publish its objects or HEAD.
+
 Workspace commands acquire an advisory operating-system lock before reading
 or changing metadata. If another command is using the same workspace, retry
 after its busy error; the lock releases automatically when that process exits.
