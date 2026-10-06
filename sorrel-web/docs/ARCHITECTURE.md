@@ -117,7 +117,11 @@ symlink targets, even when ignore rules try to reinclude them. Malformed provide
 configuration fails closed. Explicit provider overrides outside these project
 configs must be added to `.sorrelignore` before use. This selection runs before
 stat-cache lookup, and excluded paths are removed from a successfully saved
-cache. A size/mtime stat cache avoids rehashing unchanged selected files.
+cache. A size/mtime cache with Unix device/inode/ctime fingerprints avoids
+rehashing unchanged selected files. Entries verified within their ctime second,
+old entries without fingerprints, whole-second ctimes, and unsupported platforms
+reread file contents. Cache reuse assumes the filesystem updates ctime on writes;
+concurrent workspace writes are not an atomic snapshot.
 
 A HEAD that already tracks a protected secret path causes an error before any
 new objects are written. This does not purge previously stored secret blobs or
