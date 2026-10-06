@@ -92,8 +92,11 @@ function/`decide(request)` adapter). Any `deny` or `needs_grant` decision blocks
 resolution and is attached to `AccessDeniedError`.
 
 For local development, `createLocalDevCorePolicy(spec)` in `scripts/lib/grants.mjs`
-provides an explicit adapter that consults vault grants through Core's
-`evaluate()` shape. Wire it deliberately; it is not the default backend behavior.
+provides an explicit local YAML-grant evaluator with an `evaluate()` interface.
+It does not call the Rust Core engine or verify native authority and signed
+policy changes. The development CLI wires this adapter deliberately; it is not
+the default backend behavior. Hosts requiring authoritative authorization must
+inject their trusted Core adapter instead.
 
 ### Policy conformance
 
