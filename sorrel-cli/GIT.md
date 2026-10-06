@@ -130,3 +130,6 @@ git -C ./out.git log --oneline
 - Symlinks and submodule gitlinks are rejected on import
 - Merge commits are imported/exported; Change base uses the first parent on import
 - Mapping under `.sorrel/git-map.json` links Git SHAs ↔ Sorrel snapshot ids
+- Export keeps one flat current mapping rather than embedding earlier map files.
+  Existing nested `previous` archives are ignored when loading export/sync maps;
+  the next export drops the archive while preserving the current mapping.
