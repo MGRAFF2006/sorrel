@@ -313,7 +313,9 @@ SORREL_AUTHORITY_CONTEXT="$OPERATOR_AUTHORITY_CONTEXT" sorrel workflow run test
 Stored grants contain only the value-free scope and signed change, never signing
 keys or an automatically trusted context path. Each use rechecks signatures,
 actor authority, the expected policy root, and exact scope binding against
-`SORREL_AUTHORITY_CONTEXT`. Missing/invalid approval, changed authority context,
+`SORREL_AUTHORITY_CONTEXT`. Consumption also evaluates each actual recipient's
+secret capability through native Core with previous grants plus approved issued
+grants; Deny, Redact, and Review effects block use even when issuance is approved. Missing/invalid approval, changed authority context,
 legacy decision-only grants, and environment/workflow/runner mismatches fail
 closed. Reissue grants when the trusted policy context changes. The workflow
 adapter currently identifies its environment as `dev` and its runner as

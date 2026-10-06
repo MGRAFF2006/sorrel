@@ -554,23 +554,66 @@ fn grants_from_persisted(
     {
         return Ok(vec![]);
     }
+    let effective_native_grants = authority
+        .map(|authority| {
+            let mut grants = authority.previous_grants.clone();
+            for proposed in scope.proposals()? {
+                let mut grant = sorrel_core::policy::Grant::new(
+                    proposed.id,
+                    proposed.principal,
+                    sorrel_core::policy::Capability::new(&scope.action),
+                    proposed.resource,
+                    proposed.effect,
+                );
+                grant.capabilities = proposed.capabilities;
+                grants.push(grant);
+            }
+            Ok::<_, BridgeError>(grants)
+        })
+        .transpose()?;
     Ok(scope
         .agents
         .iter()
-        .map(|agent| Grant {
-            principal: PrincipalId {
-                kind: "agent".to_owned(),
-                id: agent.clone(),
-            },
-            capabilities: scope.capabilities(),
-            resources: vec![ResourceScope {
-                scope: "secret".to_owned(),
-                fields: serde_json::json!({"ref":scope.secret})
-                    .as_object()
-                    .cloned()
-                    .unwrap_or_default(),
-            }],
-            issued_by: None,
+        .filter_map(|agent| {
+            let capabilities = scope
+                .capabilities()
+                .into_iter()
+                .filter(|capability| {
+                    effective_native_grants.as_ref().is_none_or(|grants| {
+                        let request = sorrel_core::policy::PolicyEvaluationRequest {
+                            principal: sorrel_core::policy::PrincipalDescriptor::new(
+                                sorrel_core::policy::PrincipalKind::Agent,
+                                agent,
+                            ),
+                            capability: sorrel_core::policy::Capability::new(capability),
+                            resource: sorrel_core::policy::ResourceRef::new(
+                                sorrel_core::policy::ResourceKind::Secret,
+                                &scope.secret,
+                            ),
+                        };
+                        sorrel_core::policy::evaluate_policy(&request, grants, &[]).decision
+                            == sorrel_core::policy::DecisionKind::Allow
+                    })
+                })
+                .collect::<Vec<_>>();
+            if capabilities.is_empty() {
+                return None;
+            }
+            Some(Grant {
+                principal: PrincipalId {
+                    kind: "agent".to_owned(),
+                    id: agent.clone(),
+                },
+                capabilities,
+                resources: vec![ResourceScope {
+                    scope: "secret".to_owned(),
+                    fields: serde_json::json!({"ref":scope.secret})
+                        .as_object()
+                        .cloned()
+                        .unwrap_or_default(),
+                }],
+                issued_by: None,
+            })
         })
         .collect())
 }
@@ -1017,6 +1060,65 @@ mod tests {
         )
         .unwrap()
         .is_empty());
+    }
+
+    #[test]
+    fn native_recipient_restrictions_apply_at_consumption() {
+        use sorrel_core::policy::{
+            Capability, Grant as NativeGrant, GrantEffect, PrincipalDescriptor, PrincipalKind,
+            ResourceKind, ResourceRef,
+        };
+        for effect in [GrantEffect::Deny, GrantEffect::Redact, GrantEffect::Review] {
+            for restricted_capability in ["secret.read", "secret.inject", "*"] {
+                for restricted_id in ["secret_test", "*", "other_secret"] {
+                    let (scope, mut authority, change, object) = approved_fixture();
+                    authority.previous_grants.push(NativeGrant::new(
+                        "recipient_restriction",
+                        PrincipalDescriptor::new(PrincipalKind::Agent, "agent_a"),
+                        Capability::new(restricted_capability),
+                        ResourceRef::new(ResourceKind::Secret, restricted_id),
+                        effect,
+                    ));
+                    // Issuance authority and the recipient's permission are distinct.
+                    assert!(verify_secret_grant_approval(&scope, &change, &authority).unwrap());
+                    let grants = grants_from_persisted(
+                        &object,
+                        Some(&authority),
+                        false,
+                        Some("dev"),
+                        Some("workflow_test"),
+                        Some("runner_test"),
+                    )
+                    .unwrap();
+                    let context = PolicyContext {
+                        grants,
+                        ..PolicyContext::headless_default()
+                    };
+                    for recipient in ["agent_a", "agent_b"] {
+                        for capability in ["secret.read", "secret.inject"] {
+                            let blocked = recipient == "agent_a"
+                                && restricted_id != "other_secret"
+                                && (restricted_capability == "*"
+                                    || restricted_capability == capability);
+                            let decision = evaluate(
+                                &EvaluateInput {
+                                    principal: PrincipalId::parse(&format!("agent:{recipient}"))
+                                        .unwrap(),
+                                    action: capability.to_owned(),
+                                    resource: crate::cli_policy::ResourceRef::parse(
+                                        "secret:secret_test",
+                                    )
+                                    .unwrap(),
+                                    environment: Some("dev".to_owned()),
+                                },
+                                &context,
+                            );
+                            assert_eq!(decision.decision == Decision::Allow, !blocked, "effect={effect:?}, recipient={recipient}, capability={capability}, restriction={restricted_capability}, resource={restricted_id}");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

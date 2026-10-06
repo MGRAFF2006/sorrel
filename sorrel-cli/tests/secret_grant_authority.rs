@@ -264,3 +264,61 @@ fn native_grants_require_current_trust_and_workflow_constraints_before_resolutio
     assert_eq!(denied["error"]["kind"], "policy_load_failed");
     assert!(!root.join("SHOULD_NOT_EXIST").exists());
 }
+
+#[test]
+fn recipient_restrictions_block_real_secret_and_workflow_use_before_resolution() {
+    for effect in [GrantEffect::Deny, GrantEffect::Redact, GrantEffect::Review] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        output(root, &["init"]);
+        let request = output(
+            root,
+            &[
+                "grant",
+                "create",
+                "--request-only",
+                "--secret",
+                "secret_test",
+                "--json",
+            ],
+        );
+        let (outside, _) = source(root, &request);
+        let context_path = outside.path().join("authority.json");
+        let mut context: Value = serde_json::from_slice(&fs::read(&context_path).unwrap()).unwrap();
+        let restriction = Grant::new(
+            "recipient_restriction",
+            PrincipalDescriptor::new(PrincipalKind::Agent, "agent_mock_cli"),
+            Capability::new("*"),
+            ResourceRef::new(ResourceKind::Secret, "secret_test"),
+            effect,
+        );
+        context["previousGrants"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::to_value(restriction).unwrap());
+        fs::write(&context_path, serde_json::to_vec(&context).unwrap()).unwrap();
+        // The issuer can approve a grant while the recipient remains restricted.
+        assert_eq!(
+            approve(root, outside.path(), &["--secret", "secret_test"])["persisted"],
+            true
+        );
+        fs::write(root.join("sorrel.secrets.yml"), "secretRefs:\n  - id: secret_test\n    name: TEST_TOKEN\n    provider: dotenv\n    uri: dotenv:.must-not-read.env\n    environment: dev\n    required: true\n").unwrap();
+        let denied = command(root)
+            .env("SORREL_AUTHORITY_CONTEXT", &context_path)
+            .args(["secret", "get", "secret_test", "--reveal"])
+            .output()
+            .unwrap();
+        assert!(!denied.status.success());
+        assert!(String::from_utf8_lossy(&denied.stderr).contains("policy denied"));
+        fs::write(root.join("sorrel.workflow.yml"), "version: 1\nid: workflow_test\njobs:\n  test:\n    command: touch SHOULD_NOT_EXIST\n    secrets: [secret_test]\n").unwrap();
+        let denied = command(root)
+            .env("SORREL_AUTHORITY_CONTEXT", &context_path)
+            .args(["workflow", "run", "test", "--json"])
+            .output()
+            .unwrap();
+        let denied: Value = serde_json::from_slice(&denied.stdout).unwrap();
+        assert_eq!(denied["status"], "denied");
+        assert!(!root.join("SHOULD_NOT_EXIST").exists());
+        assert!(!root.join("secretspec.toml").exists());
+    }
+}
