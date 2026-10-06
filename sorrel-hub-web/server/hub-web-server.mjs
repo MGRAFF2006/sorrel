@@ -59,7 +59,7 @@ export function createHubWebServer({ root, hubApiUrl }) {
         response.writeHead(403).end('Forbidden');
         return;
       }
-      if (!extname(filePath)) {
+      if (!extname(filePath) || /^\/(?:projects|orgs)\/[^/]+\/?$/.test(pathname)) {
         try {
           const fallback = await readStatic(join(root, 'index.html'));
           response.writeHead(200, { 'content-type': CONTENT_TYPES['.html'] }).end(fallback);
