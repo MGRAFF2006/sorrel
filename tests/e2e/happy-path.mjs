@@ -163,6 +163,7 @@ async function main() {
       SORREL_HUB_DATA_DIR: join(hubDataRoot, 'sync'),
       SORREL_HUB_METADATA_DIR: join(hubDataRoot, 'metadata'),
       SORREL_HUB_BOOTSTRAP_GRANTS: '1',
+      SORREL_HUB_LOCAL_DEMO: '1',
     },
   });
   const hubUrl = hub.ready.url;

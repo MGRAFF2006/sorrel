@@ -49,8 +49,7 @@ test('UI talks to Hub under /api and includes live inbox-count wiring', async ()
     new URL('../src/convex/openProposals.ts', import.meta.url),
     'utf8',
   );
-  assert.match(convex, /countOpen/);
-  assert.match(convex, /ConvexClient/);
+  assert.match(convex, /useOpenProposalsCountFromHub/);
 });
 
 test('package root resolves', () => {

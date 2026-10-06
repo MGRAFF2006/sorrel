@@ -1,8 +1,15 @@
+import { createOrganization, createRepository, createProposal as normalizeProposal, createReviewComment, createWorkflowRun, createPolicy } from '../models.js';
 import { decodePathComponent, HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
-import { assertPrivilegedAdminAccess, bindSessionPrincipal } from '../policy-guard.js';
+import { assertCoreAccess, assertCollectionRead, assertCollectionWrite, assertPrivilegedAdminAccess, bindSessionPrincipal, canAccess, filterCollection } from '../policy-guard.js';
 import { createProposal, updateProposal } from '../proposal-mutations.js';
 import { browseSnapshotChanges } from '../sync-browser.js';
 import { StoreNotFoundError } from '../store.js';
+
+const NORMALIZE = { organizations: createOrganization, repositories: createRepository,
+  proposals: normalizeProposal, 'review-comments': createReviewComment,
+  'workflow-runs': createWorkflowRun, policies: createPolicy };
+const PRINCIPAL_FIELDS = { organizations: 'ownerPrincipal', repositories: 'linkedByPrincipal',
+  proposals: 'authorPrincipal', 'review-comments': 'authorPrincipal', 'workflow-runs': 'requestedByPrincipal' };
 
 const COLLECTIONS = {
   organizations: {
@@ -76,7 +83,7 @@ export async function handleAdminRoute(request, response, context) {
       throw new HttpError(404, 'admin collection not found', 'not_found');
     }
     if (request.method === 'GET') {
-      return listSyncRepos(response, context);
+      return await listSyncRepos(response, context);
     }
     return sendMethodNotAllowed(response, ['GET']);
   }
@@ -90,7 +97,8 @@ export async function handleAdminRoute(request, response, context) {
   // GET /admin/proposals/:id/comments — nested review comments for a proposal
   if (collectionName === 'proposals' && itemId && subResource === 'changes' && request.method === 'GET') {
     const proposal = context.store.getProposal(itemId);
-    if (!proposal) throw new HttpError(404, `proposal ${itemId} not found`, 'not_found');
+    await assertCollectionRead(context, 'proposals', proposal);
+    if (proposal.syncRepoId) await assertCoreAccess(context, 'repo.read', { kind: 'repo', id: proposal.syncRepoId });
     return sendJson(response, 200, { data: browseSnapshotChanges(proposal, context.store.sync) });
   }
   if (
@@ -99,7 +107,7 @@ export async function handleAdminRoute(request, response, context) {
     subResource === 'comments' &&
     request.method === 'GET'
   ) {
-    return getProposalComments(response, context, itemId);
+    return await getProposalComments(response, context, itemId);
   }
 
   if (subResource) {
@@ -108,7 +116,7 @@ export async function handleAdminRoute(request, response, context) {
 
   if (itemId) {
     if (request.method === 'GET') {
-      return getCollectionItem(response, context, collection, itemId, collectionName);
+      return await getCollectionItem(response, context, collection, itemId, collectionName);
     }
     if (request.method === 'PATCH' && collection.update) {
       return await updateCollectionItem(
@@ -125,7 +133,7 @@ export async function handleAdminRoute(request, response, context) {
   }
 
   if (request.method === 'GET') {
-    return listCollection(response, context, collection);
+    return await listCollection(response, context, collection, collectionName);
   }
 
   if (request.method === 'POST') {
@@ -135,57 +143,37 @@ export async function handleAdminRoute(request, response, context) {
   return sendMethodNotAllowed(response, ['GET', 'POST']);
 }
 
-function listSyncRepos(response, { store }) {
-  const repos = store.sync
-    .listRepos()
-    .slice()
-    .sort()
-    .map((id) => ({
-      id,
-      refCount: store.sync.listRefs(id).length,
-    }));
-
+async function listSyncRepos(response, context) {
+  const repos = [];
+  for (const id of context.store.sync.listRepos().slice().sort()) {
+    if (await canAccess(context, 'repo.read', { kind: 'repo', id })) {
+      repos.push({ id, refCount: context.store.sync.listRefs(id).length });
+    }
+  }
   sendJson(response, 200, { repos });
 }
 
-function listCollection(response, { store, url }, collection) {
-  const filters = Object.fromEntries(
-    (collection.filters ?? [])
-      .map((filterName) => [filterName, url.searchParams.get(filterName) ?? undefined])
-      .filter(([, value]) => value !== undefined),
-  );
-
-  sendJson(response, 200, {
-    data: store[collection.list](filters),
-  });
+async function listCollection(response, context, collection, collectionName) {
+  const { store, url } = context;
+  const filters = Object.fromEntries((collection.filters ?? [])
+    .map(name => [name, url.searchParams.get(name) ?? undefined]).filter(([, value]) => value !== undefined));
+  sendJson(response, 200, { data: await filterCollection(context, collectionName, store[collection.list](filters)) });
 }
 
-function getCollectionItem(response, { store, url }, collection, itemId, collectionName) {
-  const item = store[collection.get](itemId);
-  if (!item) {
-    throw new HttpError(404, `${singular(collectionName)} ${itemId} not found`, 'not_found');
+async function getCollectionItem(response, context, collection, itemId, collectionName) {
+  const item = context.store[collection.get](itemId);
+  await assertCollectionRead(context, collectionName, item);
+  if (collectionName === 'proposals' && context.url.searchParams.get('include') === 'comments') {
+    const comments = await filterCollection(context, 'review-comments', context.store.listReviewComments({ proposalId: itemId }));
+    return sendJson(response, 200, { data: { ...item, comments } });
   }
-
-  if (collectionName === 'proposals' && url.searchParams.get('include') === 'comments') {
-    sendJson(response, 200, {
-      data: {
-        ...item,
-        comments: store.listReviewComments({ proposalId: itemId }),
-      },
-    });
-    return;
-  }
-
-  sendJson(response, 200, { data: item });
+  return sendJson(response, 200, { data: item });
 }
 
-function getProposalComments(response, { store }, proposalId) {
-  if (!store.getProposal(proposalId)) {
-    throw new HttpError(404, `proposal ${proposalId} not found`, 'not_found');
-  }
-  sendJson(response, 200, {
-    data: store.listReviewComments({ proposalId }),
-  });
+async function getProposalComments(response, context, proposalId) {
+  await assertCollectionRead(context, 'proposals', context.store.getProposal(proposalId));
+  const data = await filterCollection(context, 'review-comments', context.store.listReviewComments({ proposalId }));
+  sendJson(response, 200, { data });
 }
 
 async function createCollectionItem(request, response, context, collection, collectionName) {
@@ -195,19 +183,17 @@ async function createCollectionItem(request, response, context, collection, coll
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
   }
 
+  const field = PRINCIPAL_FIELDS[collectionName];
+  const attributes = NORMALIZE[collectionName](field ? bindSessionPrincipal(body, context, field) : body);
+  await assertCollectionWrite(context, collectionName, attributes);
   await assertPrivilegedAdminAccess(request, body, collectionName, context);
 
   let item;
   try {
     if (collectionName === 'proposals') {
-      item = createProposal(body, context);
+      item = createProposal(attributes, context);
     } else {
-      const principalField = {
-        repositories: 'linkedByPrincipal',
-        'review-comments': 'authorPrincipal',
-        'workflow-runs': 'requestedByPrincipal',
-      }[collectionName];
-      item = context.store[collection.create](principalField ? bindSessionPrincipal(body, context, principalField) : body);
+      item = context.store[collection.create](attributes);
     }
   } catch (error) {
     if (error instanceof StoreNotFoundError) {
@@ -236,13 +222,15 @@ async function updateCollectionItem(
   itemId,
   collectionName,
 ) {
+  const existing = context.store[collection.get](itemId);
+  await assertCollectionRead(context, collectionName, existing);
   const body = await readJsonBody(request, context.limits.requestBodyBytes);
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
   }
 
-  await assertPrivilegedAdminAccess(request, body, collectionName, context);
+  await assertCollectionWrite(context, collectionName, body, existing);
 
   let item;
   try {
@@ -257,20 +245,4 @@ async function updateCollectionItem(
   }
 
   sendJson(response, 200, { data: item });
-}
-
-function singular(collectionName) {
-  if (collectionName === 'review-comments') {
-    return 'review comment';
-  }
-  if (collectionName === 'workflow-runs') {
-    return 'workflow run';
-  }
-  if (collectionName.endsWith('ies')) {
-    return `${collectionName.slice(0, -3)}y`;
-  }
-  if (collectionName.endsWith('s')) {
-    return collectionName.slice(0, -1);
-  }
-  return collectionName;
 }

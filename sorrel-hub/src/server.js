@@ -28,8 +28,9 @@ const store =
     : createFsMetadataStore(metadataDir, { sync: createFsRepoSyncStore(dataDir) });
 
 // Optional local-development bootstrap grants let the CLI's `user:local`
-// principal push/pull without a separate grant-distribution service. They are
-// disabled unless SORREL_HUB_BOOTSTRAP_GRANTS=1. See bootstrap-grants.js.
+// principal push/pull without a separate grant-distribution service. Explicit
+// local demo identity also needs SORREL_HUB_LOCAL_DEMO=1; grants are disabled
+// unless SORREL_HUB_BOOTSTRAP_GRANTS=1. See bootstrap-grants.js.
 const trustedGrantsById = resolveTrustedGrants();
 const trustedPoliciesById = resolveTrustedPolicies();
 const authAdapter = createAuthAdapterFromEnv();

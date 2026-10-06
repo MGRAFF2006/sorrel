@@ -33,6 +33,16 @@ Hub model objects reference the Core permission spine (`Principal`, `ResourceRef
 `Policy`, `PolicyDecision`, `Grant`, and `SecretRef`) so Hub can administer and
 display policy without becoming the only source of truth.
 
+### Optional private Convex mirror
+
+Convex proposal functions are internal and require the server's deployment/admin
+key. Configure `CONVEX_URL` plus `CONVEX_DEPLOY_KEY` or
+`CONVEX_SELF_HOSTED_ADMIN_KEY`; otherwise the mirror stays disabled. Capabilities
+report configuration without a backend URL. Product counters use the
+Core-authorized Hub proposal list, never a public Convex subscription.
+See [Convex setup and existing-deployment migration](convex/README.md); operators
+must redeploy the functions to revoke their former public visibility.
+
 ### Policy conformance
 
 To keep Hub's administration guard aligned with Core, `test/policy-conformance.test.js`
@@ -91,8 +101,9 @@ request data are omitted; the client response remains redacted.
 
 `SORREL_HUB_AUTH` selects one of these request-authentication adapters:
 
-- `dev` (default) trusts `x-sorrel-acting-principal` and is restricted to
-  loopback unless the insecure-demo override is explicit.
+- `dev` (default) provides no identity until `SORREL_HUB_LOCAL_DEMO=1` explicitly
+  enables development headers and anonymous `user:local` demo sessions. It is
+  restricted to loopback unless the insecure-demo bind override is explicit.
 - `oidc` verifies RS256/ES256 Bearer JWTs using
   `SORREL_OIDC_ISSUER` and optional `SORREL_OIDC_AUDIENCE`; keys are read from
   `<issuer>/.well-known/jwks.json`. Keys are cached for ten minutes. An unknown
@@ -108,12 +119,85 @@ These adapters authenticate a principal; authorization still requires trusted
 Core grant references. WorkOS remains an adapter skeleton without sealed
 sessions, and the browser UI does not provide an IdP login flow in this alpha.
 
-In OIDC/WorkOS mode, every mutation requires a verified session and returns
-`401 authentication_required` without one. A development acting-principal
-header cannot substitute for that session. Project, proposal, comment, and run
-attribution is bound to the session instead of trusting a claimed body author.
-Read endpoints remain public in this alpha; this is not complete production
-access control. Development-mode anonymous metadata callers remain compatible.
+Every collaboration, metadata and sync read or write requires an authenticated
+session and a native Core allow decision. Without one, private endpoints return
+`401 authentication_required`. Verified AuthAdapter identity wins over acting
+headers and claimed authors; organization ownership and mutation attribution are
+bound to that identity. Only `/healthz`, `/capabilities` and `/session` discovery
+remain public. No credentials are returned by discovery.
+
+`SORREL_HUB_LOCAL_DEMO=1` with `auth=dev` is the explicit compatibility mode for
+isolated local clients: absent headers act as `user:local`, and supplied acting
+headers select a development identity. Actual configured Core grants are still
+required. Set `SORREL_HUB_BOOTSTRAP_GRANTS=1` as well to provision the local demo
+read/write grants. This flag never supplies a development identity in OIDC or
+WorkOS mode.
+
+### Private route capabilities
+
+Capabilities are native Core strings. Resources are exact Core kind/id pairs;
+an organization grant does not implicitly grant access to its projects, and a
+project grant does not implicitly grant repository byte access. Operators may
+use native resource id `*` deliberately. All effective grants and policies apply,
+including denies that clients omit from references.
+
+| Routes | Capability | Resource |
+| --- | --- | --- |
+| `GET /projects`, `/projects/:id` | `project.read` | Each stored project id |
+| `POST /projects` | `project.create` | Requested organization namespace id |
+| `POST /projects/:id/repositories` | `project.read`, `project.write`, `repo.read` | URL project id; requested sync repository id |
+| Organization metadata GET / POST | `org.read` / `org.write` | Stored/new organization id |
+| Repository metadata GET | `repo.read` | Stored Hub repository record id |
+| Repository metadata POST | `project.read`, `policy.grant` | Actual stored parent project id; organization must match |
+| Policy metadata GET / POST | `policy.read` / `policy.grant` | Stored parent project id, or organization namespace id |
+| Proposal GET / POST / PATCH | `proposal.read` / `proposal.write` | Actual stored parent project id |
+| Approve, reject or merge a proposal | Also `proposal.review` | Same actual project id |
+| Review comments GET / POST / PATCH | `review.comment.read` / `review.comment.write` | Stored parent proposal's project id |
+| Workflow runs GET / POST / PATCH | `workflow.run.read` / `workflow.run.write` | Actual stored parent project id |
+| `/collaboration/lane-submit`, `/collaboration/proposal-summary` | `proposal.write` + `proposal.read` / `proposal.read` | Each actual project id |
+| `GET /admin/sync-repos`, `/:repo/refs`, `/:repo/objects/:id`, `/:repo/tree`, `/:repo/files`, `POST /:repo/objects/missing` | `repo.read` | Each sync repository id |
+| `GET /admin/proposals/:id/changes` | `proposal.read` + `repo.read` | Stored project id; stored sync repository id |
+| `POST /:repo/objects`, `POST /:repo/refs/*` | `repo.object.write` / `repo.ref.write` | URL sync repository id |
+
+Metadata creation and PATCH require the corresponding read capability as well
+as write capability on their existing parent scope. New organizations and
+projects use their creation capability. Comments additionally require reading
+the actual parent proposal; runs linked to a proposal require `proposal.read`.
+Proposal repository/workflow-run links require reading those actual targets and
+matching their stored project. A Hub repository metadata id can differ from its
+sync repository id: provision `repo.read` for both scopes when needed. None of
+these metadata links supplies Core authority.
+
+Lists, nested comments and summary counts contain only authorized records.
+Unreadable records and records with missing or inconsistent local
+project/proposal/repository parents return the same `404 not_found` response
+as missing records. Organization namespace ids do not require local organization
+records; external Core reference hydration remains separate. Sync authorization runs before looking up objects/refs, so
+private and absent repository scopes have the same denial. Snapshot comparison
+also requires whole-repository byte access. Subprocess errors propagate rather
+than producing a successful empty list. Within one request, repeated identical
+action/resource decisions are reused; request authorization references are
+validated separately on sync and privileged administration mutations.
+
+For example, an operator can configure this native project-reader record under
+its matching key in `SORREL_HUB_TRUSTED_GRANTS_FILE`:
+
+```json
+{
+  "grant_project_reader": {
+    "schemaVersion": "sorrel.protocol.v0",
+    "kind": "Grant",
+    "id": "grant_project_reader",
+    "principal": { "kind": "user", "id": "oidc:member-subject" },
+    "capabilities": ["project.read", "proposal.read", "review.comment.read", "workflow.run.read"],
+    "resource": { "kind": "project", "id": "proj_example" },
+    "effect": "allow"
+  }
+}
+```
+
+Creating a project does not automatically provision grants for the new id.
+Grant/policy metadata creation does not modify the configured effective records.
 
 ### Trusted grants (sync push/pull)
 
@@ -126,13 +210,15 @@ server has no local bootstrap grants by default. For local development only,
 the explicit opt-in below lets the CLI acting principal
 `{"type":"user","id":"local"}` push/pull without a separate grant service:
 
+- `grant_local_repo_read` → `repo.read`
 - `grant_local_object_write` → `repo.object.write`
 - `grant_local_ref_write` → `repo.ref.write`
 
 Environment:
 
-- `SORREL_HUB_BOOTSTRAP_GRANTS=1` — enable the two development-only,
-  repo-wide bootstrap grants. No other value enables them.
+- `SORREL_HUB_BOOTSTRAP_GRANTS=1` — enable the development-only,
+  repo-wide bootstrap grants. With `SORREL_HUB_LOCAL_DEMO=1`, also provision
+  the native local organization/project collaboration grants. No other value enables them.
 - `SORREL_HUB_TRUSTED_GRANTS_FILE` — path to a JSON object of extra
   `id → grant` records merged on top of bootstrap grants.
 - `SORREL_HUB_TRUSTED_POLICIES_FILE` — path to a JSON object of native Core
@@ -169,7 +255,7 @@ production authentication or authorization provisioning.
 For a local CLI-compatible development server:
 
 ```sh
-SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start
+SORREL_HUB_LOCAL_DEMO=1 SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start
 ```
 
 ### Deployment
@@ -195,11 +281,12 @@ has a built-in `/healthz` container health check.
 
 Binding `0.0.0.0` is required for a published Docker port, but it does not
 enable bootstrap grants or add authentication. Local Docker E2E that pushes
-must additionally pass `-e SORREL_HUB_BOOTSTRAP_GRANTS=1`. Likewise, root-repo
+must additionally pass `-e SORREL_HUB_LOCAL_DEMO=1` and
+`-e SORREL_HUB_BOOTSTRAP_GRANTS=1`. Likewise, root-repo
 E2E must opt in explicitly:
 
 ```sh
-SORREL_HUB_BOOTSTRAP_GRANTS=1 npm test
+SORREL_HUB_LOCAL_DEMO=1 SORREL_HUB_BOOTSTRAP_GRANTS=1 npm test
 ```
 
 The same variable must be forwarded when an E2E harness spawns

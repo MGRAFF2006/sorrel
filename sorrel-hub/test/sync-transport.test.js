@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 
-import { createApp } from '../src/app.js';
+import { createDemoApp as createApp } from '../test-support/demo-app.js';
 import { objectId } from '../src/blake3.js';
 import { HubClient } from '../../sorrel-sdk-js/src/index.js';
 
@@ -37,6 +37,7 @@ const principalHeader = {
 
 async function withSyncServer(callback) {
   const app = createApp({ trustedGrantsById });
+  app.store.createProject({ id: 'proj_test', organizationId: 'org_test', name: 'Sync fixture' });
   const server = http.createServer(app.handleRequest);
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -454,7 +455,7 @@ test('POST /refs rejects non_fast_forward without force', async () => {
   });
 });
 
-test('POST /refs denies without acting principal header', async () => {
+test('explicit demo anonymous caller uses the configured local principal grants', async () => {
   await withSyncServer(async (baseUrl, app) => {
     const blob = makeBlob('deny');
     const tree = makeTree([{ name: 'deny.txt', object: blob.id }]);
@@ -470,8 +471,9 @@ test('POST /refs denies without acting principal header', async () => {
     });
     const body = await response.json();
 
-    assert.equal(response.status, 403);
-    assert.equal(body.error.code, 'policy_denied');
+    assert.equal(response.status, 200);
+    assert.equal(body.snapshot, snapshot.id);
+    assert.equal(app.store.sync.getRef(repoId, 'main'), snapshot.id);
   });
 });
 
