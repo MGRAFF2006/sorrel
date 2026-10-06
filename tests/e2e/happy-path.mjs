@@ -343,7 +343,10 @@ jobs:
   assert.match(vaultList.stdout, /secret_npm_token_dev/);
   const redact = run(
     'node',
-    ['scripts/vault-cli.mjs', 'redact', '--spec', 'examples/sorrel.secrets.dev.yml'],
+    [
+      'scripts/vault-cli.mjs', 'redact', '--spec', 'examples/sorrel.secrets.dev.yml',
+      '--principal', 'AgentPolicy:agent_policy_local_dev,Workflow:workflow_validate_vault,Runner:runner_local_process',
+    ],
     {
       cwd: VAULT_DIR,
       input: 'NPM_TOKEN=dev-token-example-do-not-use\n',

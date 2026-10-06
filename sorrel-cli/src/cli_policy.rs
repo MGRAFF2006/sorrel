@@ -68,35 +68,53 @@ impl ResourceScope {
             return false;
         }
 
-        match self.fields.get("ref").and_then(serde_json::Value::as_str) {
-            Some(pattern) => resource.id == pattern || pattern.ends_with("/**"),
-            None => match self.fields.get("path").and_then(serde_json::Value::as_str) {
-                Some(path) => resource.id == path || path.ends_with("/**"),
-                None => true,
-            },
+        match self.pattern() {
+            Ok(Some(pattern)) => scope_pattern_matches(pattern, &resource.id),
+            Ok(None) => true,
+            Err(()) => false,
         }
+    }
+
+    fn pattern(&self) -> Result<Option<&str>, ()> {
+        self.fields
+            .get("ref")
+            .or_else(|| self.fields.get("path"))
+            .map(|value| value.as_str().ok_or(()))
+            .transpose()
     }
 
     fn covers(&self, other: &ResourceScope) -> bool {
         if self.scope != other.scope {
             return false;
         }
-
-        let self_ref = self
-            .fields
-            .get("ref")
-            .or_else(|| self.fields.get("path"))
-            .and_then(serde_json::Value::as_str);
-        let other_ref = other
-            .fields
-            .get("ref")
-            .or_else(|| other.fields.get("path"))
-            .and_then(serde_json::Value::as_str);
-
-        match (self_ref, other_ref) {
-            (Some(base), Some(target)) => base == target || base.ends_with("/**"),
-            _ => true,
+        match (self.pattern(), other.pattern()) {
+            (Ok(None), Ok(_)) => true,
+            (Ok(Some(base)), Ok(Some(target))) => scope_pattern_matches(base, target),
+            _ => false,
         }
+    }
+}
+
+fn scope_pattern_matches(pattern: &str, target: &str) -> bool {
+    let base = pattern.strip_suffix("/**").unwrap_or(pattern);
+    let requested = target.strip_suffix("/**").unwrap_or(target);
+    let valid = |value: &str| {
+        !value.is_empty()
+            && !value.contains(['\\', '*'])
+            && value
+                .split('/')
+                .all(|part| !part.is_empty() && part != "." && part != "..")
+    };
+    if !valid(base) || !valid(requested) {
+        return false;
+    }
+    if pattern.ends_with("/**") {
+        target == base
+            || target
+                .strip_prefix(base)
+                .is_some_and(|rest| rest.starts_with('/'))
+    } else {
+        pattern == target
     }
 }
 
@@ -538,6 +556,54 @@ fn scope_broadening_violation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scope_wildcards_match_only_their_component_prefix() {
+        for field in ["ref", "path"] {
+            let scoped = |value: serde_json::Value| ResourceScope {
+                scope: "path".to_owned(),
+                fields: serde_json::json!({ field: value })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            };
+            let base = scoped(serde_json::json!("src/public/**"));
+            for path in ["src/public", "src/public/a", "src/public/deep/file"] {
+                assert!(base.matches(&ResourceRef {
+                    scope: "path".to_owned(),
+                    id: path.to_owned()
+                }));
+            }
+            for path in [
+                "secrets/credential",
+                "src/publicity/a",
+                "src/private/a",
+                "src/public/../private",
+                "/src/public/a",
+                "src/public//a",
+                "src/public/a\\..\\private",
+            ] {
+                assert!(
+                    !base.matches(&ResourceRef {
+                        scope: "path".to_owned(),
+                        id: path.to_owned()
+                    }),
+                    "{path}"
+                );
+            }
+            assert!(base.covers(&scoped(serde_json::json!("src/public/deep/**"))));
+            assert!(!base.covers(&scoped(serde_json::json!("secrets/**"))));
+            assert!(!base.covers(&scoped(serde_json::json!("src/**"))));
+            assert!(!base.covers(&ResourceScope {
+                scope: "path".to_owned(),
+                fields: Default::default()
+            }));
+            assert!(!scoped(serde_json::json!(42)).matches(&ResourceRef {
+                scope: "path".to_owned(),
+                id: "anything".to_owned()
+            }));
+        }
+    }
 
     fn agent(id: &str) -> PrincipalId {
         PrincipalId {
