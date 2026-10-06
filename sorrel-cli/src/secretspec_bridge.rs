@@ -11,7 +11,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::cli_policy::{
@@ -339,50 +339,240 @@ pub fn ensure_secretspec_toml(cwd: &Path) -> Result<(PathBuf, Vec<SecretHandle>)
     Ok((path, handles))
 }
 
-/// Build a policy context that includes persisted `.sorrel/grants` for secret actions.
+/// Canonical, value-free secret grant scope. Its hash is bound by signed proposal IDs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SecretGrantScope {
+    pub action: String,
+    pub agents: Vec<String>,
+    pub workflows: Vec<String>,
+    pub runners: Vec<String>,
+    pub secret: String,
+    pub environment: String,
+}
+
+impl SecretGrantScope {
+    pub fn validate(&self) -> Result<(), BridgeError> {
+        if !self.action.starts_with("secret.")
+            || self.action.len() <= 7
+            || self.secret.is_empty()
+            || self.secret.contains('*')
+            || self.environment.is_empty()
+            || self.agents.is_empty()
+            || self
+                .agents
+                .iter()
+                .chain(&self.workflows)
+                .chain(&self.runners)
+                .any(String::is_empty)
+            || self.agents.windows(2).any(|pair| pair[0] >= pair[1])
+            || self.workflows.windows(2).any(|pair| pair[0] >= pair[1])
+            || self.runners.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(BridgeError::Spec(
+                "invalid canonical secret grant scope".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn id(&self) -> Result<String, BridgeError> {
+        self.validate()?;
+        let payload = serde_json::to_vec(self)
+            .map_err(|_| BridgeError::Spec("cannot encode secret grant scope".to_owned()))?;
+        Ok(format!(
+            "grant_{}",
+            sorrel_core::ObjectId::for_bytes(&payload).to_hex()
+        ))
+    }
+
+    pub fn capabilities(&self) -> Vec<String> {
+        if self.action == "secret.inject" {
+            vec!["secret.inject".to_owned(), "secret.read".to_owned()]
+        } else {
+            vec![self.action.clone()]
+        }
+    }
+
+    pub fn proposals(&self) -> Result<Vec<sorrel_core::authority::ProposedGrant>, BridgeError> {
+        let id = self.id()?;
+        Ok(self
+            .agents
+            .iter()
+            .enumerate()
+            .map(|(index, agent)| {
+                sorrel_core::authority::ProposedGrant::new(
+                    format!("{id}_{index}"),
+                    sorrel_core::policy::PrincipalDescriptor::new(
+                        sorrel_core::policy::PrincipalKind::Agent,
+                        agent,
+                    ),
+                    self.capabilities(),
+                    sorrel_core::policy::ResourceRef::new(
+                        sorrel_core::policy::ResourceKind::Secret,
+                        &self.secret,
+                    ),
+                    sorrel_core::policy::GrantEffect::Allow,
+                )
+            })
+            .collect())
+    }
+}
+
+/// Explicit operator input, never copied into stored grants or command output.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OperatorAuthorityContext {
+    pub authority_root: sorrel_core::authority::AuthorityRoot,
+    pub previous_grants: Vec<sorrel_core::policy::Grant>,
+    pub context: sorrel_core::authority::PolicyChangeContext,
+}
+
+pub fn load_authority_context(path: &Path) -> Result<OperatorAuthorityContext, BridgeError> {
+    let bytes = fs::read(path)?;
+    serde_json::from_slice(&bytes)
+        .map_err(|_| BridgeError::Spec("invalid operator authority context".to_owned()))
+}
+
+pub fn verify_secret_grant_approval(
+    scope: &SecretGrantScope,
+    change: &sorrel_core::authority::PolicyChange,
+    authority: &OperatorAuthorityContext,
+) -> Result<bool, BridgeError> {
+    use sorrel_core::authority::{
+        evaluate_policy_change, PolicyChangeAction, PolicyChangeOutcome, PolicyChangeTrust,
+    };
+    if change.action != PolicyChangeAction::Grant || change.proposed_grants != scope.proposals()? {
+        return Ok(false);
+    }
+    let decision = evaluate_policy_change(
+        change,
+        &authority.authority_root,
+        &authority.previous_grants,
+        &authority.context,
+    );
+    Ok(decision.trust == PolicyChangeTrust::Trusted
+        && decision.outcome == PolicyChangeOutcome::Approved)
+}
+
+/// Compatibility helper with no workflow/runner/environment assertion.
 pub fn secret_policy_context() -> Result<PolicyContext, BridgeError> {
+    secret_policy_context_for(None, None, None)
+}
+
+/// Load approved grants matching the actual operation dimensions before evaluation.
+pub fn secret_policy_context_for(
+    environment: Option<&str>,
+    workflow: Option<&str>,
+    runner: Option<&str>,
+) -> Result<PolicyContext, BridgeError> {
     let mut context = PolicyContext::headless_default();
+    context.authority_principals.clear();
+    context.grants.clear();
     if !repo::is_initialized() {
         return Ok(context);
     }
+    let authority = env::var_os("SORREL_AUTHORITY_CONTEXT")
+        .map(|path| load_authority_context(Path::new(&path)))
+        .transpose()?;
+    let demo = env::var_os("SORREL_LOCAL_DEMO").as_deref() == Some(std::ffi::OsStr::new("1"));
     for object in repo::list_registry_entries(repo::GRANTS_DIR)? {
-        if let Some(grant) = grant_from_persisted(&object) {
-            context.grants.push(grant);
-        }
+        context.grants.extend(grants_from_persisted(
+            &object,
+            authority.as_ref(),
+            demo,
+            environment,
+            workflow,
+            runner,
+        )?);
     }
     Ok(context)
 }
 
-fn grant_from_persisted(object: &Value) -> Option<Grant> {
-    let action = object.get("action")?.as_str()?;
-    if !action.starts_with("secret.") {
-        return None;
+fn grants_from_persisted(
+    object: &Value,
+    authority: Option<&OperatorAuthorityContext>,
+    demo: bool,
+    environment: Option<&str>,
+    workflow: Option<&str>,
+    runner: Option<&str>,
+) -> Result<Vec<Grant>, BridgeError> {
+    // Legacy decisions or serialized strings alone are not authorization evidence.
+    if object.get("kind").and_then(Value::as_str) != Some("Grant")
+        || object.get("decision").and_then(Value::as_str) != Some("allow")
+        || object.pointer("/resource/type").and_then(Value::as_str) != Some("secret")
+    {
+        return Ok(vec![]);
     }
-    let secret_id = object.get("resource")?.get("ref")?.as_str()?.to_owned();
-    let agent_id = object
-        .pointer("/access/agents/0/id")
-        .and_then(Value::as_str)
-        .unwrap_or("agent_mock_cli");
-    let mut capabilities = vec![action.to_owned()];
-    // Inject implies read for the same handle.
-    if action == "secret.inject" {
-        capabilities.push("secret.read".to_owned());
+    let Some(approval) = object.get("approval") else {
+        return Ok(vec![]);
+    };
+    let Some(scope_value) = object.get("scope") else {
+        return Ok(vec![]);
+    };
+    let scope: SecretGrantScope = serde_json::from_value(scope_value.clone())
+        .map_err(|_| BridgeError::Spec("invalid stored secret grant scope".to_owned()))?;
+    if object.get("id").and_then(Value::as_str) != Some(scope.id()?.as_str())
+        || object.get("action").and_then(Value::as_str) != Some(scope.action.as_str())
+        || object.pointer("/resource/ref").and_then(Value::as_str) != Some(scope.secret.as_str())
+        || object.get("environment").and_then(Value::as_str) != Some(scope.environment.as_str())
+    {
+        return Ok(vec![]);
     }
-    Some(Grant {
-        principal: PrincipalId {
-            kind: "agent".to_owned(),
-            id: agent_id.to_owned(),
-        },
-        capabilities,
-        resources: vec![ResourceScope {
-            scope: "secret".to_owned(),
-            fields: serde_json::json!({ "ref": secret_id })
-                .as_object()
-                .cloned()
-                .unwrap_or_default(),
-        }],
-        issued_by: None,
-    })
+    let expected_access = serde_json::json!({
+        "agents": scope.agents.iter().map(|id| serde_json::json!({"kind":"AgentPolicy", "id":id})).collect::<Vec<_>>(),
+        "workflows": scope.workflows.iter().map(|id| serde_json::json!({"kind":"Workflow", "id":id})).collect::<Vec<_>>(),
+        "runners": scope.runners.iter().map(|id| serde_json::json!({"kind":"Runner", "id":id})).collect::<Vec<_>>(),
+    });
+    if object.get("access") != Some(&expected_access) {
+        return Ok(vec![]);
+    }
+    let approved = match approval.get("mode").and_then(Value::as_str) {
+        Some("native") => {
+            let Some(authority) = authority else {
+                return Ok(vec![]);
+            };
+            let Some(change) = approval.get("policyChange") else {
+                return Ok(vec![]);
+            };
+            let change = serde_json::from_value(change.clone()).map_err(|_| {
+                BridgeError::Spec("invalid stored native grant approval".to_owned())
+            })?;
+            verify_secret_grant_approval(&scope, &change, authority)?
+        }
+        Some("local-demo") => {
+            demo && object.pointer("/metadata/mocked").and_then(Value::as_bool) == Some(true)
+        }
+        _ => false,
+    };
+    if !approved
+        || environment != Some(scope.environment.as_str())
+        || (!scope.workflows.is_empty()
+            && !workflow.is_some_and(|id| scope.workflows.iter().any(|allowed| allowed == id)))
+        || (!scope.runners.is_empty()
+            && !runner.is_some_and(|id| scope.runners.iter().any(|allowed| allowed == id)))
+    {
+        return Ok(vec![]);
+    }
+    Ok(scope
+        .agents
+        .iter()
+        .map(|agent| Grant {
+            principal: PrincipalId {
+                kind: "agent".to_owned(),
+                id: agent.clone(),
+            },
+            capabilities: scope.capabilities(),
+            resources: vec![ResourceScope {
+                scope: "secret".to_owned(),
+                fields: serde_json::json!({"ref":scope.secret})
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default(),
+            }],
+            issued_by: None,
+        })
+        .collect())
 }
 
 /// Authorize a secret action for the CLI agent.
@@ -570,6 +760,305 @@ pub fn redact_text(text: &str, resolved: &ResolvedSecrets) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn approved_fixture() -> (
+        SecretGrantScope,
+        OperatorAuthorityContext,
+        sorrel_core::authority::PolicyChange,
+        Value,
+    ) {
+        use sorrel_core::authority::{
+            AuthorityRoot, AuthoritySigningKey, PolicyChange, PolicyChangeAction,
+            PolicyChangeContext, PolicyRoot,
+        };
+        use sorrel_core::policy::{
+            Capability, Grant as NativeGrant, GrantEffect, PrincipalDescriptor, PrincipalKind,
+            ResourceKind, ResourceRef,
+        };
+        let scope = SecretGrantScope {
+            action: "secret.inject".to_owned(),
+            agents: vec!["agent_a".to_owned(), "agent_b".to_owned()],
+            workflows: vec!["workflow_test".to_owned()],
+            runners: vec!["runner_test".to_owned()],
+            secret: "secret_test".to_owned(),
+            environment: "dev".to_owned(),
+        };
+        let actor = PrincipalDescriptor::new(PrincipalKind::User, "operator");
+        let org = ResourceRef::new(ResourceKind::Org, "org_test");
+        let authority = OperatorAuthorityContext {
+            authority_root: AuthorityRoot::new(
+                "authority",
+                "root",
+                vec![AuthoritySigningKey::new(
+                    "key",
+                    "synthetic-private-material",
+                )],
+                1,
+            ),
+            previous_grants: vec![NativeGrant::new(
+                "grant_operator",
+                actor.clone(),
+                Capability::new("policy.grant"),
+                org.clone(),
+                GrantEffect::Allow,
+            )],
+            context: PolicyChangeContext::new(PolicyRoot::new("previous", 1), org),
+        };
+        let mut change = PolicyChange::new(
+            "change",
+            actor,
+            authority.context.current_policy_root.clone(),
+            PolicyRoot::new("proposed", 2),
+            PolicyChangeAction::Grant,
+        );
+        change.proposed_grants = scope.proposals().unwrap();
+        change.signatures = vec![authority
+            .authority_root
+            .sign_change(&change, "key")
+            .unwrap()];
+        let object = serde_json::json!({
+            "kind":"Grant", "id":scope.id().unwrap(), "action":scope.action,
+            "resource":{"type":"secret", "ref":scope.secret}, "environment":scope.environment,
+            "scope":scope,
+            "access":{
+                "agents":scope.agents.iter().map(|id| serde_json::json!({"kind":"AgentPolicy", "id":id})).collect::<Vec<_>>(),
+                "workflows":scope.workflows.iter().map(|id| serde_json::json!({"kind":"Workflow", "id":id})).collect::<Vec<_>>(),
+                "runners":scope.runners.iter().map(|id| serde_json::json!({"kind":"Runner", "id":id})).collect::<Vec<_>>()
+            },
+            "approval":{"mode":"native", "policyChange":change}, "decision":"allow", "metadata":{"mocked":false}
+        });
+        (scope, authority, change, object)
+    }
+
+    #[test]
+    fn secret_grant_ids_cannot_expand_into_cli_resource_patterns() {
+        let (mut scope, _, _, _) = approved_fixture();
+        scope.secret = "secret_test/**".to_owned();
+        assert!(scope.id().is_err());
+        assert!(scope.proposals().is_err());
+    }
+
+    #[test]
+    fn native_approval_binds_all_constraints_and_capabilities() {
+        let (scope, authority, change, _) = approved_fixture();
+        assert!(verify_secret_grant_approval(&scope, &change, &authority).unwrap());
+        for changed in [
+            SecretGrantScope {
+                environment: "prod".to_owned(),
+                ..scope.clone()
+            },
+            SecretGrantScope {
+                secret: "other_secret".to_owned(),
+                ..scope.clone()
+            },
+            SecretGrantScope {
+                action: "secret.read".to_owned(),
+                ..scope.clone()
+            },
+            SecretGrantScope {
+                agents: vec!["agent_a".to_owned()],
+                ..scope.clone()
+            },
+            SecretGrantScope {
+                workflows: vec![],
+                ..scope.clone()
+            },
+            SecretGrantScope {
+                runners: vec![],
+                ..scope.clone()
+            },
+        ] {
+            assert!(!verify_secret_grant_approval(&changed, &change, &authority).unwrap());
+        }
+        let mut unsigned = change.clone();
+        unsigned.signatures.clear();
+        assert!(!verify_secret_grant_approval(&scope, &unsigned, &authority).unwrap());
+        let mut forged = change.clone();
+        forged.signatures[0].value = "synthetic-forged".to_owned();
+        assert!(!verify_secret_grant_approval(&scope, &forged, &authority).unwrap());
+        let mut missing_read = change;
+        missing_read.proposed_grants[0].capabilities.pop();
+        missing_read.signatures = vec![authority
+            .authority_root
+            .sign_change(&missing_read, "key")
+            .unwrap()];
+        assert!(!verify_secret_grant_approval(&scope, &missing_read, &authority).unwrap());
+    }
+
+    #[test]
+    fn loaded_native_grants_preserve_all_agents_and_usage_constraints() {
+        let (_, authority, _, object) = approved_fixture();
+        let grants = grants_from_persisted(
+            &object,
+            Some(&authority),
+            false,
+            Some("dev"),
+            Some("workflow_test"),
+            Some("runner_test"),
+        )
+        .unwrap();
+        assert_eq!(grants.len(), 2);
+        for agent in ["agent_a", "agent_b"] {
+            assert_eq!(
+                evaluate(
+                    &EvaluateInput {
+                        principal: PrincipalId::parse(&format!("agent:{agent}")).unwrap(),
+                        action: "secret.read".to_owned(),
+                        resource: crate::cli_policy::ResourceRef::parse("secret:secret_test")
+                            .unwrap(),
+                        environment: Some("dev".to_owned())
+                    },
+                    &PolicyContext {
+                        grants: grants.clone(),
+                        ..PolicyContext::headless_default()
+                    }
+                )
+                .decision,
+                Decision::Allow
+            );
+        }
+        for (environment, workflow, runner) in [
+            (None, Some("workflow_test"), Some("runner_test")),
+            (Some("prod"), Some("workflow_test"), Some("runner_test")),
+            (Some("dev"), None, Some("runner_test")),
+            (Some("dev"), Some("wrong"), Some("runner_test")),
+            (Some("dev"), Some("workflow_test"), None),
+            (Some("dev"), Some("workflow_test"), Some("wrong")),
+        ] {
+            assert!(grants_from_persisted(
+                &object,
+                Some(&authority),
+                false,
+                environment,
+                workflow,
+                runner
+            )
+            .unwrap()
+            .is_empty());
+        }
+        assert!(grants_from_persisted(
+            &object,
+            None,
+            false,
+            Some("dev"),
+            Some("workflow_test"),
+            Some("runner_test")
+        )
+        .unwrap()
+        .is_empty());
+    }
+
+    #[test]
+    fn stored_decision_or_legacy_fields_cannot_forge_approval() {
+        let (_, mut authority, _, object) = approved_fixture();
+        for decision in [
+            serde_json::json!("deny"),
+            serde_json::json!("needs_grant"),
+            Value::Null,
+            serde_json::json!(true),
+        ] {
+            let mut denied = object.clone();
+            denied["decision"] = decision;
+            assert!(grants_from_persisted(
+                &denied,
+                Some(&authority),
+                false,
+                Some("dev"),
+                Some("workflow_test"),
+                Some("runner_test")
+            )
+            .unwrap()
+            .is_empty());
+        }
+        let mut legacy = object.clone();
+        legacy.as_object_mut().unwrap().remove("approval");
+        assert!(grants_from_persisted(
+            &legacy,
+            Some(&authority),
+            false,
+            Some("dev"),
+            Some("workflow_test"),
+            Some("runner_test")
+        )
+        .unwrap()
+        .is_empty());
+        let mut changed_access = object.clone();
+        changed_access["access"]["agents"][0]["id"] = serde_json::json!("other");
+        assert!(grants_from_persisted(
+            &changed_access,
+            Some(&authority),
+            false,
+            Some("dev"),
+            Some("workflow_test"),
+            Some("runner_test")
+        )
+        .unwrap()
+        .is_empty());
+        let mut forged = object.clone();
+        forged["approval"]["policyChange"]["signatures"][0]["value"] = serde_json::json!("forged");
+        assert!(grants_from_persisted(
+            &forged,
+            Some(&authority),
+            false,
+            Some("dev"),
+            Some("workflow_test"),
+            Some("runner_test")
+        )
+        .unwrap()
+        .is_empty());
+        authority.previous_grants.clear();
+        assert!(grants_from_persisted(
+            &object,
+            Some(&authority),
+            false,
+            Some("dev"),
+            Some("workflow_test"),
+            Some("runner_test")
+        )
+        .unwrap()
+        .is_empty());
+    }
+
+    #[test]
+    fn local_demo_requires_explicit_consumption_opt_in() {
+        let (_, _, _, mut object) = approved_fixture();
+        object["approval"] = serde_json::json!({"mode":"local-demo"});
+        object["metadata"]["mocked"] = serde_json::json!(true);
+        assert!(grants_from_persisted(
+            &object,
+            None,
+            false,
+            Some("dev"),
+            Some("workflow_test"),
+            Some("runner_test")
+        )
+        .unwrap()
+        .is_empty());
+        assert_eq!(
+            grants_from_persisted(
+                &object,
+                None,
+                true,
+                Some("dev"),
+                Some("workflow_test"),
+                Some("runner_test")
+            )
+            .unwrap()
+            .len(),
+            2
+        );
+        object["metadata"]["mocked"] = serde_json::json!(false);
+        assert!(grants_from_persisted(
+            &object,
+            None,
+            true,
+            Some("dev"),
+            Some("workflow_test"),
+            Some("runner_test")
+        )
+        .unwrap()
+        .is_empty());
+    }
 
     #[test]
     fn maps_legacy_vault_provider_to_dotenv() {
