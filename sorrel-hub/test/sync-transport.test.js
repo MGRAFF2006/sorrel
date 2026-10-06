@@ -13,6 +13,7 @@ const objectWriteGrant = {
   source: 'core',
   principal: { type: 'user', id: 'user_pusher' },
   action: 'repo.object.write',
+  effect: 'allow',
   resource: { kind: 'repo', id: repoId },
 };
 
@@ -21,6 +22,7 @@ const refWriteGrant = {
   source: 'core',
   principal: { type: 'user', id: 'user_pusher' },
   action: 'repo.ref.write',
+  effect: 'allow',
   resource: { kind: 'repo', id: repoId },
 };
 

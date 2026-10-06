@@ -47,6 +47,13 @@ production AuthAdapter and network controls. See the root
 | **Landing (`sorrel-web`)** | Static marketing site (Nord theme). Production deploy is Cloudflare Pages; local Docker is optional preview only. |
 | **Root E2E / CI** | `npm test` E2E and `npm run test:modules` from one checkout. Root Actions checks out the monorepo directly — no submodule PAT. |
 
+Privileged Hub sync and repository/policy administration now use the packaged
+Rust Core policy adapter rather than a reduced JavaScript evaluator. Operator
+trusted grant/policy records supply the effective policy; grant lifecycle and
+Core deny/redact/review precedence are enforced. Unsupported conditions and
+unresolved protocol object references fail closed. This does not yet make every
+Hub read or metadata route private or verify authority-chain signatures.
+
 ## Missing / not ready
 
 | Area | Gap |

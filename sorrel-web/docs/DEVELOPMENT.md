@@ -38,6 +38,12 @@ rustup toolchain install 1.92.0 --profile minimal
 cargo +1.92.0 check --locked --workspace --all-targets
 ```
 
+Hub authorization uses the Rust `sorrel-core-policy` executable. `npm run setup`
+and the Hub package test precheck build it with Cargo. For a separately built
+binary, set `SORREL_HUB_CORE_POLICY_BIN` to its path; local defaults use the
+workspace debug binary and honor `CARGO_TARGET_DIR`. The API container builds and
+packages it from the repository root Docker context.
+
 ## Find the owner before editing
 
 | Concern | Primary package | Common consumers to check |

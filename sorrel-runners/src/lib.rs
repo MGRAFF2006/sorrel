@@ -1364,7 +1364,7 @@ struct RedactionContext {
 }
 
 fn build_redaction_context(bundle: &JobBundle, job: &Job) -> RedactionContext {
-    let mut terms = Vec::new();
+    let mut terms = inherited_env_terms(&bundle.redaction);
 
     for secret in bundle
         .secret_refs
@@ -1393,6 +1393,35 @@ fn build_redaction_context(bundle: &JobBundle, job: &Job) -> RedactionContext {
         metadata: bundle.redaction.clone(),
         terms,
     }
+}
+
+/// Redacts captured output using the bundle's inherited environment masking rules.
+/// Values are collected in memory only; they are never added to bundle metadata.
+#[must_use]
+pub fn redact_inherited_env(text: &str, metadata: &RedactionMetadata) -> String {
+    let mut terms = inherited_env_terms(metadata);
+    terms.sort_by_key(|term| std::cmp::Reverse(term.len()));
+    terms.dedup();
+    redact_text(
+        text,
+        &RedactionContext {
+            metadata: metadata.clone(),
+            terms,
+        },
+    )
+}
+
+fn inherited_env_terms(metadata: &RedactionMetadata) -> Vec<String> {
+    std::env::vars_os()
+        .filter(|(name, _)| {
+            name.to_str()
+                .is_some_and(|name| should_redact_env_key(name, metadata))
+        })
+        .filter_map(|(_, value)| {
+            let value = value.to_string_lossy().into_owned();
+            (!value.is_empty()).then_some(value)
+        })
+        .collect()
 }
 
 fn redact_command(command: &CommandSpec, redaction: &RedactionContext) -> CommandSpec {
