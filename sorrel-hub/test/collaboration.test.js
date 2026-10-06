@@ -127,6 +127,7 @@ test('approved and merged proposal inputs remain bound to their review', async (
   await withServer(async (baseUrl, app) => {
     app.store.createProject({ id: 'proj_review', organizationId: 'org_local', name: 'Review' });
     app.store.createRepository({ id: 'repo_product', projectId: 'proj_review', organizationId: 'org_local', provider: 'sorrel', owner: 'local', name: 'Reviewed repository' });
+    app.store.createRepository({ id: 'replacement', projectId: 'proj_review', organizationId: 'org_local', provider: 'sorrel', owner: 'local', name: 'Other repository' });
     const inputs = {
       repositoryId: 'repo_product',
       syncRepoId: 'repo_sync',
