@@ -504,6 +504,8 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> io::Result<ExitCode> {
+    // Check before recovery, registry writes, or launching external commands.
+    let _ = repo::load_manifest()?;
     if let Commands::Secret {
         command: sorrel_cli::secret_cmd::SecretCommand::Run(args),
     } = cli.command

@@ -105,6 +105,11 @@ A workspace lives in a `.sorrel/` directory next to the working tree:
 }
 ```
 
+The CLI accepts only `schemaVersion: "sorrel.protocol.v0"`. Missing, malformed,
+or unknown versions fail before command execution or metadata recovery; no
+migration or rewrite occurs. Use a version-compatible Sorrel release to inspect
+such a repository. Optional fields in supported v0 manifests remain intact.
+
 `HEAD`:
 
 ```json

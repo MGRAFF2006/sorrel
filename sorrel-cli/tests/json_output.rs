@@ -65,6 +65,88 @@ fn init_is_idempotent_and_does_not_clobber() {
 }
 
 #[test]
+fn workspace_manifest_rejects_unsupported_or_missing_schema_versions() {
+    let versions = [
+        Some(json!("sorrel.protocol.v1")),
+        Some(json!("private-version-marker")),
+        Some(json!(null)),
+        Some(json!(42)),
+        None,
+    ];
+    let commands: &[&[&str]] = &[
+        &["status", "--json"],
+        &["init", "--json"],
+        &["change", "create", "-m", "blocked", "--json"],
+        &["grant", "list", "--json"],
+        &["workflow", "validate", "--json"],
+        &["secret", "run", "--", "command-that-must-not-run"],
+    ];
+    for version in versions {
+        let dir = TempDir::new().unwrap();
+        command_json(dir.path(), &["init", "--json"]);
+        let path = dir.path().join(".sorrel/manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        match version {
+            Some(version) => {
+                manifest["schemaVersion"] = version;
+            }
+            None => {
+                manifest.as_object_mut().unwrap().remove("schemaVersion");
+            }
+        }
+        let bytes = serde_json::to_vec_pretty(&manifest).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        let head = std::fs::read(dir.path().join(".sorrel/HEAD")).unwrap();
+        std::fs::write(dir.path().join("tracked.txt"), b"must not snapshot").unwrap();
+        for args in commands {
+            let output = Command::cargo_bin("sorrel")
+                .unwrap()
+                .current_dir(dir.path())
+                .args(*args)
+                .output()
+                .unwrap();
+            assert!(
+                !output.status.success(),
+                "{args:?} must reject incompatible manifest"
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("unsupported workspace schema version"),
+                "{args:?}: {stderr}"
+            );
+            assert!(!stderr.contains("private-version-marker"));
+            assert!(output.stdout.is_empty());
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            assert_eq!(
+                std::fs::read(dir.path().join(".sorrel/HEAD")).unwrap(),
+                head
+            );
+            assert!(!dir.path().join(".sorrel/stat-cache.json").exists());
+        }
+    }
+}
+
+#[test]
+fn workspace_manifest_preserves_supported_optional_fields() {
+    let dir = TempDir::new().unwrap();
+    command_json(dir.path(), &["init", "--json"]);
+    let path = dir.path().join(".sorrel/manifest.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    manifest["extension"] = json!({"enabled": true});
+    let bytes = serde_json::to_vec_pretty(&manifest).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    assert_eq!(
+        command_json(dir.path(), &["init", "--json"])["status"],
+        "already_initialized"
+    );
+    assert_eq!(
+        command_json(dir.path(), &["status", "--json"])["status"],
+        "clean"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
 fn status_reports_real_persisted_state_for_initialized_workspace() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     let init = command_json(temp_dir.path(), &["init", "--json"]);
