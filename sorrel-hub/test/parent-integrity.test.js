@@ -18,7 +18,14 @@ async function withServer(t, persistent, callback) {
   const store = persistent ? createFsMetadataStore(dir) : new InMemoryStore();
   const trustedGrantsById = Object.fromEntries([['org', 'org_a'], ['org', 'org_b'], ['project', 'project_a'], ['project', 'missing']]
     .map(([kind, id]) => [`grant_${id}`, { id: `grant_${id}`, source: 'core', principal: { type: 'user', id: 'local' }, action: 'policy.grant', resource: { kind, id } }]));
-  const app = createApp({ store, trustedGrantsById });
+  trustedGrantsById.grant_parent_fixture = {
+    schemaVersion: 'sorrel.protocol.v0', kind: 'Grant', id: 'grant_parent_fixture',
+    principal: { kind: 'user', id: 'local' }, effect: 'allow',
+    resources: [{ kind: 'org', id: '*' }, { kind: 'project', id: '*' }],
+    capabilities: ['org.write', 'project.read', 'project.create', 'policy.grant', 'proposal.read',
+      'proposal.write', 'proposal.review', 'review.comment.write', 'workflow.run.write'],
+  };
+  const app = createApp({ store, trustedGrantsById, env: { SORREL_HUB_LOCAL_DEMO: '1' } });
   const server = http.createServer(app.handleRequest);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
