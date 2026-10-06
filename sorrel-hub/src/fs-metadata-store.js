@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { atomicWrite, encodePathSegment, initializeStoreDirectory, PublishedWriteDurabilityError } from './fs-sync-store.js';
+import { atomicWrite, decodePathSegment, encodePathSegment, initializeStoreDirectory, PublishedWriteDurabilityError } from './fs-sync-store.js';
 import { InMemoryStore } from './store.js';
 
 /**
@@ -25,10 +25,11 @@ const COLLECTIONS = [
  *
  *   <rootDir>/<collection>/<id>.json   one JSON document per record
  *
- * On construction every readable record is loaded into the same in-memory
- * Maps as InMemoryStore. Each mutation writes the record atomically before
- * publishing it in memory. Corrupt or unreadable files are skipped
- * with a warning so a bad document never takes the process down.
+ * On construction records with matching canonical filenames/IDs load into the
+ * same in-memory Maps as InMemoryStore. Each mutation writes the record atomically before
+ * publishing it in memory. Corrupt JSON, unreadable files, and invalid record
+ * identities are skipped with warnings. Other collection fields are not normalized
+ * or repaired during hydration.
  * Post-rename durability failures adopt the published record but still throw.
  *
  * Public methods match InMemoryStore exactly so routes stay unchanged.
@@ -112,12 +113,21 @@ function readRecordFile(filePath) {
 
   try {
     const value = JSON.parse(raw);
-    if (value && typeof value === 'object' && !Array.isArray(value) && typeof value.id === 'string') {
-      return value;
+    if (!value || typeof value !== 'object' || Array.isArray(value) ||
+        typeof value.id !== 'string' || !value.id.trim() || value.id !== value.id.trim() ||
+        value.id === '.' || value.id === '..' || !value.id.isWellFormed()) {
+      console.warn(`fs-metadata-store: skipping invalid record file ${filePath}: invalid record identity`);
+      return undefined;
     }
-    console.warn(`fs-metadata-store: skipping invalid record file ${filePath}: missing string id`);
-  } catch (error) {
-    console.warn(`fs-metadata-store: skipping corrupt record file ${filePath}: ${error.message}`);
+    const filename = path.basename(filePath);
+    if (filename !== `${encodePathSegment(value.id)}.json` ||
+        decodePathSegment(filename.slice(0, -5)) !== value.id) {
+      console.warn(`fs-metadata-store: skipping invalid record file ${filePath}: filename/identity mismatch`);
+      return undefined;
+    }
+    return value;
+  } catch {
+    console.warn(`fs-metadata-store: skipping corrupt record file ${filePath}: invalid record encoding`);
   }
   return undefined;
 }

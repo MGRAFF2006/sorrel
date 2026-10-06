@@ -86,6 +86,20 @@ export function packagesForChange(change, modules) {
   );
 }
 
+export function renderChangelogPullRequestBody({ version, date, template }) {
+  validateVersion(version);
+  validateDate(date);
+  return template
+    .replace('<!-- What problem does this solve, and why is this change needed now? -->',
+      `Prepare the coordinated changelog for v${version} (${date}) so maintainers can review release notes before tagging.`)
+    .replace('<!-- Summarize the implementation. Keep the PR focused on one concern. -->',
+      'Derive entries from merged PR metadata, map changed paths to affected packages, and synchronize the public root changelog mirror. Review and edit generated prose where compatibility or migration context is needed.')
+    .replace('<!-- Describe CLI/API/UI/config/storage/security effects. Write "None" when applicable. -->',
+      'Documentation only: generated release notes summarize changes already merged. This preparation does not publish a release or update package versions.')
+    .replace('<!-- List the exact checks you ran and their outcomes. Do not claim checks you did not run. -->',
+      'The preparation workflow completed `npm run sync:docs`, `npm run test:changelogs`, and `npm run validate:docs`. Unchecked items below remain for maintainer review.');
+}
+
 export function generateChangelogs({ changes, version, date, repository, root = ROOT }) {
   const manifest = JSON.parse(readFileSync(join(root, 'release/manifest.json'), 'utf8'));
   const modules = Object.keys(manifest.modules).filter((module) =>

@@ -252,6 +252,7 @@ export function ReviewsView() {
         <Show when={tab() === 'proposals'}>
           <input
             type="search"
+            aria-label="Find a review"
             placeholder="Find a review…"
             autocomplete="off"
             value={filter()}

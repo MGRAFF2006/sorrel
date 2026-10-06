@@ -1,5 +1,5 @@
 use crate::{
-    stat_cache::{StatCache, StatCacheEntry},
+    stat_cache::{ChangeFingerprint, StatCache, StatCacheEntry},
     ObjectId, ObjectIdParseError, ObjectStore, ObjectStoreError,
 };
 use serde::{Deserialize, Serialize};
@@ -620,20 +620,29 @@ fn write_file_blob(
     cache: &mut StatCache,
     protocol_path: &str,
     child_path: &Path,
-    file_size: u64,
-    mtime_secs: u64,
-    mtime_nanos: u32,
+    metadata: &fs::Metadata,
 ) -> SnapshotResult<Blob> {
+    let fingerprint = ChangeFingerprint::from_metadata(metadata);
     let content = fs::read(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
     let blob = write_blob(store, &content)?;
-    cache.insert(
+    let after = fs::metadata(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
+    let (mtime_secs, mtime_nanos) = file_mtime(metadata, child_path)?;
+    // A writer or replacement during the read must not seed a reusable entry.
+    let verified = fingerprint.filter(|fingerprint| {
+        Some(fingerprint) == ChangeFingerprint::from_metadata(&after).as_ref()
+            && metadata.len() == after.len()
+            && file_mtime(&after, child_path).ok() == Some((mtime_secs, mtime_nanos))
+            && content.len() as u64 == metadata.len()
+    });
+    cache.insert_verified(
         protocol_path.to_owned(),
         StatCacheEntry {
-            size: file_size,
+            size: metadata.len(),
             mtime_secs,
             mtime_nanos,
             object_id: blob.id,
         },
+        verified,
     );
     Ok(blob)
 }
@@ -732,30 +741,15 @@ pub(crate) fn write_tree_from_dir(
                     if entry.size == file_size
                         && entry.mtime_secs == mtime_secs
                         && entry.mtime_nanos == mtime_nanos
+                        && cache.matches_fingerprint(&protocol_path, &metadata)
                         && store.has(&entry.object_id)?
                     {
                         read_blob(store, &entry.object_id)?
                     } else {
-                        write_file_blob(
-                            store,
-                            cache,
-                            &protocol_path,
-                            &child_path,
-                            file_size,
-                            mtime_secs,
-                            mtime_nanos,
-                        )?
+                        write_file_blob(store, cache, &protocol_path, &child_path, &metadata)?
                     }
                 } else {
-                    write_file_blob(
-                        store,
-                        cache,
-                        &protocol_path,
-                        &child_path,
-                        file_size,
-                        mtime_secs,
-                        mtime_nanos,
-                    )?
+                    write_file_blob(store, cache, &protocol_path, &child_path, &metadata)?
                 }
             } else {
                 let content = fs::read(&child_path)

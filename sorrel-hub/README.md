@@ -83,6 +83,10 @@ survives restarts:
 - `SORREL_HUB_SYNC_STORE=memory` — use ephemeral in-memory stores for both
   sync and metadata (the default inside tests via `createApp()`).
 
+Unexpected HTTP 500 failures emit a server diagnostic with the HTTP method,
+fixed category, and recognized filesystem error code. Raw exceptions and
+request data are omitted; the client response remains redacted.
+
 ### Authentication adapters
 
 `SORREL_HUB_AUTH` selects one of these request-authentication adapters:
@@ -113,7 +117,11 @@ access control. Development-mode anonymous metadata callers remain compatible.
 
 ### Trusted grants (sync push/pull)
 
-Mutating sync routes evaluate Core policy against a trusted grant map. The
+Mutating sync routes and privileged repository/policy administration evaluate
+authorization through the packaged `sorrel-core-policy` Rust executable. Hub has
+no JavaScript policy evaluator. The adapter calls Core `evaluate_policy` with all
+configured trusted grants and policies, including denies omitted from request
+references. Only a native Core `allow` decision authorizes the operation. The
 server has no local bootstrap grants by default. For local development only,
 the explicit opt-in below lets the CLI acting principal
 `{"type":"user","id":"local"}` push/pull without a separate grant service:
@@ -127,6 +135,31 @@ Environment:
   repo-wide bootstrap grants. No other value enables them.
 - `SORREL_HUB_TRUSTED_GRANTS_FILE` — path to a JSON object of extra
   `id → grant` records merged on top of bootstrap grants.
+- `SORREL_HUB_TRUSTED_POLICIES_FILE` — path to a JSON object of native Core
+  `id → policy` records. Every configured policy participates in evaluation.
+- `SORREL_HUB_CORE_POLICY_BIN` — explicit executable path when using a packaged
+  or separately built adapter. Local runs default to the workspace debug binary
+  under `CARGO_TARGET_DIR` (or `target`); `npm run setup` and Hub `npm test` build it.
+
+Trusted grants use native Core shapes: `schemaVersion: "sorrel.protocol.v0"`,
+`kind: "Grant"`, `principal: { kind, id }`, string `capabilities`, a concrete
+`resource: { kind, id }`, and an explicit `effect`. Concrete plural `resources`
+are also supported. Older `action` / `principal.type` records require explicit
+`effect` and `resource`; omitted effects or universal missing resources are rejected.
+Grant `status`, `issuedAt`, `expiresAt`, and `revokedAt` are enforced in the
+Core-owned adapter. Invalid dates/versions, unresolved protocol object references,
+nonempty conditions, unsupported fields, and path-scoped resources fail closed.
+Native policies use Core `resource`, `rules`, and optional `defaultDecision`.
+Service IDs map to `service:<id>` and workflow IDs to `workflow:<id>` in Core's
+service domain, consistently for native and legacy inputs, keeping them distinct.
+
+The configured files are an operator trust boundary; Hub does not verify their
+authority-chain signatures. Request `authorityRootRef` is metadata, not proof of
+verified authority. Request policy references must resolve to configured policies;
+request grant/policy payloads never supply authority. Each subprocess has a
+five-second timeout and one-MiB request/response limit; at most 16 run concurrently.
+An unavailable, invalid, overloaded, or timed-out adapter fails closed with
+`503 policy_evaluation_failed`. Denials carry a native Core `PolicyDecision`.
 
 The CLI sends matching `grantRefs` on `POST /objects` and `POST /refs/*`.
 Because the bootstrap grants match every repository id, never enable them for
@@ -150,7 +183,7 @@ for the verified download and hosting flow.
 To build the API image from the current checkout instead:
 
 ```sh
-docker build -t sorrel-hub .
+docker build -t sorrel-hub --file Dockerfile ..
 docker run --rm -p 3000:3000 \
   -e HOST=0.0.0.0 \
   -v hub-data:/app/data \
@@ -179,6 +212,12 @@ content-addressed fanout (`<repo>/objects/<id[0..2]>/<id>`), atomic
 temp-file + rename writes, digest-verified reads, and one JSON document per
 ref under `<repo>/refs/`.
 
+Ref reads validate the JSON record, its name against the filename, and its
+64-character hexadecimal snapshot id. Corrupt records fail with a server error;
+they are never treated as absent or overwritten by a ref advance. The file is
+preserved for diagnosis. Restore a known-good ref record from a backup before
+retrying the affected operation.
+
 Product metadata (organizations, projects, repositories, proposals, review
 comments, workflow runs, policies) is stored as one JSON document per record
 under `<metadataDir>/<collection>/<id>.json`, also written atomically.
@@ -201,6 +240,12 @@ before retrying an uncertain write; duplicate record IDs return `409`. Windows
 flushes newly written file bytes but does not provide the Unix directory-flush
 guarantee. These barriers depend on the filesystem and storage honoring `fsync`;
 they do not provide multi-record transactions or hardware-failure recovery.
+
+On restart, metadata records load only when their canonical encoded filename
+matches their valid record ID; malformed identities and alias filenames are
+skipped with a diagnostic that omits record contents. Files remain untouched.
+This identity check does not validate or repair every collection field; backups
+with malformed field schemas still need separate validation before restoration.
 
 ## License
 
@@ -269,7 +314,7 @@ Lightweight collection endpoints for administration data:
 - `GET|POST /admin/review-comments` (filters: `proposalId`, `state`)
 - `GET|PATCH /admin/review-comments/:id` — resolve via `{ "state": "resolved" }`
 - `GET|POST /admin/workflow-runs` (filters: `projectId`, `proposalId`, `status`)
-- `GET|PATCH /admin/workflow-runs/:id` — status updates (`queued`→`in_progress`→`succeeded`/…)
+- `GET|PATCH /admin/workflow-runs/:id` — status updates for one workflow attempt
 - `GET|POST /admin/policies`
 
 Metadata with a `projectId` must refer to an existing Hub project. Repository and
@@ -283,6 +328,15 @@ do not require a local organization record. Core references and external sync,
 lane, snapshot, and provider IDs do not require local metadata records.
 - `GET /admin/policies/:id`
 - `GET /admin/sync-repos` — sync transport repos (`{ "repos": [ { "id", "refCount" } ] }`)
+
+Workflow-run updates allow `queued` → `in_progress`, `failed`, or `cancelled`,
+and `in_progress` → `succeeded`, `failed`, or `cancelled`. A terminal attempt
+cannot switch to another status; create a new run record for another attempt.
+Same-status updates and metadata/provider-id edits remain valid. Repeating a
+terminal status preserves `startedAt`; `completedAt` is preserved unless an
+explicit completion-time correction is supplied. Invalid transitions return
+`400 model_validation_failed` without changing the record. POST still accepts
+any known status for imported runs.
 
 Proposal records may carry lane-submit fields: `syncRepoId`, `sourceLane`,
 `targetLane`, `sourceSnapshot`, `targetSnapshot`.
@@ -332,6 +386,16 @@ These endpoints accept the same Core/protocol reference fields used by projects:
 
 `/admin/policies` records Hub-side metadata and a `policyRef`; policy rules stay
 owned by Core/protocol policy objects.
+
+Typed metadata fields are validated before persistence. Supplied `createdAt` and
+`updatedAt` values must be strings; absent/null values use the server timestamp.
+Creation `metadata` must be an object (absent/null becomes `{}`), and its
+extension keys and nested JSON values remain unrestricted. PATCH metadata must
+be an object and merges into the existing metadata. Review-comment `line` is
+optional and must be a positive safe integer; null clears it on PATCH. Policy
+`enabled` must be a boolean; absent/null keeps the default `true`. Invalid
+field types return `400 model_validation_failed` without changing memory or
+disk records. This does not add date-format or workflow-transition rules.
 
 ### Sync transport (`/{repoId}/...`)
 

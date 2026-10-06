@@ -268,7 +268,7 @@ async function main() {
   assert.equal(stack.object.kind, 'Stack');
   log('cli stack create');
 
-  const grant = sorrelJson(workA, ['grant', 'create', '--action', 'workflow.run']);
+  const grant = sorrelJson(workA, ['grant', 'create', '--local-demo', '--action', 'secret.inject']);
   assert.equal(grant.status, 'allow');
   assert.ok(grant.object.id.startsWith('grant_'));
   const grants = sorrelJson(workA, ['grant', 'list']);
@@ -296,7 +296,7 @@ jobs:
 `,
   );
   assert.equal(sorrelJson(workA, ['workflow', 'validate']).status, 'valid');
-  const wfRun = sorrelJson(workA, ['workflow', 'run', 'test']);
+  const wfRun = sorrelJson(workA, ['workflow', 'run', 'test'], { SORREL_LOCAL_DEMO: '1' });
   assert.equal(wfRun.status, 'completed');
   assert.match(String(wfRun.job.stdout), /e2e-ok/);
   log('cli workflow (runners)');

@@ -118,10 +118,10 @@ export function InboxView() {
       <aside class="inbox-nav">
         <h1>Inbox</h1>
         <p>Cross-project decisions and failed work.</p>
-        <button class={filter() === 'needs' ? 'active' : ''} type="button" onClick={() => setFilter('needs')}>
+        <button class={filter() === 'needs' ? 'active' : ''} type="button" aria-pressed={filter() === 'needs'} onClick={() => setFilter('needs')}>
           <Icon name="inbox" /><span>Needs you</span><strong>{items().filter((item) => item.needsAction).length}</strong>
         </button>
-        <button class={filter() === 'all' ? 'active' : ''} type="button" onClick={() => setFilter('all')}>
+        <button class={filter() === 'all' ? 'active' : ''} type="button" aria-pressed={filter() === 'all'} onClick={() => setFilter('all')}>
           <Icon name="archive" /><span>All current</span><strong>{items().length}</strong>
         </button>
         <div class="inbox-note">

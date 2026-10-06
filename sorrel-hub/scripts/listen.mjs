@@ -18,7 +18,7 @@ import http from 'node:http';
 import path from 'node:path';
 
 import { createApp } from '../src/app.js';
-import { resolveTrustedGrants } from '../src/bootstrap-grants.js';
+import { resolveTrustedGrants, resolveTrustedPolicies } from '../src/bootstrap-grants.js';
 import { createFsMetadataStore } from '../src/fs-metadata-store.js';
 import { createFsRepoSyncStore } from '../src/fs-sync-store.js';
 import { createInMemoryStore } from '../src/store.js';
@@ -34,7 +34,8 @@ const store =
     : createFsMetadataStore(metadataDir, { sync: createFsRepoSyncStore(dataDir) });
 
 const trustedGrantsById = resolveTrustedGrants();
-const app = createApp({ store, trustedGrantsById });
+const trustedPoliciesById = resolveTrustedPolicies();
+const app = createApp({ store, trustedGrantsById, trustedPoliciesById });
 const server = http.createServer(app.handleRequest);
 
 server.listen(0, '127.0.0.1', () => {
