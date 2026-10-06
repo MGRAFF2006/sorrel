@@ -78,13 +78,22 @@ export function createHubWebServer({ root, hubApiUrl }) {
   async function proxyApi(request, response) {
     const url = new URL(request.url ?? '/', 'http://localhost');
     const target = upstreamBaseUrl + url.pathname.replace(/^\/api/, '') + url.search;
-    const chunks = [];
-    for await (const chunk of request) {
-      chunks.push(chunk);
-    }
-    const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
+    const controller = new AbortController();
+    const requestClosed = () => {
+      if (!request.complete) controller.abort();
+    };
+    const responseClosed = () => {
+      if (!response.writableFinished) controller.abort();
+    };
+    request.once('close', requestClosed);
+    response.once('close', responseClosed);
 
     try {
+      const chunks = [];
+      for await (const chunk of request) {
+        chunks.push(chunk);
+      }
+      const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
       const headers = {};
       if (request.headers['content-type']) {
         headers['content-type'] = request.headers['content-type'];
@@ -100,6 +109,7 @@ export function createHubWebServer({ root, hubApiUrl }) {
         method: request.method,
         headers,
         body: request.method === 'GET' || request.method === 'HEAD' ? undefined : body,
+        signal: controller.signal,
       });
       const text = await upstream.text();
       response.writeHead(upstream.status, {
@@ -107,6 +117,7 @@ export function createHubWebServer({ root, hubApiUrl }) {
       });
       response.end(text);
     } catch {
+      if (controller.signal.aborted || response.destroyed) return;
       response.writeHead(502, { 'content-type': 'application/json' });
       response.end(
         JSON.stringify({
@@ -116,6 +127,9 @@ export function createHubWebServer({ root, hubApiUrl }) {
           },
         }),
       );
+    } finally {
+      request.off('close', requestClosed);
+      response.off('close', responseClosed);
     }
   }
 
