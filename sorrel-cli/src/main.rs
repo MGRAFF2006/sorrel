@@ -413,7 +413,7 @@ struct PolicyChangeApplyArgs {
 #[derive(Debug, Subcommand)]
 enum GrantCommand {
     /// Create a permission grant and evaluate it via Core.
-    Create(GrantCreateArgs),
+    Create(Box<GrantCreateArgs>),
     /// List persisted permission grants.
     List,
 }
@@ -424,17 +424,17 @@ struct GrantCreateArgs {
     #[arg(long, default_value = "secret.inject")]
     action: String,
 
-    /// Agent policy allowed by the grant.
+    /// Agent policies allowed by the grant (repeat for multiple recipients).
     #[arg(long, default_value = "agent_mock_cli")]
-    agent: String,
+    agent: Vec<String>,
 
     /// Workflow allowed by the grant.
-    #[arg(long, default_value = "workflow_validate_vault")]
-    workflow: String,
+    #[arg(long)]
+    workflow: Vec<String>,
 
     /// Runner allowed by the grant.
-    #[arg(long, default_value = "runner_local_process")]
-    runner: String,
+    #[arg(long)]
+    runner: Vec<String>,
 
     /// SecretRef id for secret.* grants.
     #[arg(long, default_value = "secret_database_url_dev")]
@@ -450,6 +450,22 @@ struct GrantCreateArgs {
         default_value = "Local validation can inject the dev secret handle."
     )]
     reason: String,
+
+    /// Output the canonical scope and native proposals for operator signing; do not persist.
+    #[arg(long, conflicts_with_all = ["local_demo", "authority_context", "policy_change"])]
+    request_only: bool,
+
+    /// Issue an explicitly mocked local-demo grant, never an authoritative approval.
+    #[arg(long, conflicts_with_all = ["authority_context", "policy_change"])]
+    local_demo: bool,
+
+    /// Operator-trusted native Core authority context JSON (never persisted).
+    #[arg(long, requires = "policy_change")]
+    authority_context: Option<PathBuf>,
+
+    /// Signed native Core PolicyChange matching the request-only proposals.
+    #[arg(long, requires = "authority_context")]
+    policy_change: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -597,7 +613,7 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
             },
         },
         Commands::Grant { command } => match command {
-            GrantCommand::Create(args) => grant_create_output(args),
+            GrantCommand::Create(args) => grant_create_output(*args),
             GrantCommand::List => grant_list_output(),
         },
         Commands::Secret { command } => sorrel_cli::secret_cmd::execute(command),
@@ -3073,87 +3089,87 @@ fn grant_create_output(args: GrantCreateArgs) -> io::Result<CommandOutput> {
     })
 }
 
-/// Builds a real Grant document, evaluates the authorizing Core decision, and
-/// persists the grant under `.sorrel/grants/` only when the workspace is
-/// initialized. The grant is keyed by a content-derived id.
+/// Persist only an explicitly approved, fully bound secret grant.
 fn grant_create_real(args: &GrantCreateArgs) -> io::Result<(Value, String)> {
-    // Evaluate the authorizing decision through Core: does the requesting
-    // principal have the action on the target secret resource?
-    let resource = ResourceRef::parse(&format!("secret:{}", args.secret)).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("invalid secret ref `{}`", args.secret),
-        )
-    })?;
-    let principal = PrincipalId::parse(&format!("agent:{}", args.agent)).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("invalid agent principal `{}`", args.agent),
-        )
-    })?;
-    let context = PolicyContext::headless_default();
-    let decision = evaluate(
-        &EvaluateInput {
-            principal,
-            action: args.action.clone(),
-            resource,
-            environment: Some(args.environment.clone()),
-        },
-        &context,
-    );
-    let status = decision.decision.as_str().to_owned();
-
-    let seed = format!(
-        "{}|{}|{}|{}|{}|{}",
-        args.action, args.agent, args.workflow, args.runner, args.secret, args.environment
-    );
-    let grant_id = format!(
-        "grant_{}",
-        &sorrel_core::ObjectId::for_bytes(seed.as_bytes()).to_hex()[..16]
-    );
-
-    let grant = json!({
-        "schemaVersion": PROTOCOL_VERSION,
-        "kind": "Grant",
-        "id": grant_id,
-        "action": args.action,
-        "resource": { "type": "secret", "ref": args.secret },
-        "environment": args.environment,
-        "access": {
-            "agents": [{ "kind": "AgentPolicy", "id": args.agent }],
-            "workflows": [{ "kind": "Workflow", "id": args.workflow }],
-            "runners": [{ "kind": "Runner", "id": args.runner }]
-        },
-        "reason": args.reason,
-        "createdAt": repo::now_rfc3339(),
-        "decision": status,
-        "metadata": { "mocked": false, "backend": "local-headless" }
-    });
-
-    let persisted = if repo::is_initialized() {
-        repo::write_registry_entry(repo::GRANTS_DIR, &grant_id, &grant)?;
-        true
-    } else {
-        false
+    use sorrel_cli::secretspec_bridge::{
+        load_authority_context, verify_secret_grant_approval, SecretGrantScope,
     };
-
-    let out = json!({
-        "command": "grant create",
-        "mocked": false,
-        "status": status,
-        "persisted": persisted,
-        "object": grant
-    });
-    let human = format!(
-        "Grant {grant_id} {} ({}: {status})",
-        if persisted {
-            "persisted"
-        } else {
-            "not persisted: run `sorrel init`"
+    let canonical = |values: &[String]| {
+        let mut values = values.to_vec();
+        values.sort();
+        values.dedup();
+        values
+    };
+    let scope = SecretGrantScope {
+        action: args.action.clone(),
+        agents: canonical(&args.agent),
+        workflows: canonical(&args.workflow),
+        runners: canonical(&args.runner),
+        secret: args.secret.clone(),
+        environment: args.environment.clone(),
+    };
+    let invalid = |error: sorrel_cli::secretspec_bridge::BridgeError| {
+        io::Error::new(io::ErrorKind::InvalidInput, error)
+    };
+    let grant_id = scope.id().map_err(invalid)?;
+    if args.request_only {
+        return Ok((
+            json!({
+                "command":"grant create", "mocked":false, "status":"request", "persisted":false,
+                "grantId":grant_id, "scope":scope, "proposedGrants":scope.proposals().map_err(invalid)?,
+            }),
+            format!(
+                "Grant request {grant_id}: sign the native proposals with an authorized operator"
+            ),
+        ));
+    }
+    let approval = if args.local_demo {
+        Some(json!({"mode":"local-demo"}))
+    } else if let (Some(context_path), Some(change_path)) =
+        (&args.authority_context, &args.policy_change)
+    {
+        let context = load_authority_context(context_path).map_err(invalid)?;
+        let change = serde_json::from_slice(&fs::read(change_path)?).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "invalid native policy change")
+        })?;
+        if !verify_secret_grant_approval(&scope, &change, &context).map_err(invalid)? {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "native secret grant approval is untrusted, unauthorized, or does not match the requested scope"));
+        }
+        Some(json!({"mode":"native", "policyChange":change}))
+    } else {
+        None
+    };
+    let approved = approval.is_some();
+    let status = if approved { "allow" } else { "needs_grant" };
+    let grant = json!({
+        "schemaVersion":PROTOCOL_VERSION, "kind":"Grant", "id":grant_id,
+        "action":scope.action, "resource":{"type":"secret", "ref":scope.secret},
+        "environment":scope.environment,
+        "access":{
+            "agents":scope.agents.iter().map(|id| json!({"kind":"AgentPolicy", "id":id})).collect::<Vec<_>>(),
+            "workflows":scope.workflows.iter().map(|id| json!({"kind":"Workflow", "id":id})).collect::<Vec<_>>(),
+            "runners":scope.runners.iter().map(|id| json!({"kind":"Runner", "id":id})).collect::<Vec<_>>()
         },
-        args.action
-    );
-    Ok((out, human))
+        "scope":scope, "approval":approval,
+        "reason":args.reason, "createdAt":repo::now_rfc3339(), "decision":status,
+        "metadata":{"mocked":args.local_demo, "backend":if args.local_demo {"local-demo"} else {"native-authority"}}
+    });
+    let persisted = approved && repo::is_initialized();
+    if persisted {
+        repo::write_registry_entry(repo::GRANTS_DIR, &grant_id, &grant)?;
+    }
+    Ok((
+        json!({"command":"grant create", "mocked":args.local_demo, "status":status, "persisted":persisted, "object":grant}),
+        format!(
+            "Grant {grant_id} {} ({}: {status})",
+            if persisted {
+                "persisted"
+            } else {
+                "not persisted: requires approval and initialized workspace"
+            },
+            args.action
+        ),
+    ))
 }
 
 fn grant_list_output() -> io::Result<CommandOutput> {

@@ -1756,18 +1756,21 @@ fn grant_create_evaluates_and_persists_real_grant() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     command_json(temp_dir.path(), &["init", "--json"]);
 
-    let value = command_json(temp_dir.path(), &["grant", "create", "--json"]);
+    let value = command_json(
+        temp_dir.path(),
+        &["grant", "create", "--local-demo", "--json"],
+    );
     assert_eq!(value["command"], "grant create");
-    assert_eq!(value["mocked"], false);
+    assert_eq!(value["mocked"], true);
     assert_eq!(value["persisted"], true);
-    // The grant carries the real Core decision (allow/deny/needs_grant).
+    // The explicitly mocked grant carries the real Core decision (allow/deny/needs_grant).
     let status = value["status"].as_str().expect("status is a string");
     assert!(
         matches!(status, "allow" | "deny" | "needs_grant"),
         "unexpected decision: {status}"
     );
     assert_eq!(value["object"]["kind"], "Grant");
-    assert_eq!(value["object"]["metadata"]["mocked"], false);
+    assert_eq!(value["object"]["metadata"]["mocked"], true);
     let grant_id = value["object"]["id"].as_str().expect("grant id");
     assert!(grant_id.starts_with("grant_"));
     assert!(temp_dir
@@ -1785,7 +1788,10 @@ fn grant_list_reads_persisted_grants() {
     let empty = command_json(temp_dir.path(), &["grant", "list", "--json"]);
     assert_eq!(empty["count"], 0);
 
-    command_json(temp_dir.path(), &["grant", "create", "--json"]);
+    command_json(
+        temp_dir.path(),
+        &["grant", "create", "--local-demo", "--json"],
+    );
     let value = command_json(temp_dir.path(), &["grant", "list", "--json"]);
     assert_eq!(value["command"], "grant list");
     assert_eq!(value["mocked"], false);
