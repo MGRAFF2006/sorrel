@@ -1692,13 +1692,8 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
 
     let mut snapshot_to_git: std::collections::BTreeMap<ObjectId, String> =
         std::collections::BTreeMap::new();
-    let mut existing_map: Option<Value> = None;
-    if repo::git_map_path().is_file() {
-        let bytes = fs::read(repo::git_map_path())?;
-        let map: Value = serde_json::from_slice(&bytes)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-        existing_map = Some(map.clone());
-        if let Some(obj) = map.get("gitToSnapshot").and_then(Value::as_object) {
+    if let Some(map) = load_git_map_fields()? {
+        if let Some(obj) = map.git_to_snapshot.as_object() {
             for (sha, snap) in obj {
                 if let Some(hex) = snap.as_str() {
                     if let Ok(id) = parse_object_id_hex(hex) {
@@ -1707,7 +1702,7 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
                 }
             }
         }
-        if let Some(commits) = map.get("commits").and_then(Value::as_array) {
+        if let Some(commits) = map.commits.as_array() {
             for commit in commits {
                 let sha = commit.get("gitSha").and_then(Value::as_str);
                 let snap = commit.get("snapshot").and_then(Value::as_str);
@@ -1752,7 +1747,6 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
         "branch": exported.branch,
         "commits": commits_json,
         "gitToSnapshot": git_to_snapshot,
-        "previous": existing_map,
     });
     repo::write_json_atomic(&repo::git_map_path(), &map_value)?;
 
@@ -2182,17 +2176,33 @@ fn park_git_lane(
     Ok((lane_id, name))
 }
 
+#[derive(serde::Deserialize)]
+struct GitMapFields {
+    #[serde(default, rename = "gitToSnapshot")]
+    git_to_snapshot: Value,
+    #[serde(default)]
+    commits: Value,
+}
+
+fn load_git_map_fields() -> io::Result<Option<GitMapFields>> {
+    if !repo::git_map_path().is_file() {
+        return Ok(None);
+    }
+    // Serde skips legacy `previous` archives iteratively instead of building
+    // their recursive Value trees. Keep normal limits on the fields we use.
+    serde_json::from_reader(io::BufReader::new(fs::File::open(repo::git_map_path())?))
+        .map(Some)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+}
+
 /// Loads `.sorrel/git-map.json` into a Git SHA → snapshot id map. Reads the
 /// `gitToSnapshot` object plus per-commit entries from import/export/sync maps.
 fn load_git_sha_map() -> io::Result<std::collections::BTreeMap<String, ObjectId>> {
     let mut map = std::collections::BTreeMap::new();
-    if !repo::git_map_path().is_file() {
+    let Some(value) = load_git_map_fields()? else {
         return Ok(map);
-    }
-    let bytes = fs::read(repo::git_map_path())?;
-    let value: Value = serde_json::from_slice(&bytes)
-        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-    if let Some(obj) = value.get("gitToSnapshot").and_then(Value::as_object) {
+    };
+    if let Some(obj) = value.git_to_snapshot.as_object() {
         for (sha, snap) in obj {
             if let Some(hex) = snap.as_str() {
                 if let Ok(id) = parse_object_id_hex(hex) {
@@ -2201,7 +2211,7 @@ fn load_git_sha_map() -> io::Result<std::collections::BTreeMap<String, ObjectId>
             }
         }
     }
-    if let Some(commits) = value.get("commits").and_then(Value::as_array) {
+    if let Some(commits) = value.commits.as_array() {
         for commit in commits {
             let sha = commit.get("gitSha").and_then(Value::as_str);
             let snap = commit.get("snapshot").and_then(Value::as_str);
