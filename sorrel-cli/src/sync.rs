@@ -57,7 +57,7 @@ pub struct SyncClient {
     repo_id: String,
     agent: ureq::Agent,
     principal_header: String,
-    authorization_header: Option<String>,
+    bearer_token: Option<String>,
 }
 
 impl SyncClient {
@@ -83,7 +83,7 @@ impl SyncClient {
             repo_id: remote.repo_id.clone(),
             agent: ureq::Agent::new(),
             principal_header: principal_header.to_owned(),
-            authorization_header: hub_authorization_value(bearer_token),
+            bearer_token: bearer_token.map(str::to_owned),
         }
     }
 
@@ -94,7 +94,7 @@ impl SyncClient {
     fn get_json(&self, path: &str) -> io::Result<Value> {
         let request = apply_hub_authorization(
             self.agent.get(&self.url(path)),
-            self.authorization_header.as_deref(),
+            self.bearer_token.as_deref(),
         );
         let response = request.call().map_err(http_error)?;
         response
@@ -108,7 +108,7 @@ impl SyncClient {
             .post(&self.url(path))
             .set("Content-Type", "application/json")
             .set("x-sorrel-acting-principal", &self.principal_header);
-        let response = apply_hub_authorization(request, self.authorization_header.as_deref())
+        let response = apply_hub_authorization(request, self.bearer_token.as_deref())
             .send_json(body)
             .map_err(http_error)?;
         response
@@ -210,10 +210,10 @@ pub(crate) fn hub_bearer_token() -> Option<String> {
 
 pub(crate) fn apply_hub_authorization(
     request: ureq::Request,
-    authorization_header: Option<&str>,
+    bearer_token: Option<&str>,
 ) -> ureq::Request {
-    match authorization_header {
-        Some(value) => request.set("Authorization", value),
+    match hub_authorization_value(bearer_token) {
+        Some(value) => request.set("Authorization", &value),
         None => request,
     }
 }
@@ -556,12 +556,14 @@ mod tests {
 
     #[test]
     fn bearer_authorization_trims_non_empty_tokens() {
-        assert_eq!(
-            hub_authorization_value(Some("  access-token  ")).as_deref(),
-            Some("Bearer access-token")
-        );
-        assert_eq!(hub_authorization_value(Some("  ")), None);
-        assert_eq!(hub_authorization_value(None), None);
+        for (token, expected) in [
+            (Some("  access-token  "), Some("Bearer access-token")),
+            (Some("  "), None),
+            (None, None),
+        ] {
+            let request = apply_hub_authorization(ureq::get("http://localhost"), token);
+            assert_eq!(request.header("Authorization"), expected);
+        }
     }
 
     #[test]
