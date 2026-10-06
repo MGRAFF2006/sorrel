@@ -17,7 +17,8 @@ use sorrel_core::{
     read_stack, restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree,
     ChangeOptions, ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
     ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
-    PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
+    ObjectStoreError, ObjectStoreResult, PathChangeKind, Principal, SnapshotOptions, StackOptions,
+    StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -47,7 +48,7 @@ struct Cli {
 enum Commands {
     /// Initialize Sorrel metadata for the current repository.
     Init,
-    /// Show Sorrel repository status (real dirty detection vs HEAD).
+    /// Show working-tree changes and pending merge conflicts.
     Status,
     /// Show line-level differences between the working tree and HEAD.
     Diff(DiffArgs),
@@ -749,6 +750,20 @@ fn status_output() -> io::Result<CommandOutput> {
     // Real working-tree dirty detection: snapshot the current tree (minus
     // `.sorrel/`) and diff it against HEAD.
     let store = to_io(FileObjectStore::new(repo::object_store_root()))?;
+    let merge_in_progress = repo::merge_in_progress();
+    let conflicts = if merge_in_progress {
+        let merge_result = repo::load_merge_state()?
+            .ok_or_else(|| io::Error::other("MERGE_STATE has no merge result id"))?;
+        let merge_result_id = merge_result
+            .parse::<ObjectId>()
+            .map_err(|_| io::Error::other("invalid merge result id in MERGE_STATE"))?;
+        to_io(read_merge_result(&store, &merge_result_id))?
+            .conflicts
+            .len()
+    } else {
+        0
+    };
+
     let (worktree_json, dirty, status_label) = match head.as_ref().and_then(|head| {
         head_snapshot_id(head)
             .transpose()
@@ -757,29 +772,48 @@ fn status_output() -> io::Result<CommandOutput> {
         Some(result) => {
             let (_, base_id) = result?;
             let mut stat_cache = repo::load_stat_cache();
-            let current = materialize_worktree(&store, &repo_id, None, &[], Some(&mut stat_cache))?;
+            let preview = StatusPreview::new(&store)?;
+            let current =
+                materialize_worktree(&preview, &repo_id, None, &[], Some(&mut stat_cache))?;
+            let diff = to_io(snapshot_diff(&preview, &base_id, &current))?;
+            // Changed paths may reference preview-only blobs. Keep cache entries
+            // only for unchanged files whose content remains in the durable store.
+            for change in &diff.changes {
+                let path = change
+                    .path
+                    .iter()
+                    .map(|part| part.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                stat_cache.remove(&path);
+            }
+            preview.close()?;
             repo::save_stat_cache(&stat_cache)?;
-            let diff = to_io(snapshot_diff(&store, &base_id, &current))?;
             let (changes, total) = diff_json(&diff);
             let dirty = total > 0;
             (
-                json!({ "dirty": dirty, "changes": changes, "conflicts": 0 }),
+                json!({ "dirty": dirty, "changes": changes, "conflicts": conflicts, "mergeInProgress": merge_in_progress }),
                 dirty,
                 if dirty { "dirty" } else { "clean" },
             )
         }
         None => (
-            json!({ "dirty": false, "changes": json!({"added": [], "modified": [], "deleted": []}), "conflicts": 0 }),
+            json!({ "dirty": false, "changes": json!({"added": [], "modified": [], "deleted": []}), "conflicts": conflicts, "mergeInProgress": merge_in_progress }),
             false,
             "clean",
         ),
     };
 
-    let human = if dirty {
+    let mut human = if dirty {
         format!("Sorrel repository {repo_id} on lane {lane}: dirty")
     } else {
         format!("Sorrel repository {repo_id} on lane {lane}: clean")
     };
+    if merge_in_progress {
+        human.push_str(&format!(
+            "; merge in progress ({conflicts} pending conflict(s)); use `sorrel merge --continue` or `sorrel merge --abort`"
+        ));
+    }
 
     Ok(CommandOutput {
         json: json!({
@@ -3467,6 +3501,60 @@ fn head_snapshot_id(head: &repo::Head) -> io::Result<Option<ObjectId>> {
     Ok(Some(id))
 }
 
+/// Preview objects never enter the durable store or change its object schema.
+struct StatusPreview<'a> {
+    durable: &'a FileObjectStore,
+    scratch: FileObjectStore,
+    directory: tempfile::TempDir,
+}
+
+impl<'a> StatusPreview<'a> {
+    fn new(durable: &'a FileObjectStore) -> io::Result<Self> {
+        let temporary = repo::sorrel_dir().join("tmp");
+        if !fs::symlink_metadata(&temporary)?.file_type().is_dir() {
+            return Err(io::Error::other(
+                "workspace temporary path must be a directory, not a symlink",
+            ));
+        }
+        let directory = tempfile::Builder::new()
+            .prefix("status-")
+            .tempdir_in(temporary)?;
+        let scratch = to_io(FileObjectStore::new(directory.path()))?;
+        Ok(Self {
+            durable,
+            scratch,
+            directory,
+        })
+    }
+
+    fn close(self) -> io::Result<()> {
+        self.directory.close()
+    }
+}
+
+impl ObjectStore for StatusPreview<'_> {
+    fn read(&self, id: &ObjectId) -> ObjectStoreResult<Vec<u8>> {
+        match self.durable.read(id) {
+            Err(ObjectStoreError::NotFound(_)) => self.scratch.read(id),
+            result => result,
+        }
+    }
+
+    fn write(&self, bytes: &[u8]) -> ObjectStoreResult<ObjectId> {
+        let id = ObjectId::for_bytes(bytes);
+        if self.durable.has(&id)? {
+            self.durable.read(&id)?;
+            Ok(id)
+        } else {
+            self.scratch.write(bytes)
+        }
+    }
+
+    fn has(&self, id: &ObjectId) -> ObjectStoreResult<bool> {
+        Ok(self.durable.has(id)? || self.scratch.has(id)?)
+    }
+}
+
 /// Materializes the current working tree (excluding `.sorrel/`) into the object
 /// store and returns the resulting snapshot id (hex) plus its `ObjectId`.
 ///
@@ -3474,7 +3562,7 @@ fn head_snapshot_id(head: &repo::Head) -> io::Result<Option<ObjectId>> {
 /// blob in the store) are not re-hashed; the cache is updated in place and the
 /// caller is responsible for persisting it after a successful command.
 fn materialize_worktree(
-    store: &FileObjectStore,
+    store: &impl ObjectStore,
     repo_id: &str,
     message: Option<String>,
     parents: &[ObjectId],
