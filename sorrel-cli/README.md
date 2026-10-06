@@ -69,6 +69,15 @@ is journaled and an interrupted commit finishes on the next locked command.
 - Workflow validation and policy-gated local job execution from
   `sorrel.workflow.yml`.
 
+Before `merge --continue`, resolve text markers and explicitly acknowledge every
+binary or modify/delete conflict with repeated workspace-relative `--resolved`
+paths, for example `sorrel merge --continue --resolved image.png --resolved old.txt`.
+Choose the desired contents or delete the file first; keeping the default bytes
+is also an explicit choice when acknowledged. Unknown paths are rejected,
+acknowledgments apply only to that continuation attempt, and text markers still
+block continuation even when their paths are acknowledged. Use `merge --abort`
+to discard the tentative merge.
+
 Every command accepts the global `--json` flag and emits structured JSON.
 Repository state is real and persisted under `.sorrel/`; commands do not return
 fabricated domain data. Empty changes are rejected. See [`DEMO.md`](DEMO.md)

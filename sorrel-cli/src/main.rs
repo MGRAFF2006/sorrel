@@ -13,11 +13,11 @@ use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_import, is_descendant,
     materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree, parse_object_id_hex,
-    read_conflict, read_snapshot, read_snapshot_files, read_stack, restore_snapshot_to_directory,
-    snapshot_diff, write_snapshot, write_tree, ChangeOptions, ConflictType, FileObjectStore,
-    GitExportOptions, GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions,
-    ObjectId, ObjectKind, ObjectRef, ObjectStore, PathChangeKind, Principal, SnapshotOptions,
-    StackOptions, StatCache, Visibility,
+    read_conflict, read_merge_result, read_snapshot, read_snapshot_files, read_stack,
+    restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree, ChangeOptions,
+    ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
+    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
+    PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -133,6 +133,10 @@ struct MergeArgs {
     /// Finalize an in-progress merge after conflicts are resolved in the worktree.
     #[arg(long = "continue")]
     r#continue: bool,
+
+    /// Acknowledge a resolved non-text conflict path; repeat for every binary or modify/delete conflict.
+    #[arg(long, requires = "continue")]
+    resolved: Vec<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -2312,7 +2316,7 @@ fn merge_output(args: MergeArgs) -> io::Result<CommandOutput> {
             io::ErrorKind::InvalidInput,
             "specify either a lane id or --abort, not both",
         )),
-        (false, true, None) => merge_continue_output(),
+        (false, true, None) => merge_continue_output(&args.resolved),
         (false, true, Some(_)) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "specify either a lane id or --continue, not both",
@@ -2362,7 +2366,7 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
     })
 }
 
-fn merge_continue_output() -> io::Result<CommandOutput> {
+fn merge_continue_output(resolved: &[PathBuf]) -> io::Result<CommandOutput> {
     let RepoContext {
         repo_id,
         head,
@@ -2395,6 +2399,62 @@ fn merge_continue_output() -> io::Result<CommandOutput> {
         return Err(io::Error::other(
             "HEAD moved since the conflicted merge started; abort and re-merge",
         ));
+    }
+
+    let merge_result_id = state
+        .merge_result
+        .parse::<ObjectId>()
+        .map_err(|error| io::Error::other(format!("invalid merge result id: {error}")))?;
+    let merge_result = to_io(read_merge_result(&store, &merge_result_id))?;
+    if merge_result.ours_snapshot != ours_id || merge_result.theirs_snapshot != theirs_id {
+        return Err(io::Error::other(
+            "MERGE_STATE does not match its stored merge result; abort and re-merge",
+        ));
+    }
+    let mut conflict_paths = std::collections::BTreeSet::new();
+    let mut nontext_paths = std::collections::BTreeSet::new();
+    for id in &merge_result.conflicts {
+        let conflict = to_io(read_conflict(&store, id))?;
+        if matches!(
+            conflict.conflict_type,
+            ConflictType::Binary | ConflictType::ModifyDelete
+        ) {
+            nontext_paths.insert(conflict.path.clone());
+        }
+        conflict_paths.insert(conflict.path);
+    }
+    let mut acknowledged = std::collections::BTreeSet::new();
+    for path in resolved {
+        let mut normalized = PathBuf::new();
+        for component in path.components() {
+            match component {
+                std::path::Component::Normal(name) => normalized.push(name),
+                std::path::Component::CurDir => {}
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "--resolved paths must be workspace-relative without parent components",
+                    ))
+                }
+            }
+        }
+        if !conflict_paths.contains(&normalized) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "--resolved path is not a pending conflict: {}",
+                    path.display()
+                ),
+            ));
+        }
+        acknowledged.insert(normalized);
+    }
+    let missing: Vec<_> = nontext_paths
+        .difference(&acknowledged)
+        .map(|path| path.display().to_string())
+        .collect();
+    if !missing.is_empty() {
+        return Err(io::Error::other(format!("non-text conflicts need explicit acknowledgment: {}; choose each file's contents or deletion, then repeat --resolved <path> for every listed path with --continue", missing.join(", "))));
     }
 
     let remaining = conflict_marker_paths()?;
@@ -2624,7 +2684,7 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
 
         let listed = paths.join(", ");
         return Err(io::Error::other(format!(
-            "merge conflicts in: {listed}; fix markers then `sorrel merge --continue`, or `sorrel merge --abort`"
+            "merge conflicts in: {listed}; fix text markers and acknowledge every binary or modify/delete path with `sorrel merge --continue --resolved <path>` (repeat --resolved), or `sorrel merge --abort`"
         )));
     };
 
