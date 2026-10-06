@@ -16,6 +16,14 @@ export class SyncObjectNotFoundError extends Error {
   }
 }
 
+export class SyncRefCorruptError extends Error {
+  constructor() {
+    super('persisted ref record is corrupt');
+    this.name = 'SyncRefCorruptError';
+    this.code = 'corrupt_sync_ref';
+  }
+}
+
 export class RepoSyncStore {
   constructor() {
     /** @type {Map<string, { objects: Map<string, Buffer>, refs: Map<string, string> }>} */

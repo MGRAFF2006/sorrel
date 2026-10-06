@@ -6,6 +6,7 @@ import { objectId, verifyObjectId } from './blake3.js';
 import {
   SyncObjectIdMismatchError,
   SyncObjectNotFoundError,
+  SyncRefCorruptError,
 } from './sync-store.js';
 
 const OBJECT_ID_PATTERN = /^[0-9a-f]{64}$/;
@@ -182,7 +183,7 @@ export class FsRepoSyncStore {
 
     const refs = [];
     for (const file of files.sort()) {
-      const parsed = readRefFile(path.join(refsDir, file));
+      const parsed = readRefFile(path.join(refsDir, file), decodePathSegment(file));
       if (parsed) {
         refs.push(parsed);
       }
@@ -191,7 +192,7 @@ export class FsRepoSyncStore {
   }
 
   getRef(repoId, name) {
-    const parsed = readRefFile(this.#refPath(repoId, name));
+    const parsed = readRefFile(this.#refPath(repoId, name), name);
     return parsed ? parsed.snapshot : undefined;
   }
 
@@ -210,7 +211,7 @@ function normalizeObjectId(id) {
   return normalized;
 }
 
-function readRefFile(filePath) {
+function readRefFile(filePath, expectedName) {
   let raw;
   try {
     raw = fs.readFileSync(filePath, 'utf8');
@@ -221,20 +222,20 @@ function readRefFile(filePath) {
     throw error;
   }
 
+  let value;
   try {
-    const value = JSON.parse(raw);
-    if (
-      value &&
-      typeof value === 'object' &&
-      typeof value.name === 'string' &&
-      typeof value.snapshot === 'string'
-    ) {
-      return { name: value.name, snapshot: value.snapshot };
-    }
+    value = JSON.parse(raw);
   } catch {
-    // fall through: a torn/corrupt ref file reads as absent rather than crashing
+    throw new SyncRefCorruptError();
   }
-  return undefined;
+  if (
+    !value || typeof value !== 'object' || Array.isArray(value) ||
+    value.name !== expectedName ||
+    typeof value.snapshot !== 'string' || !/^[0-9a-f]{64}$/i.test(value.snapshot)
+  ) {
+    throw new SyncRefCorruptError();
+  }
+  return { name: value.name, snapshot: value.snapshot };
 }
 
 /**

@@ -153,6 +153,40 @@ test('fs store: objects and refs persist across store instances', (t) => {
   assert.deepEqual(second.listRefs(repoId), [{ name: 'main', snapshot }]);
 });
 
+test('fs store: corrupt ref records fail closed without modifying persisted bytes', (t) => {
+  const dir = tempDir(t);
+  const store = createFsRepoSyncStore(dir);
+  const snapshot = objectId(Buffer.from('valid snapshot id'));
+  store.setRef(repoId, 'lane/main', snapshot);
+  const file = path.join(dir, encodePathSegment(repoId), 'refs', encodePathSegment('lane/main'));
+  const corruptRecords = [
+    '{"name":"lane/main","snapshot":',
+    'null',
+    '[]',
+    JSON.stringify({ name: 'lane/main' }),
+    JSON.stringify({ name: 'lane/main', snapshot: 123 }),
+    JSON.stringify({ name: 'lane/main', snapshot: '' }),
+    JSON.stringify({ name: 'lane/main', snapshot: 'not-a-snapshot-id' }),
+    JSON.stringify({ name: 'lane/main', snapshot: 'g'.repeat(64) }),
+    JSON.stringify({ name: 'other', snapshot }),
+  ];
+  for (const raw of corruptRecords) {
+    fs.writeFileSync(file, raw);
+    const reopened = createFsRepoSyncStore(dir);
+    for (const read of [() => reopened.getRef(repoId, 'lane/main'), () => reopened.listRefs(repoId)]) {
+      assert.throws(read, { code: 'corrupt_sync_ref' }, raw);
+      assert.equal(fs.readFileSync(file, 'utf8'), raw);
+    }
+  }
+
+  // Extra fields remain compatible; a genuinely absent record stays absent.
+  fs.writeFileSync(file, JSON.stringify({ name: 'lane/main', snapshot, extra: true }));
+  assert.equal(store.getRef(repoId, 'lane/main'), snapshot);
+  assert.deepEqual(store.listRefs(repoId), [{ name: 'lane/main', snapshot }]);
+  assert.equal(store.getRef(repoId, 'absent'), undefined);
+  assert.deepEqual(store.listRefs('repo_absent'), []);
+});
+
 test('fs store: hostile repo ids and ref names stay inside the data root', (t) => {
   const dir = tempDir(t);
   const store = new FsRepoSyncStore(dir);
@@ -237,6 +271,53 @@ async function postJson(url, payload, headers = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+test('HTTP reads and ref advances reject corrupt persisted refs and preserve evidence', async (t) => {
+  const dir = tempDir(t);
+  const app = makeApp(dir);
+  const schemaVersion = 'sorrel.protocol.v0';
+  const tree = app.store.sync.put(repoId, Buffer.from(JSON.stringify({ schemaVersion, kind: 'Tree', entries: [] })));
+  const snapshot = app.store.sync.put(repoId, Buffer.from(JSON.stringify({
+    schemaVersion, kind: 'Snapshot', repo: repoId,
+    rootTree: { kind: 'Tree', id: tree }, parents: [],
+    createdAt: '2026-10-06T00:00:00Z', author: { type: 'user', id: 'user_pusher' },
+  })));
+  app.store.sync.setRef(repoId, 'main', snapshot);
+  const file = path.join(dir, encodePathSegment(repoId), 'refs', 'main');
+  const corrupt = '{"name":"main","snapshot":';
+  fs.writeFileSync(file, corrupt);
+
+  await withServer(app, async (baseUrl) => {
+    for (const route of [
+      `${repoId}/refs`, 'admin/sync-repos',
+      `${repoId}/tree?ref=main`, `${repoId}/files?ref=main&path=fixture.txt`,
+    ]) {
+      const response = await fetch(`${baseUrl}/${route}`);
+      assert.equal(response.status, 500, route);
+      assert.deepEqual(await response.json(), {
+        error: { code: 'internal_server_error', message: 'internal server error' },
+      });
+      assert.equal(fs.readFileSync(file, 'utf8'), corrupt);
+    }
+
+    for (const force of [false, true]) {
+      const response = await postJson(`${baseUrl}/${repoId}/refs/main`, {
+        snapshot, expected: null, force,
+        grantRefs: [{ id: refWriteGrant.id, source: 'core' }],
+      }, principalHeader);
+      assert.equal(response.status, 500);
+      assert.equal(fs.readFileSync(file, 'utf8'), corrupt);
+    }
+    const absent = await fetch(`${baseUrl}/${repoId}/tree?ref=absent`);
+    assert.equal(absent.status, 404);
+    assert.equal((await absent.json()).error.code, 'unknown_ref');
+
+    // Recovery is explicit: restoring the valid record resumes ordinary reads.
+    app.store.sync.setRef(repoId, 'main', snapshot);
+    assert.equal((await fetch(`${baseUrl}/${repoId}/refs`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/${repoId}/tree?ref=main`)).status, 200);
+  });
+});
 
 test('sync transport over fs store survives a server restart', async (t) => {
   const dataDir = tempDir(t);
