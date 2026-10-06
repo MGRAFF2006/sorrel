@@ -54,6 +54,15 @@ function optionalString(attributes, fieldName) {
   return value.trim();
 }
 
+function optionalLine(attributes) {
+  const value = attributes.line;
+  if (value === undefined || value === null) return undefined;
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new ModelValidationError('line must be a positive safe integer');
+  }
+  return value;
+}
+
 function arrayOfStrings(attributes, fieldName) {
   const value = attributes[fieldName] ?? [];
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
@@ -246,9 +255,9 @@ export function createOrganization(attributes) {
     ownerPrincipal: optionalPrincipal(attributes, 'ownerPrincipal'),
     principalRefs: arrayOfPrincipals(attributes, 'principalRefs'),
     ...corePolicyRefs(attributes),
-    metadata: attributes.metadata ?? {},
-    createdAt: attributes.createdAt ?? timestamp,
-    updatedAt: attributes.updatedAt ?? timestamp,
+    metadata: optionalObject(attributes, 'metadata') ?? {},
+    createdAt: optionalString(attributes, 'createdAt') ?? timestamp,
+    updatedAt: optionalString(attributes, 'updatedAt') ?? timestamp,
   };
 }
 
@@ -289,9 +298,9 @@ export function createProject(attributes) {
     createdByPrincipal: optionalPrincipal(attributes, 'createdByPrincipal'),
     principalRefs: arrayOfPrincipals(attributes, 'principalRefs'),
     ...corePolicyRefs(attributes),
-    metadata: attributes.metadata ?? {},
-    createdAt: attributes.createdAt ?? timestamp,
-    updatedAt: attributes.updatedAt ?? timestamp,
+    metadata: optionalObject(attributes, 'metadata') ?? {},
+    createdAt: optionalString(attributes, 'createdAt') ?? timestamp,
+    updatedAt: optionalString(attributes, 'updatedAt') ?? timestamp,
   };
 }
 
@@ -334,8 +343,8 @@ export function createRepository(attributes) {
     linkedByPrincipal: optionalPrincipal(attributes, 'linkedByPrincipal'),
     principalRefs: arrayOfPrincipals(attributes, 'principalRefs'),
     ...repositoryPolicyRefs(attributes),
-    createdAt: attributes.createdAt ?? timestamp,
-    updatedAt: attributes.updatedAt ?? timestamp,
+    createdAt: optionalString(attributes, 'createdAt') ?? timestamp,
+    updatedAt: optionalString(attributes, 'updatedAt') ?? timestamp,
   };
 }
 
@@ -395,9 +404,9 @@ export function createProposal(attributes) {
     workflowRunIds: arrayOfStrings(attributes, 'workflowRunIds'),
     principalRefs: arrayOfPrincipals(attributes, 'principalRefs'),
     ...corePolicyRefs(attributes),
-    metadata: attributes.metadata ?? {},
-    createdAt: attributes.createdAt ?? timestamp,
-    updatedAt: attributes.updatedAt ?? timestamp,
+    metadata: optionalObject(attributes, 'metadata') ?? {},
+    createdAt: optionalString(attributes, 'createdAt') ?? timestamp,
+    updatedAt: optionalString(attributes, 'updatedAt') ?? timestamp,
   };
 }
 
@@ -505,13 +514,13 @@ export function createReviewComment(attributes) {
     authorPrincipal,
     body: requiredString(attributes, 'body'),
     path: optionalString(attributes, 'path'),
-    line: attributes.line,
+    line: optionalLine(attributes),
     state: enumValue(attributes, 'state', REVIEW_COMMENT_STATES, 'open'),
     principalRefs: arrayOfPrincipals(attributes, 'principalRefs'),
     ...corePolicyRefs(attributes),
-    metadata: attributes.metadata ?? {},
-    createdAt: attributes.createdAt ?? timestamp,
-    updatedAt: attributes.updatedAt ?? timestamp,
+    metadata: optionalObject(attributes, 'metadata') ?? {},
+    createdAt: optionalString(attributes, 'createdAt') ?? timestamp,
+    updatedAt: optionalString(attributes, 'updatedAt') ?? timestamp,
   };
 }
 
@@ -537,7 +546,7 @@ export function updateReviewComment(comment, attributes) {
     next.path = optionalString(attributes, 'path');
   }
   if (attributes.line !== undefined) {
-    next.line = attributes.line;
+    next.line = optionalLine(attributes);
   }
   if (attributes.metadata !== undefined) {
     if (!isPlainObject(attributes.metadata)) {
@@ -585,11 +594,11 @@ export function createWorkflowRun(attributes) {
     runnerPrincipal: optionalPrincipal(attributes, 'runnerPrincipal'),
     principalRefs: arrayOfPrincipals(attributes, 'principalRefs'),
     ...corePolicyRefs(attributes),
-    metadata: attributes.metadata ?? {},
+    metadata: optionalObject(attributes, 'metadata') ?? {},
     startedAt: optionalString(attributes, 'startedAt'),
     completedAt: optionalString(attributes, 'completedAt'),
-    createdAt: attributes.createdAt ?? timestamp,
-    updatedAt: attributes.updatedAt ?? timestamp,
+    createdAt: optionalString(attributes, 'createdAt') ?? timestamp,
+    updatedAt: optionalString(attributes, 'updatedAt') ?? timestamp,
   };
 }
 
@@ -645,6 +654,10 @@ export function updateWorkflowRun(run, attributes) {
  */
 export function createPolicy(attributes) {
   rejectHubLocalPermissions(attributes, 'policy');
+  const enabled = attributes.enabled ?? true;
+  if (typeof enabled !== 'boolean') {
+    throw new ModelValidationError('enabled must be a boolean');
+  }
 
   const timestamp = nowIso();
 
@@ -654,13 +667,13 @@ export function createPolicy(attributes) {
     projectId: optionalString(attributes, 'projectId'),
     name: requiredString(attributes, 'name'),
     description: optionalString(attributes, 'description'),
-    enabled: attributes.enabled ?? true,
+    enabled,
     policyRef: optionalProtocolObjectRef(attributes, 'policyRef', POLICY_REF_KINDS),
     principalRefs: arrayOfPrincipals(attributes, 'principalRefs'),
     ...corePolicyRefs(attributes),
-    metadata: attributes.metadata ?? {},
-    createdAt: attributes.createdAt ?? timestamp,
-    updatedAt: attributes.updatedAt ?? timestamp,
+    metadata: optionalObject(attributes, 'metadata') ?? {},
+    createdAt: optionalString(attributes, 'createdAt') ?? timestamp,
+    updatedAt: optionalString(attributes, 'updatedAt') ?? timestamp,
   };
 }
 

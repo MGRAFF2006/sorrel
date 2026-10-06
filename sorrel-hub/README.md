@@ -353,6 +353,16 @@ These endpoints accept the same Core/protocol reference fields used by projects:
 `/admin/policies` records Hub-side metadata and a `policyRef`; policy rules stay
 owned by Core/protocol policy objects.
 
+Typed metadata fields are validated before persistence. Supplied `createdAt` and
+`updatedAt` values must be strings; absent/null values use the server timestamp.
+Creation `metadata` must be an object (absent/null becomes `{}`), and its
+extension keys and nested JSON values remain unrestricted. PATCH metadata must
+be an object and merges into the existing metadata. Review-comment `line` is
+optional and must be a positive safe integer; null clears it on PATCH. Policy
+`enabled` must be a boolean; absent/null keeps the default `true`. Invalid
+field types return `400 model_validation_failed` without changing memory or
+disk records. This does not add date-format or workflow-transition rules.
+
 ### Sync transport (`/{repoId}/...`)
 
 Per-repo object and ref transport for Core snapshot graphs (content-addressed
