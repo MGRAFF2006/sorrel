@@ -251,6 +251,16 @@ Lightweight collection endpoints for administration data:
 - `GET|POST /admin/workflow-runs` (filters: `projectId`, `proposalId`, `status`)
 - `GET|PATCH /admin/workflow-runs/:id` — status updates (`queued`→`in_progress`→`succeeded`/…)
 - `GET|POST /admin/policies`
+
+Metadata with a `projectId` must refer to an existing Hub project. Repository and
+project-scoped policy organization IDs must match that project's organization
+namespace. Proposal repository IDs and workflow-run proposal IDs must belong to
+the same project; proposal workflow-run links must resolve in that project and
+cannot identify a run attached to another proposal. Missing parents return
+`404 not_found`; scope mismatches return `400 model_validation_failed` before
+any record is saved. Project organization IDs remain namespace identifiers and
+do not require a local organization record. Core references and external sync,
+lane, snapshot, and provider IDs do not require local metadata records.
 - `GET /admin/policies/:id`
 - `GET /admin/sync-repos` — sync transport repos (`{ "repos": [ { "id", "refCount" } ] }`)
 

@@ -215,7 +215,8 @@ test('lane-submit attributes an authenticated session instead of a spoofed body 
 });
 
 test('workflow run status updates', async () => {
-  await withServer(async (baseUrl) => {
+  await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_ci', organizationId: 'org_local', name: 'proj_ci' });
     const runRes = await postJson(`${baseUrl}/admin/workflow-runs`, {
       projectId: 'proj_ci',
       name: 'validate',
@@ -263,7 +264,8 @@ test('GET project by id', async () => {
 });
 
 test('list proposals filters by status and sourceLane', async () => {
-  await withServer(async (baseUrl) => {
+  await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_f', organizationId: 'org_local', name: 'proj_f' });
     await postJson(`${baseUrl}/admin/proposals`, {
       projectId: 'proj_f',
       title: 'A',
@@ -294,7 +296,9 @@ test('list proposals filters by status and sourceLane', async () => {
 test('admin and lane submissions share verified attribution and mirroring', async () => {
   const principal = { type: 'user', id: 'verified' };
   const mirrored = [];
-  await withServer(async (baseUrl) => {
+  await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_one', organizationId: 'org_local', name: 'proj_one' });
+    app.store.createProject({ id: 'proj_two', organizationId: 'org_local', name: 'proj_two' });
     const payload = {
       projectId: 'proj_one', title: 'Review', syncRepoId: 'repo_one', sourceLane: 'lane_feature',
       sourceSnapshot: 'aa'.repeat(32), authorPrincipal: { type: 'user', id: 'forged' },
@@ -321,7 +325,9 @@ test('admin and lane submissions share verified attribution and mirroring', asyn
 
 
 test('lane-submit reuse is scoped to project and normalized repository', async () => {
-  await withServer(async (baseUrl) => {
+  await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_a', organizationId: 'org_local', name: 'proj_a' });
+    app.store.createProject({ id: 'proj_b', organizationId: 'org_local', name: 'proj_b' });
     const payload = {
       projectId: 'proj_a', syncRepoId: 'repo_shared', title: 'Tip',
       sourceLane: 'lane_feature', sourceSnapshot: 'dd'.repeat(32),
