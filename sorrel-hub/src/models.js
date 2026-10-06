@@ -426,6 +426,9 @@ export function updateProposal(proposal, attributes) {
     next.status = status;
   }
 
+  const reviewInputsLocked = [proposal.status, next.status]
+    .some((status) => status === 'approved' || status === 'merged');
+
   for (const field of [
     'description',
     'repositoryId',
@@ -438,7 +441,13 @@ export function updateProposal(proposal, attributes) {
     'targetSnapshot',
   ]) {
     if (attributes[field] !== undefined) {
-      next[field] = optionalString(attributes, field);
+      const value = optionalString(attributes, field);
+      if (field !== 'description' && reviewInputsLocked && value !== proposal[field]) {
+        throw new ModelValidationError(
+          `cannot change ${field} in an update involving approved or merged status`,
+        );
+      }
+      next[field] = value;
     }
   }
 
