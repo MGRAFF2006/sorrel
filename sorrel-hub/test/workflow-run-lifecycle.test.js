@@ -11,7 +11,7 @@ import { WORKFLOW_RUN_STATUSES } from '../src/models.js';
 const principal = { type: 'user', id: 'workflow_fixture' };
 const grant = { id: 'grant_workflow_fixture', schemaVersion: 'sorrel.protocol.v0', kind: 'Grant',
   principal: { kind: 'user', id: principal.id }, effect: 'allow',
-  capabilities: ['project.read', 'workflow.run.write'] };
+  capabilities: ['project.read', 'workflow.run.write'], resource: { kind: 'project', id: '*' } };
 const startedAt = '2026-01-01T10:00:00Z';
 const completedAt = '2026-01-01T10:01:00Z';
 
