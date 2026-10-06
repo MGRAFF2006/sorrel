@@ -9,7 +9,7 @@ import { createFsMetadataStore } from '../src/fs-metadata-store.js';
 import { createPolicy, createReviewComment, ModelValidationError } from '../src/models.js';
 
 const principal = { type: 'user', id: 'validation_fixture' };
-const grant = { id: 'grant_validation', source: 'core', principal, action: 'policy.grant', resource: { kind: 'org', id: '*' } };
+const grant = { id: 'grant_validation', source: 'core', principal, action: 'policy.grant', effect: 'allow', resource: { kind: 'org', id: '*' } };
 // The native record keeps these real HTTP fixtures valid with the private-Hub stack.
 const nativeGrant = { id: 'grant_validation_native', schemaVersion: 'sorrel.protocol.v0', kind: 'Grant',
   principal: { kind: 'user', id: principal.id }, effect: 'allow',
