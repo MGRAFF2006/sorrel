@@ -177,12 +177,12 @@ test('issuer-only OIDC configuration rejects signed tokens before fetching keys'
   assert.equal(await adapter.resolveSession({ headers: { authorization: `Bearer ${token}` } }), null);
 });
 
-test('WorkOS preserves its client-id audience fallback and rejects missing expiry', async (t) => {
+test('WorkOS verifies AuthKit client_id and retains expiry and optional audience checks', async (t) => {
   clearJwksCache();
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const jwk = publicKey.export({ format: 'jwk' });
   const server = http.createServer((request, response) => {
-    assert.equal(request.url, '/.well-known/jwks.json');
+    assert.equal(request.url, '/sso/jwks/fixture-client');
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ keys: [jwk] }));
   });
@@ -190,7 +190,7 @@ test('WorkOS preserves its client-id audience fallback and rejects missing expir
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const issuer = `http://127.0.0.1:${server.address().port}`;
   const options = { issuer, apiKey: 'synthetic-fixture', clientId: 'fixture-client' };
-  const payload = { sub: 'alice', iss: issuer, aud: 'fixture-client', exp: Math.floor(Date.now() / 1000) + 600 };
+  const payload = { sub: 'alice', iss: issuer, client_id: 'fixture-client', exp: Math.floor(Date.now() / 1000) + 600 };
   const sessionFor = (adapter, claims) => adapter.resolveSession({
     headers: { authorization: `Bearer ${signRs256Jwt(privateKey, { alg: 'RS256' }, claims)}` },
   });
@@ -198,12 +198,83 @@ test('WorkOS preserves its client-id audience fallback and rejects missing expir
   const session = await sessionFor(adapter, payload);
   assert.deepEqual(session?.principal, { type: 'user', id: 'workos:alice' });
   assert.equal(session.expiresAt, payload.exp * 1000);
-  const withoutExpiry = { ...payload }; delete withoutExpiry.exp;
-  assert.equal(await sessionFor(adapter, withoutExpiry), null);
-  assert.equal(await sessionFor(adapter, { ...payload, aud: 'other-service' }), null);
+  for (const claims of [
+    { client_id: undefined }, { client_id: null }, { client_id: 42 },
+    { client_id: ['fixture-client'] }, { client_id: 'another-client' },
+    { client_id: 'another-client', aud: 'fixture-client' },
+    { exp: undefined }, { exp: null }, { exp: '2099999999' },
+    { exp: Math.floor(Date.now() / 1000) - 120 }, { iss: 'https://wrong-issuer.test' },
+    { sub: null }, { sub: 42 }, { sub: ' ' },
+  ]) {
+    assert.equal(await sessionFor(adapter, { ...payload, ...claims }), null, JSON.stringify(claims));
+  }
+  const { privateKey: forgedKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  assert.equal(await adapter.resolveSession({ headers: {
+    authorization: `Bearer ${signRs256Jwt(forgedKey, { alg: 'RS256' }, payload)}`,
+  } }), null);
+  // aud cannot replace client_id, but remains an optional additional restriction.
+  assert.ok(await sessionFor(adapter, { ...payload, aud: 'other-service' }));
   const overridden = createWorkOsAdapter({ ...options, audience: 'explicit-audience' });
   assert.equal(await sessionFor(overridden, payload), null);
   assert.ok(await sessionFor(overridden, { ...payload, aud: 'explicit-audience' }));
+});
+
+test('default WorkOS environment verifies documented tokens using the client-specific HTTP JWKS endpoint', async (t) => {
+  clearJwksCache();
+  t.after(clearJwksCache);
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'authkit-key', alg: 'RS256' };
+  const requests = [];
+  const server = http.createServer((request, response) => {
+    requests.push(request.url);
+    if (request.url !== '/sso/jwks/client_fixture') { response.writeHead(404); response.end(); return; }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ keys: [jwk] }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const local = `http://127.0.0.1:${server.address().port}`;
+  const originalFetch = globalThis.fetch;
+  const fetchUris = [];
+  t.mock.method(globalThis, 'fetch', (uri, options) => {
+    fetchUris.push(uri);
+    assert.equal(new URL(uri).origin, 'https://api.workos.com');
+    return originalFetch(`${local}${new URL(uri).pathname}`, options);
+  });
+  const adapter = createAuthAdapterFromEnv({ SORREL_HUB_AUTH: 'workos',
+    WORKOS_API_KEY: 'synthetic-fixture', WORKOS_CLIENT_ID: 'client_fixture' });
+  const payload = { iss: 'https://api.workos.com', sub: 'user_fixture', client_id: 'client_fixture',
+    sid: 'session_fixture', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 600 };
+  const sessionFor = (claims) => adapter.resolveSession({ headers: {
+    authorization: `Bearer ${signRs256Jwt(privateKey, { alg: 'RS256', kid: 'authkit-key' }, claims)}`,
+  } });
+  const session = await sessionFor(payload);
+  assert.deepEqual(session.principal, { type: 'user', id: 'workos:user_fixture' });
+  assert.equal(session.authMode, 'workos');
+  assert.equal(session.expiresAt, payload.exp * 1000);
+  assert.deepEqual(fetchUris, ['https://api.workos.com/sso/jwks/client_fixture']);
+  assert.deepEqual(requests, ['/sso/jwks/client_fixture']);
+  assert.equal(await sessionFor({ ...payload, client_id: 'client_other', aud: 'client_fixture' }), null);
+  assert.deepEqual(requests, ['/sso/jwks/client_fixture']);
+});
+
+test('generic OIDC still requires its configured aud even with an AuthKit client_id claim', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = publicKey.export({ format: 'jwk' });
+  let keyFetches = 0;
+  const adapter = createOidcAdapter({ issuer: ISSUER, audience: 'hub', fetchJwks: async (uri) => {
+    assert.equal(uri, `${ISSUER}/.well-known/jwks.json`);
+    keyFetches += 1;
+    return [jwk];
+  } });
+  const payload = { iss: ISSUER, sub: 'alice', client_id: 'hub', exp: Math.floor(Date.now() / 1000) + 600 };
+  const sessionFor = (claims) => adapter.resolveSession({ headers: {
+    authorization: `Bearer ${signRs256Jwt(privateKey, { alg: 'RS256' }, claims)}`,
+  } });
+  assert.equal(await sessionFor(payload), null);
+  assert.equal(keyFetches, 0);
+  assert.deepEqual((await sessionFor({ ...payload, aud: 'hub' })).principal, { type: 'user', id: 'oidc:alice' });
+  assert.equal(keyFetches, 1);
 });
 
 test('expiry keeps the configured clock-skew boundary', async () => {
