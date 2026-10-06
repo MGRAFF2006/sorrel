@@ -36,7 +36,9 @@ add custom AWS/1Password adapters here.
 A small CLI exposes the local vault operations by composing the library modules.
 It never prints or persists raw secret values. Redaction requires access to every
 SecretRef selected by the environment filter; if any resolution is denied, it
-fails without emitting the supplied text.
+fails without emitting the supplied text. Known resolved values are masked
+regardless of `minSecretLength`; visible prefix/suffix settings always leave at
+least one character hidden.
 
 ```sh
 node scripts/vault-cli.mjs --help          # usage

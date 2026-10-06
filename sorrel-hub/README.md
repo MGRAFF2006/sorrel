@@ -43,6 +43,14 @@ Core-authorized Hub proposal list, never a public Convex subscription.
 See [Convex setup and existing-deployment migration](convex/README.md); operators
 must redeploy the functions to revoke their former public visibility.
 
+Each server mirror instance sends mutations for a proposal ID in invocation
+order; different IDs can proceed concurrently. This prevents late successful
+upserts from overwriting newer ones within that instance. The queue is in memory
+and offers no ordering across Hub processes or restarts. Mirroring remains best
+effort: failed requests are logged without retries or reconciliation, and a
+transport failure can leave the backend outcome uncertain. Client-supplied
+timestamps do not determine mutation order.
+
 ### Policy conformance
 
 To keep Hub's administration guard aligned with Core, `test/policy-conformance.test.js`
@@ -112,15 +120,27 @@ request data are omitted; the client response remains redacted.
   enables development headers and anonymous `user:local` demo sessions. It is
   restricted to loopback unless the insecure-demo bind override is explicit.
 - `oidc` verifies RS256/ES256 Bearer JWTs using
-  `SORREL_OIDC_ISSUER` and optional `SORREL_OIDC_AUDIENCE`; keys are read from
-  `<issuer>/.well-known/jwks.json`. Keys are cached for ten minutes. An unknown
-  signing-key ID triggers a shared refresh, limited to once per issuer URI every
-  30 seconds (including failed refreshes); HTTP fetches time out after five
-  seconds. A failed refresh rejects the new key while previously cached keys
+  required `SORREL_OIDC_ISSUER` and `SORREL_OIDC_AUDIENCE`; keys are read from
+  `<issuer>/.well-known/jwks.json`. Issuer-only configuration fails closed until
+  an audience identifying this Hub is supplied. Keys are cached for ten minutes.
+  An unknown signing-key ID triggers a shared refresh, limited to once per issuer
+  URI every 30 seconds (including failed refreshes); HTTP fetches time out after
+  five seconds. A failed refresh rejects the new key while previously cached keys
   remain usable until cache expiry. A rotation during cooldown may require a
   retry after the remaining cooldown.
-- `workos` uses `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, optional
-  `WORKOS_ISSUER`, and optional `WORKOS_AUDIENCE` for Bearer verification.
+- `workos` uses `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` to verify AuthKit
+  Bearer JWTs. It requires a string `client_id` exactly matching
+  `WORKOS_CLIENT_ID` and reads keys from
+  `<issuer>/sso/jwks/<encoded-client-id>`. The issuer defaults to
+  `https://api.workos.com`; `WORKOS_ISSUER` overrides it. AuthKit tokens do not
+  require `aud`; optional `WORKOS_AUDIENCE` adds an `aud` restriction without
+  replacing the `client_id` check. See the
+  [WorkOS session-token contract](https://workos.com/docs/reference/authkit/session-tokens).
+
+OIDC and WorkOS tokens must contain a finite numeric `exp` claim. Generic OIDC
+also requires an `aud` claim matching its configured audience (a string or
+array of strings). Expiry retains the existing 60-second clock-skew allowance.
+Tokens without expiry are rejected.
 
 These adapters authenticate a principal; authorization still requires trusted
 Core grant references. WorkOS remains an adapter skeleton without sealed
@@ -466,6 +486,10 @@ Proposal records may carry lane-submit fields: `syncRepoId`, `sourceLane`,
   updates likewise record metadata only.
 - `/capabilities` includes `collaboration.proposalTransitions`, derived from
   the same state-transition rules that validate proposal mutations.
+  Object storage and Convex availability describe the wired sync store and
+  server mirror, including instances supplied to `createApp()`. Mirror
+  availability reports configuration, not backend health. The standalone
+  `resolveCapabilities({ env })` helper retains environment-based defaults.
 
 Admin proposal creation, updates, and lane submissions share verified
 attribution and best-effort Convex mirroring. Lane-submit reuse is scoped to

@@ -34,7 +34,7 @@ pub enum SecretCommand {
 
 #[derive(Debug, Args)]
 pub struct SecretProviderArgs {
-    /// SecretSpec provider name or URI (default: dotenv:.env).
+    /// SecretSpec provider override (default: each handle's provider).
     #[arg(long)]
     pub provider: Option<String>,
 }
@@ -140,7 +140,7 @@ pub fn execute_run(args: SecretRunArgs, json: bool) -> io::Result<SecretRunResul
         .map_err(bridge_io)?;
     }
 
-    let provider = args.provider.as_deref().or(Some(DEFAULT_PROVIDER));
+    let provider = args.provider.as_deref();
     let resolved = resolve_handles(&cwd, &handles, &selected, provider).map_err(bridge_io)?;
 
     // Strip a leading `--` if clap left it in trailing args.
@@ -269,12 +269,12 @@ fn check_output(args: SecretProviderArgs) -> io::Result<CommandOutput> {
         json: json!({
             "command": "secret check",
             "mocked": false,
-            "provider": args.provider.as_deref().unwrap_or(DEFAULT_PROVIDER),
+            "provider": report.provider,
             "report": report_json
         }),
         human: format!(
             "Secret check via {} ({} declared handle(s))",
-            args.provider.as_deref().unwrap_or(DEFAULT_PROVIDER),
+            report.provider,
             handles.len()
         ),
     })

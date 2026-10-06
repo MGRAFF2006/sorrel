@@ -4,6 +4,7 @@ import { createAuthAdapterFromEnv } from './auth/adapter.js';
 import { resolveCapabilities } from './capabilities.js';
 import { createConvexMirror } from './convex-mirror.js';
 import { PolicyDeniedError, PolicyEvaluationError } from './core-policy.js';
+import { FsRepoSyncStore } from './fs-sync-store.js';
 import { HttpError, sendJson, sendNotFound } from './http.js';
 import { ModelValidationError } from './models.js';
 import { resolveResourceLimits } from './resource-limits.js';
@@ -36,6 +37,8 @@ export function createApp(options = {}) {
     resolveCapabilities({
       authMode: authAdapter.mode,
       env: options.env,
+      objectStorage: store.sync instanceof FsRepoSyncStore ? 'fs' : 'memory',
+      convexEnabled: convexMirror.enabled === true,
     });
 
   return {

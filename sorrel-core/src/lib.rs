@@ -4,6 +4,7 @@ pub mod authority;
 pub mod change;
 pub mod conflict;
 pub mod dag;
+pub mod durability;
 pub mod git_export;
 pub mod git_import;
 pub mod history;
@@ -77,4 +78,6 @@ pub use transport::{
     TransportError, TransportResult,
 };
 
-pub use workspace::materialize_workspace_snapshot;
+pub use workspace::{
+    explain_workspace_path, materialize_workspace_snapshot, WorkspacePathExplanation,
+};

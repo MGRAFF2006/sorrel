@@ -13,9 +13,9 @@ use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_export_with_force, git_import,
     is_descendant, materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree,
-    parse_object_id_hex, read_conflict, read_snapshot, read_snapshot_files, read_stack,
-    restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree, ChangeOptions,
-    ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
+    parse_object_id_hex, read_conflict, read_merge_result, read_snapshot, read_snapshot_files,
+    read_stack, restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree,
+    ChangeOptions, ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
     ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
     PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
 };
@@ -47,7 +47,12 @@ struct Cli {
 enum Commands {
     /// Initialize Sorrel metadata for the current repository.
     Init,
-    /// Show Sorrel repository status (real dirty detection vs HEAD).
+    /// Explain how workspace paths are selected.
+    Path {
+        #[command(subcommand)]
+        command: PathCommand,
+    },
+    /// Show working-tree changes and pending merge conflicts.
     Status,
     /// Show line-level differences between the working tree and HEAD.
     Diff(DiffArgs),
@@ -242,6 +247,12 @@ struct ChangeCreateArgs {
     /// Optional longer description.
     #[arg(long)]
     description: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+enum PathCommand {
+    /// Explain inclusion, tracking, ignore, protection, and metadata rules without reading file contents.
+    Explain { path: PathBuf },
 }
 
 #[derive(Debug, Args)]
@@ -572,7 +583,7 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
                     command: GitCommand::Import(_)
                 }
         );
-    let _workspace_lock = if matches!(&command, Commands::Workflow { .. }) {
+    let _workspace_lock = if matches!(&command, Commands::Workflow { .. } | Commands::Path { .. }) {
         None
     } else if needs_workspace_lock {
         Some(repo::WorkspaceLock::acquire(&root)?)
@@ -582,6 +593,9 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
     match command {
         Commands::Init => init_output(),
         Commands::Status => status_output(),
+        Commands::Path {
+            command: PathCommand::Explain { path },
+        } => path_explain_output(&path),
         Commands::Diff(args) => diff_output(args),
         Commands::Log(args) => log_output(args),
         Commands::Change { command } => match command {
@@ -745,6 +759,20 @@ fn status_output() -> io::Result<CommandOutput> {
     // Real working-tree dirty detection: snapshot the current tree (minus
     // `.sorrel/`) and diff it against HEAD.
     let store = to_io(FileObjectStore::new(repo::object_store_root()))?;
+    let merge_in_progress = repo::merge_in_progress();
+    let conflicts = if merge_in_progress {
+        let merge_result = repo::load_merge_state()?
+            .ok_or_else(|| io::Error::other("MERGE_STATE has no merge result id"))?;
+        let merge_result_id = merge_result
+            .parse::<ObjectId>()
+            .map_err(|_| io::Error::other("invalid merge result id in MERGE_STATE"))?;
+        to_io(read_merge_result(&store, &merge_result_id))?
+            .conflicts
+            .len()
+    } else {
+        0
+    };
+
     let (worktree_json, dirty, status_label) = match head.as_ref().and_then(|head| {
         head_snapshot_id(head)
             .transpose()
@@ -759,23 +787,28 @@ fn status_output() -> io::Result<CommandOutput> {
             let (changes, total) = diff_json(&diff);
             let dirty = total > 0;
             (
-                json!({ "dirty": dirty, "changes": changes, "conflicts": 0 }),
+                json!({ "dirty": dirty, "changes": changes, "conflicts": conflicts, "mergeInProgress": merge_in_progress }),
                 dirty,
                 if dirty { "dirty" } else { "clean" },
             )
         }
         None => (
-            json!({ "dirty": false, "changes": json!({"added": [], "modified": [], "deleted": []}), "conflicts": 0 }),
+            json!({ "dirty": false, "changes": json!({"added": [], "modified": [], "deleted": []}), "conflicts": conflicts, "mergeInProgress": merge_in_progress }),
             false,
             "clean",
         ),
     };
 
-    let human = if dirty {
+    let mut human = if dirty {
         format!("Sorrel repository {repo_id} on lane {lane}: dirty")
     } else {
         format!("Sorrel repository {repo_id} on lane {lane}: clean")
     };
+    if merge_in_progress {
+        human.push_str(&format!(
+            "; merge in progress ({conflicts} pending conflict(s)); use `sorrel merge --continue` or `sorrel merge --abort`"
+        ));
+    }
 
     Ok(CommandOutput {
         json: json!({
@@ -896,6 +929,41 @@ fn open_repo() -> io::Result<RepoContext> {
         head,
         store,
     })
+}
+
+fn path_explain_output(path: &Path) -> io::Result<CommandOutput> {
+    let root = std::env::current_dir()?;
+    let explanation = if repo::is_initialized() {
+        repo::load_manifest()?;
+        let head = repo::load_head()?.ok_or_else(|| io::Error::other("missing HEAD pointer"))?;
+        let store = to_io(FileObjectStore::open_existing(repo::object_store_root()))?;
+        let baseline = parse_object_id_hex(&head.snapshot).map_err(io::Error::other)?;
+        to_io(sorrel_core::explain_workspace_path(
+            &store,
+            &root,
+            Some(&baseline),
+            path,
+        ))?
+    } else {
+        to_io(sorrel_core::explain_workspace_path(
+            &sorrel_core::InMemoryObjectStore::new(),
+            &root,
+            None,
+            path,
+        ))?
+    };
+    let state = if explanation.included {
+        "Included"
+    } else {
+        "Excluded"
+    };
+    let fact =
+        |value: Option<bool>| value.map_or("unknown", |value| if value { "true" } else { "false" });
+    let human = format!("{state}: {}\ntracked={} ignored={} protected={} metadata={} exists={} directory={} supportedType={}", explanation.path.display(), explanation.tracked, explanation.ignored, explanation.protected, explanation.metadata, fact(explanation.exists), fact(explanation.is_directory), fact(explanation.supported_type));
+    let mut json = serde_json::to_value(&explanation)?;
+    json["command"] = json!("path explain");
+    json["mocked"] = json!(false);
+    Ok(CommandOutput { json, human })
 }
 
 fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {

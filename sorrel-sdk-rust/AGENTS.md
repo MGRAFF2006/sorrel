@@ -10,7 +10,7 @@ init/snapshot. Broader embedding surface still ahead (see root `ROADMAP.md`).
 
 ## Conventions
 
-- Rust, edition 2021, **rust-version 1.85+**, `unsafe_code = "forbid"`.
+- Rust, edition 2021, **rust-version 1.92+**, `unsafe_code = "forbid"`.
 - Re-export and wrap `sorrel-core` types rather than redefining them; depend on
   the engine through the workspace path dependency.
 

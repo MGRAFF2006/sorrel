@@ -8,6 +8,7 @@ use std::{
 };
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
@@ -29,6 +30,7 @@ pub fn materialize_workspace_snapshot(
 ) -> SnapshotResult<Snapshot> {
     let root = root.as_ref();
     let mut selection = WorkspaceSelection::load(store, root, baseline)?;
+    selection.validate_tracked_paths()?;
     let excluded = [".sorrel", ".git"].map(std::ffi::OsString::from).into();
     let mut paths_seen = BTreeSet::new();
     let mut stat_cache = stat_cache;
@@ -45,6 +47,119 @@ pub fn materialize_workspace_snapshot(
         cache.retain(&paths_seen);
     }
     write_snapshot(store, tree.id, options)
+}
+
+/// Selection eligibility for a workspace-relative path, without reading its contents.
+/// `included` describes the current selection rules; a missing path can be eligible.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspacePathExplanation {
+    pub path: PathBuf,
+    pub included: bool,
+    pub tracked: bool,
+    pub ignored: bool,
+    pub protected: bool,
+    pub metadata: bool,
+    pub exists: Option<bool>,
+    pub is_directory: Option<bool>,
+    pub supported_type: Option<bool>,
+}
+
+/// Explains selection using the same rules as workspace snapshotting.
+/// Only configuration, filesystem metadata, and baseline snapshot/tree objects are read.
+/// Symlink ancestors are rejected instead of following them outside the workspace.
+pub fn explain_workspace_path(
+    store: &impl ObjectStore,
+    root: impl AsRef<Path>,
+    baseline: Option<&ObjectId>,
+    path: impl AsRef<Path>,
+) -> SnapshotResult<WorkspacePathExplanation> {
+    let mut relative = PathBuf::new();
+    for component in path.as_ref().components() {
+        match component {
+            Component::Normal(name) => relative.push(name),
+            Component::CurDir => {}
+            _ => {
+                return Err(config_error(
+                    path.as_ref(),
+                    "path must be workspace-relative without parent components",
+                ))
+            }
+        }
+    }
+    let mut selection = WorkspaceSelection::load(store, root.as_ref(), baseline)?;
+    let metadata = relative.components().next().is_some_and(|component| {
+        component.as_os_str() == ".sorrel" || component.as_os_str() == ".git"
+    });
+    if metadata {
+        // Root metadata names are excluded before type inspection in snapshotting.
+        // Their descendants may be unreachable through a Git worktree pointer file
+        // or lead outside the workspace through a metadata symlink.
+        return Ok(WorkspacePathExplanation {
+            tracked: selection
+                .tracked
+                .iter()
+                .any(|path| path.starts_with(&relative)),
+            protected: selection.is_protected(&relative),
+            path: relative,
+            included: false,
+            ignored: false,
+            metadata: true,
+            exists: None,
+            is_directory: None,
+            supported_type: None,
+        });
+    }
+    let mut protected = selection.is_protected(&relative);
+    let mut parent = PathBuf::new();
+    for component in relative.parent().unwrap_or(Path::new("")).components() {
+        parent.push(component.as_os_str());
+        let absolute = selection.root.join(&parent);
+        match fs::symlink_metadata(&absolute) {
+            Ok(info) if !info.is_dir() => {
+                return Err(SnapshotError::UnsupportedFileType { path: absolute })
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(config_io(&absolute, error)),
+        }
+        protected |= selection.is_protected(&parent);
+        selection.allows(&parent, true)?;
+    }
+    let absolute = selection.root.join(&relative);
+    let info = match fs::symlink_metadata(&absolute) {
+        Ok(info) => Some(info),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(config_io(&absolute, error)),
+    };
+    let is_directory = info.as_ref().is_some_and(|info| info.is_dir());
+    let supported_type = info
+        .as_ref()
+        .is_none_or(|info| info.is_dir() || info.is_file());
+    let tracked = selection.tracked.contains(&relative)
+        || (is_directory
+            && selection
+                .tracked
+                .iter()
+                .any(|path| path.starts_with(&relative)));
+    let ignored = !metadata && selection.is_ignored(&relative, is_directory)?;
+    let included =
+        !metadata && !protected && supported_type && selection.allows(&relative, is_directory)?;
+    Ok(WorkspacePathExplanation {
+        path: if relative.as_os_str().is_empty() {
+            PathBuf::from(".")
+        } else {
+            relative
+        },
+        included,
+        tracked,
+        ignored,
+        protected,
+        metadata,
+        exists: Some(info.is_some()),
+        is_directory: Some(is_directory),
+        supported_type: Some(supported_type),
+    })
 }
 
 pub(crate) struct WorkspaceSelection {
@@ -74,12 +189,16 @@ impl WorkspaceSelection {
             let snapshot = read_snapshot(store, id)?;
             collect_tracked(store, &snapshot.root_tree.id, &mut selection.tracked)?;
         }
-        for path in &selection.tracked {
-            if selection.is_protected(path) {
+        Ok(selection)
+    }
+
+    fn validate_tracked_paths(&self) -> SnapshotResult<()> {
+        for path in &self.tracked {
+            if self.is_protected(path) {
                 return Err(SnapshotError::TrackedSecret { path: path.clone() });
             }
         }
-        Ok(selection)
+        Ok(())
     }
 
     fn is_protected(&self, path: &Path) -> bool {
@@ -107,15 +226,20 @@ impl WorkspaceSelection {
         }
         let tracked_directory =
             is_dir && self.tracked.iter().any(|tracked| tracked.starts_with(path));
+        let ignored = self.is_ignored(path, is_dir)?;
+        if ignored && is_dir {
+            self.ignored_directories.insert(path.to_owned());
+        }
+        Ok(!ignored || tracked_directory)
+    }
+
+    fn is_ignored(&mut self, path: &Path, is_dir: bool) -> SnapshotResult<bool> {
         if self
             .ignored_directories
             .iter()
             .any(|directory| path.starts_with(directory))
         {
-            if tracked_directory {
-                self.ignored_directories.insert(path.to_owned());
-            }
-            return Ok(tracked_directory);
+            return Ok(true);
         }
         let mut ignored = false;
         let directories: Vec<_> = path.parent().unwrap_or(Path::new("")).ancestors().collect();
@@ -142,10 +266,7 @@ impl WorkspaceSelection {
                 ignored = matched.is_ignore();
             }
         }
-        if ignored && is_dir {
-            self.ignored_directories.insert(path.to_owned());
-        }
-        Ok(!ignored || tracked_directory)
+        Ok(ignored)
     }
 
     fn load_providers(&mut self) -> SnapshotResult<()> {
