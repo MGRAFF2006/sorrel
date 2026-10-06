@@ -37,7 +37,8 @@ pub use conflict::{
 };
 pub use dag::{DagError, DagResult};
 pub use git_export::{
-    git_export, ExportResult, ExportedCommit, GitExportError, GitExportOptions, GitExportResult,
+    git_export, git_export_with_force, ExportResult, ExportedCommit, GitExportError,
+    GitExportOptions, GitExportResult,
 };
 pub use git_import::{
     git_import, GitImportError, GitImportOptions, GitImportResult, ImportResult, ImportedCommit,

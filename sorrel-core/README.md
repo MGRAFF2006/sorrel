@@ -21,7 +21,7 @@ capabilities and limitations.
 | `history`     | snapshot-DAG operations: ancestry sets, merge bases (`git merge-base --all` equivalent) |
 | `merge`       | first three-way snapshot merge: entry-level merge against the best common ancestor with first-class conflicts |
 | `workspace`   | shared workspace selection and read-only `explain_workspace_path` eligibility diagnostics |
-| `stat_cache`  | size+mtime cache that skips re-hashing unchanged files |
+| `stat_cache`  | metadata cache that skips re-hashing unchanged files |
 | `transport`   | sync push/pull helpers: object closure, missing-object negotiation, content-verified batch transfer, ancestry check |
 | `lane_stack`  | `Lane`/`Stack` metadata objects for agent-native work coordination |
 | `policy`      | principals, capabilities, grants, `Policy`, deterministic `evaluate_policy` |
@@ -72,8 +72,12 @@ Two variants matter in practice:
 - `materialize_snapshot_excluding` skips top-level names such as `.sorrel`, so
   a workspace can snapshot itself without recursing into its own object store.
 - `materialize_snapshot_excluding_with_stat_cache` additionally takes a
-  `StatCache` (size + mtime keyed by path) and skips re-hashing files whose
-  stats are unchanged — this is what the CLI uses for `status`/`change create`.
+  `StatCache` (size, mtime, and Unix device/inode/ctime keyed by path) and skips
+  re-hashing files whose metadata is unchanged. Old entries, unsupported
+  platforms, whole-second ctimes, and files verified within their ctime second
+  safely reread file contents. Filesystems must update ctime on writes;
+  concurrent writes are not an atomic snapshot.
+  The CLI uses this for `status`/`change create`.
 
 `SnapshotOptions::new` uses a deterministic timestamp and system author so
 identical content yields identical snapshot IDs; set `created_at`/`author`
@@ -176,6 +180,11 @@ effective policy, so a change can never authorize itself — self-grants,
 self-escalation, and unsigned authority changes are rejected unless an
 already-authorized authority delegated the power (`policy.grant`,
 `policy.delegate`, `authority.rotate`, `authority.admin`).
+
+`ResourceRef.path` restricts authorization and delegation to the exact requested
+path. A resource without a path restriction covers any path; a scoped resource
+cannot authorize a request or delegation that omits or changes the path. Path
+strings are compared exactly, without wildcard expansion or normalization.
 
 Raw secret values never enter the object graph; only `SecretRef` handles and
 metadata do.
