@@ -929,6 +929,15 @@ mod tests {
     }
 
     #[test]
+    fn path_scoped_operator_authority_cannot_approve_an_unscoped_operation() {
+        let (scope, mut authority, change, _) = approved_fixture();
+        authority.previous_grants[0].resource.path = Some("private".to_owned());
+        assert!(!verify_secret_grant_approval(&scope, &change, &authority).unwrap());
+        authority.context.org_resource.path = Some("private".to_owned());
+        assert!(verify_secret_grant_approval(&scope, &change, &authority).unwrap());
+    }
+
+    #[test]
     fn loaded_native_grants_preserve_all_agents_and_usage_constraints() {
         let (_, authority, _, object) = approved_fixture();
         let grants = grants_from_persisted(
