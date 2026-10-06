@@ -133,6 +133,15 @@ behavior has not been verified.
 - Workflow validation and policy-gated local job execution from
   `sorrel.workflow.yml`.
 
+Before `merge --continue`, resolve text markers and explicitly acknowledge every
+binary or modify/delete conflict with repeated workspace-relative `--resolved`
+paths, for example `sorrel merge --continue --resolved image.png --resolved old.txt`.
+Choose the desired contents or delete the file first; keeping the default bytes
+is also an explicit choice when acknowledged. Unknown paths are rejected,
+acknowledgments apply only to that continuation attempt, and text markers still
+block continuation even when their paths are acknowledged. Use `merge --abort`
+to discard the tentative merge.
+
 `diff` includes each changed entry's `oldMode` and `newMode` in JSON:
 `normal`, `executable`, or `directory`, with `null` on the missing side of an
 addition or deletion. Human output shows mode transitions before content hunks.
