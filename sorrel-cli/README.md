@@ -35,6 +35,9 @@ vendored `sorrel-protocol` conformance manifest.
 unterminated final line. Human output marks missing final newlines and changed
 CRLF lines. JSON hunk lines retain terminator-free `text` and include
 `lineEnding: "crlf"` or `"none"` when applicable; omitted `lineEnding` means LF.
+LCS reconstruction uses linear auxiliary memory while retaining the same edit
+choices. CPU time remains quadratic in the old/new line counts; large files
+can still take longer to compare.
 
 ## Workspace file selection
 
