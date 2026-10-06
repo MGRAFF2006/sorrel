@@ -31,6 +31,11 @@ JSON includes `runId` when persisted. Failure to save logs is reported as
 `tests/policy_conformance.rs` checks the CLI policy evaluator against the
 vendored `sorrel-protocol` conformance manifest.
 
+`diff` compares complete line segments, including LF/CRLF endings and an
+unterminated final line. Human output marks missing final newlines and changed
+CRLF lines. JSON hunk lines retain terminator-free `text` and include
+`lineEnding: "crlf"` or `"none"` when applicable; omitted `lineEnding` means LF.
+
 ## Workspace file selection
 
 `status`, `diff`, and `change create` honor nested `.gitignore` and

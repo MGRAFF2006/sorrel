@@ -176,6 +176,11 @@ self-escalation, and unsigned authority changes are rejected unless an
 already-authorized authority delegated the power (`policy.grant`,
 `policy.delegate`, `authority.rotate`, `authority.admin`).
 
+`ResourceRef.path` restricts authorization and delegation to the exact requested
+path. A resource without a path restriction covers any path; a scoped resource
+cannot authorize a request or delegation that omits or changes the path. Path
+strings are compared exactly, without wildcard expansion or normalization.
+
 Raw secret values never enter the object graph; only `SecretRef` handles and
 metadata do.
 
