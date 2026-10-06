@@ -91,7 +91,12 @@ survives restarts:
   loopback unless the insecure-demo override is explicit.
 - `oidc` verifies RS256/ES256 Bearer JWTs using
   `SORREL_OIDC_ISSUER` and optional `SORREL_OIDC_AUDIENCE`; keys are read from
-  `<issuer>/.well-known/jwks.json`.
+  `<issuer>/.well-known/jwks.json`. Keys are cached for ten minutes. An unknown
+  signing-key ID triggers a shared refresh, limited to once per issuer URI every
+  30 seconds (including failed refreshes); HTTP fetches time out after five
+  seconds. A failed refresh rejects the new key while previously cached keys
+  remain usable until cache expiry. A rotation during cooldown may require a
+  retry after the remaining cooldown.
 - `workos` uses `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, optional
   `WORKOS_ISSUER`, and optional `WORKOS_AUDIENCE` for Bearer verification.
 
