@@ -2130,6 +2130,7 @@ dependencies = [
  "sorrel-runners",
  "sorrel-sdk",
  "tempfile",
+ "toml",
  "ureq",
 ]
 

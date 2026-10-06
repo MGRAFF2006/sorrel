@@ -289,6 +289,15 @@ Sorrel supplies an operation-specific SecretSpec access reason by default.
 Set `SECRETSPEC_REASON` to a more specific non-empty reason when your audit
 policy requires caller context.
 
+Secret resolution and checks use only the selected handles, grouped by provider
+and environment profile. Missing unselected secrets do not block a selected
+handle. Mixed selections report `"mixed"` in the provider or profile string;
+check reports retain each secret's provider attribution. An explicit provider
+override applies to every selected profile. Selecting distinct handles with
+the same environment-variable name fails before reading values. Composed
+secrets must include their dependencies in the same selected provider/profile
+group; an excluded dependency is rejected before provider access.
+
 List secret handles without resolving values:
 
 ```bash
