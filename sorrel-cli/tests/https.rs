@@ -113,6 +113,8 @@ server.listen(0, '127.0.0.1', () => {
                 ])
                 .current_dir(hub_dir)
                 .env("SORREL_TLS_TEST_DIR", directory.path())
+                .env("SORREL_HUB_LOCAL_DEMO", "1")
+                .env("SORREL_HUB_BOOTSTRAP_GRANTS", "1")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
                 .spawn()
