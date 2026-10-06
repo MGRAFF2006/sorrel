@@ -4,8 +4,8 @@
 //! Grants proposed by the same change must never be treated as actor authority.
 
 use crate::policy::{
-    evaluate_policy, Capability, DecisionKind, Grant, GrantEffect, PolicyEvaluationRequest,
-    PrincipalDescriptor, ResourceRef, PROTOCOL_VERSION,
+    evaluate_policy, resource_matches, Capability, DecisionKind, Grant, GrantEffect,
+    PolicyEvaluationRequest, PrincipalDescriptor, ResourceRef, PROTOCOL_VERSION,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -417,6 +417,25 @@ fn evaluate_proposed_grants(
     context: &PolicyChangeContext,
     action: PolicyChangeAction,
 ) -> PolicyChangeEvaluation {
+    if matches!(
+        action,
+        PolicyChangeAction::Grant | PolicyChangeAction::Revoke
+    ) && !actor_has_any_capability(
+        &change.actor,
+        previous_grants,
+        context,
+        &[CAP_POLICY_GRANT, CAP_AUTHORITY_ADMIN],
+    ) {
+        return PolicyChangeEvaluation::denied(
+            "actor lacks policy.grant or authority.admin in previous grants",
+            change
+                .proposed_grants
+                .iter()
+                .map(|grant| grant.id.clone())
+                .collect(),
+        );
+    }
+
     let mut denied = Vec::new();
 
     for proposed in &change.proposed_grants {
@@ -439,30 +458,6 @@ fn evaluate_proposed_grants(
 
         if action == PolicyChangeAction::Delegate
             && !delegation_within_scope(&change.actor, proposed, previous_grants)
-        {
-            denied.push(proposed.id.clone());
-            continue;
-        }
-
-        if action == PolicyChangeAction::Grant
-            && !actor_has_any_capability(
-                &change.actor,
-                previous_grants,
-                context,
-                &[CAP_POLICY_GRANT, CAP_AUTHORITY_ADMIN],
-            )
-        {
-            denied.push(proposed.id.clone());
-            continue;
-        }
-
-        if action == PolicyChangeAction::Revoke
-            && !actor_has_any_capability(
-                &change.actor,
-                previous_grants,
-                context,
-                &[CAP_POLICY_GRANT, CAP_AUTHORITY_ADMIN],
-            )
         {
             denied.push(proposed.id.clone());
             continue;
@@ -512,7 +507,7 @@ fn delegation_within_scope(
 }
 
 fn resource_within(requested: &ResourceRef, allowed: &ResourceRef) -> bool {
-    requested.kind == allowed.kind && (requested.id == allowed.id || allowed.id == "*")
+    resource_matches(allowed, requested)
 }
 
 fn capability_within(requested: &Capability, allowed: &[Capability]) -> bool {
@@ -633,6 +628,114 @@ mod tests {
         assert_eq!(value["kind"], "PolicyChange");
         assert_eq!(value["previousPolicyRoot"]["hash"], "policy_root_v1");
         assert_eq!(value["proposedPolicyRoot"]["hash"], "policy_root_v2");
+    }
+
+    #[test]
+    fn empty_grant_and_revoke_require_previous_operation_authority() {
+        let authority = authority(1);
+        let actor = user("user_operator");
+        let allow = policy_grant("allow", actor.clone(), CAP_POLICY_GRANT);
+        let mut deny = allow.clone();
+        deny.id = "deny".to_owned();
+        deny.effect = GrantEffect::Deny;
+        let cases = [
+            ("no authority", vec![], PolicyChangeOutcome::Denied),
+            (
+                "unrelated authority",
+                vec![policy_grant("read", actor.clone(), "repo.read")],
+                PolicyChangeOutcome::Denied,
+            ),
+            (
+                "grant authority",
+                vec![allow.clone()],
+                PolicyChangeOutcome::Approved,
+            ),
+            (
+                "admin authority",
+                vec![policy_grant("admin", actor.clone(), CAP_AUTHORITY_ADMIN)],
+                PolicyChangeOutcome::Approved,
+            ),
+            (
+                "denied authority",
+                vec![allow, deny],
+                PolicyChangeOutcome::Denied,
+            ),
+        ];
+        for action in [PolicyChangeAction::Grant, PolicyChangeAction::Revoke] {
+            let change = signed_change(
+                &authority,
+                PolicyChange::new("empty", actor.clone(), root(1), root(2), action),
+                &["key_alpha"],
+            );
+            for (name, previous, expected) in &cases {
+                let evaluation = evaluate_policy_change(&change, &authority, previous, &context(1));
+                assert_eq!(
+                    evaluation.trust,
+                    PolicyChangeTrust::Trusted,
+                    "{action:?}: {name}"
+                );
+                assert_eq!(evaluation.outcome, *expected, "{action:?}: {name}");
+                assert!(evaluation.denied_grant_ids.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn operation_gate_preserves_signature_trust_and_denied_grant_ids() {
+        let authority = authority(1);
+        for action in [PolicyChangeAction::Grant, PolicyChangeAction::Revoke] {
+            let mut change =
+                PolicyChange::new("change", user("user_operator"), root(1), root(2), action);
+            let unsigned = evaluate_policy_change(&change, &authority, &[], &context(1));
+            assert_eq!(unsigned.trust, PolicyChangeTrust::Untrusted);
+            assert_eq!(unsigned.outcome, PolicyChangeOutcome::Denied);
+            change.signatures.push(AuthoritySignature {
+                key_id: "key_alpha".to_owned(),
+                value: "synthetic-invalid-signature".to_owned(),
+            });
+            let forged = evaluate_policy_change(&change, &authority, &[], &context(1));
+            assert_eq!(forged.trust, PolicyChangeTrust::Untrusted);
+            assert_eq!(forged.outcome, PolicyChangeOutcome::Denied);
+            change.proposed_grants.push(ProposedGrant::new(
+                "proposed_read",
+                agent("agent_recipient"),
+                ["repo.read"],
+                ResourceRef::new(ResourceKind::Repo, "repo_main"),
+                GrantEffect::Allow,
+            ));
+            let change = signed_change(&authority, change, &["key_alpha"]);
+            let denied = evaluate_policy_change(&change, &authority, &[], &context(1));
+            assert_eq!(denied.trust, PolicyChangeTrust::Trusted);
+            assert_eq!(denied.outcome, PolicyChangeOutcome::Denied);
+            assert_eq!(denied.denied_grant_ids, vec!["proposed_read"]);
+            assert_eq!(
+                evaluate_policy_change(&change, &authority, &[], &context(2)).outcome,
+                PolicyChangeOutcome::Denied,
+            );
+        }
+    }
+
+    #[test]
+    fn empty_delegate_and_rotate_still_require_their_own_authority() {
+        let authority = authority(1);
+        let actor = user("user_operator");
+        for (action, capability) in [
+            (PolicyChangeAction::Delegate, CAP_POLICY_DELEGATE),
+            (PolicyChangeAction::Rotate, CAP_AUTHORITY_ROTATE),
+        ] {
+            let change = signed_change(
+                &authority,
+                PolicyChange::new("empty", actor.clone(), root(1), root(2), action),
+                &["key_alpha"],
+            );
+            let denied = evaluate_policy_change(&change, &authority, &[], &context(1));
+            assert_eq!(denied.trust, PolicyChangeTrust::Trusted);
+            assert_eq!(denied.outcome, PolicyChangeOutcome::Denied);
+            let previous = [policy_grant("operation", actor.clone(), capability)];
+            let allowed = evaluate_policy_change(&change, &authority, &previous, &context(1));
+            assert_eq!(allowed.trust, PolicyChangeTrust::Trusted);
+            assert_eq!(allowed.outcome, PolicyChangeOutcome::Approved);
+        }
     }
 
     #[test]
@@ -780,6 +883,45 @@ mod tests {
             evaluation.denied_grant_ids,
             vec!["proposed_delegate_repo_write"]
         );
+    }
+
+    #[test]
+    fn delegated_path_scope_cannot_be_removed_or_changed() {
+        let authority = authority(1);
+        let delegator = user("delegator");
+        let mut received = repo_grant("scoped_read", delegator.clone(), "repo.read", "*");
+        received.resource.path = Some("src/private.rs".to_owned());
+        let previous = vec![
+            policy_grant("delegate", delegator.clone(), CAP_POLICY_DELEGATE),
+            received,
+        ];
+        for (path, expected) in [
+            (Some("src/private.rs"), PolicyChangeOutcome::Approved),
+            (None, PolicyChangeOutcome::Denied),
+            (Some("src/private.rs/child"), PolicyChangeOutcome::Denied),
+            (Some("src/public.rs"), PolicyChangeOutcome::Denied),
+        ] {
+            let mut change = PolicyChange::new(
+                "change",
+                delegator.clone(),
+                root(1),
+                root(2),
+                PolicyChangeAction::Delegate,
+            );
+            let mut resource = ResourceRef::new(ResourceKind::Repo, "repo_main");
+            resource.path = path.map(str::to_owned);
+            change.proposed_grants.push(ProposedGrant::new(
+                "proposed",
+                agent("recipient"),
+                ["repo.read"],
+                resource,
+                GrantEffect::Allow,
+            ));
+            let change = signed_change(&authority, change, &["key_alpha"]);
+            let result = evaluate_policy_change(&change, &authority, &previous, &context(1));
+            assert_eq!(result.trust, PolicyChangeTrust::Trusted);
+            assert_eq!(result.outcome, expected, "requested path: {path:?}");
+        }
     }
 
     #[test]

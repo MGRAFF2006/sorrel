@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createApp } from './app.js';
 import { createAuthAdapterFromEnv } from './auth/adapter.js';
 import { assertSafeHubBind } from './bind-safety.js';
-import { resolveTrustedGrants } from './bootstrap-grants.js';
+import { resolveTrustedGrants, resolveTrustedPolicies } from './bootstrap-grants.js';
 import { createConvexMirror } from './convex-mirror.js';
 import { createFsMetadataStore } from './fs-metadata-store.js';
 import { createFsRepoSyncStore } from './fs-sync-store.js';
@@ -31,6 +31,7 @@ const store =
 // principal push/pull without a separate grant-distribution service. They are
 // disabled unless SORREL_HUB_BOOTSTRAP_GRANTS=1. See bootstrap-grants.js.
 const trustedGrantsById = resolveTrustedGrants();
+const trustedPoliciesById = resolveTrustedPolicies();
 const authAdapter = createAuthAdapterFromEnv();
 const bootstrapGrantsEnabled =
   process.env.SORREL_HUB_BOOTSTRAP_GRANTS === '1' ||
@@ -43,7 +44,7 @@ assertSafeHubBind({
 });
 
 const convexMirror = createConvexMirror();
-const app = createApp({ store, trustedGrantsById, authAdapter, convexMirror });
+const app = createApp({ store, trustedGrantsById, trustedPoliciesById, authAdapter, convexMirror });
 
 const server = http.createServer(app.handleRequest);
 
