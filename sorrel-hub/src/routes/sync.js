@@ -134,7 +134,7 @@ async function listMissing(request, response, context, repoId) {
 
 async function uploadObjects(request, response, context, repoId) {
   const body = await readJsonBody(request);
-  assertObjectUploadPolicy(request, body, repoId, context);
+  await assertObjectUploadPolicy(request, body, repoId, context);
 
   const objects = body.objects;
   if (!Array.isArray(objects) || objects.length === 0) {
@@ -193,13 +193,14 @@ async function advanceRef(request, response, context, repoId, refName) {
   const force = body.force === true;
   const grantRefs = requireGrantRefs(body);
 
-  evaluateWithTrustedGrants(
+  await evaluateWithTrustedGrants(
     actingPrincipal,
     POLICY_ACTION_REF_WRITE,
     { kind: 'repo', id: repoId },
     grantRefs,
     context.trustedGrantsById ?? {},
     {
+      trustedPoliciesById: context.trustedPoliciesById ?? {},
       policyRefs: body.policyRefs ?? [],
     },
   );
@@ -247,17 +248,18 @@ async function advanceRef(request, response, context, repoId, refName) {
   });
 }
 
-function assertObjectUploadPolicy(request, body, repoId, context) {
+async function assertObjectUploadPolicy(request, body, repoId, context) {
   const actingPrincipal = resolveActingPrincipal(request, context);
   const grantRefs = requireGrantRefs(body);
 
-  evaluateWithTrustedGrants(
+  await evaluateWithTrustedGrants(
     actingPrincipal,
     POLICY_ACTION_OBJECT_WRITE,
     { kind: 'repo', id: repoId },
     grantRefs,
     context.trustedGrantsById ?? {},
     {
+      trustedPoliciesById: context.trustedPoliciesById ?? {},
       policyRefs: body.policyRefs ?? [],
     },
   );

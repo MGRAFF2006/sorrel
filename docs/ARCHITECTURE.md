@@ -115,7 +115,11 @@ symlink targets, even when ignore rules try to reinclude them. Malformed provide
 configuration fails closed. Explicit provider overrides outside these project
 configs must be added to `.sorrelignore` before use. This selection runs before
 stat-cache lookup, and excluded paths are removed from a successfully saved
-cache. A size/mtime stat cache avoids rehashing unchanged selected files.
+cache. A size/mtime cache with Unix device/inode/ctime fingerprints avoids
+rehashing unchanged selected files. Entries verified within their ctime second,
+old entries without fingerprints, whole-second ctimes, and unsupported platforms
+reread file contents. Cache reuse assumes the filesystem updates ctime on writes;
+concurrent workspace writes are not an atomic snapshot.
 
 A HEAD that already tracks a protected secret path causes an error before any
 new objects are written. This does not purge previously stored secret blobs or
@@ -153,6 +157,12 @@ Hub separates product metadata from VCS transport:
 - Product metadata—projects, repositories, proposals, comments, workflow runs,
   and policy references—is stored as atomic JSON records. A record becomes
   visible in the running server only after its filesystem write succeeds.
+- Privileged sync and repository/policy administration call the packaged Rust
+  Core policy adapter over bounded asynchronous JSON subprocess requests. All
+  operator-configured trusted grants and native policies participate; client
+  references cannot omit denies. Unsupported constraints fail closed. These
+  configured records are the trust boundary; authority-chain verification and
+  private authorization of every route remain separate work.
 - Sync objects and refs use a filesystem store with digest verification,
   missing-object negotiation, closure checks, and fast-forward/expected-head
   enforcement.
