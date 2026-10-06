@@ -495,15 +495,37 @@ fn delegation_within_scope(
     proposed: &ProposedGrant,
     previous_grants: &[Grant],
 ) -> bool {
-    previous_grants.iter().any(|grant| {
-        grant.principal == *actor
+    let contained = previous_grants.iter().any(|grant| {
+        grant.principal.kind == actor.kind
+            && grant.principal.id == actor.id
             && grant.effect == GrantEffect::Allow
             && resource_within(&proposed.resource, &grant.resource)
             && proposed
                 .capabilities
                 .iter()
                 .all(|capability| capability_within(capability, &grant.capabilities))
-    })
+    });
+
+    // A wildcard proposal also transfers its restricted subsets. Checking only
+    // the literal wildcard request would miss narrower non-Allow grants.
+    contained
+        && !previous_grants.iter().any(|grant| {
+            grant.principal.kind == actor.kind
+                && grant.principal.id == actor.id
+                && grant.effect != GrantEffect::Allow
+                && resource_scopes_overlap(&proposed.resource, &grant.resource)
+                && proposed.capabilities.iter().any(|requested| {
+                    grant.capabilities.iter().any(|restricted| {
+                        requested.0 == restricted.0 || requested.0 == "*" || restricted.0 == "*"
+                    })
+                })
+        })
+}
+
+fn resource_scopes_overlap(left: &ResourceRef, right: &ResourceRef) -> bool {
+    left.kind == right.kind
+        && (left.id == right.id || left.id == "*" || right.id == "*")
+        && (left.path.is_none() || right.path.is_none() || left.path == right.path)
 }
 
 fn resource_within(requested: &ResourceRef, allowed: &ResourceRef) -> bool {
@@ -922,6 +944,214 @@ mod tests {
             assert_eq!(result.trust, PolicyChangeTrust::Trusted);
             assert_eq!(result.outcome, expected, "requested path: {path:?}");
         }
+    }
+
+    #[test]
+    fn delegation_respects_overlapping_effective_restrictions() {
+        let authority = authority(1);
+        let actor = user("delegator");
+        let mut renamed_actor = actor.clone();
+        renamed_actor.display_name = Some("Same actor, different label".to_owned());
+        let subjects = [
+            (actor.clone(), true),
+            (renamed_actor, true),
+            (user("other"), false),
+        ];
+        let resources = [
+            (
+                "repo_main",
+                None,
+                ResourceKind::Repo,
+                "repo_main",
+                None,
+                true,
+            ),
+            ("*", None, ResourceKind::Repo, "repo_main", None, true),
+            ("repo_main", None, ResourceKind::Repo, "*", None, true),
+            ("*", None, ResourceKind::Repo, "*", None, true),
+            ("repo_main", None, ResourceKind::Repo, "other", None, false),
+            (
+                "repo_main",
+                None,
+                ResourceKind::Org,
+                "repo_main",
+                None,
+                false,
+            ),
+            (
+                "repo_main",
+                None,
+                ResourceKind::Repo,
+                "repo_main",
+                Some("private"),
+                true,
+            ),
+            (
+                "repo_main",
+                Some("private"),
+                ResourceKind::Repo,
+                "repo_main",
+                None,
+                true,
+            ),
+            (
+                "repo_main",
+                Some("private"),
+                ResourceKind::Repo,
+                "repo_main",
+                Some("private"),
+                true,
+            ),
+            (
+                "repo_main",
+                Some("public"),
+                ResourceKind::Repo,
+                "repo_main",
+                Some("private"),
+                false,
+            ),
+            (
+                "repo_main",
+                Some("private/child"),
+                ResourceKind::Repo,
+                "repo_main",
+                Some("private"),
+                false,
+            ),
+            (
+                "repo_main",
+                Some("*"),
+                ResourceKind::Repo,
+                "repo_main",
+                Some("private"),
+                false,
+            ),
+            (
+                "*",
+                Some("private"),
+                ResourceKind::Repo,
+                "other",
+                Some("private"),
+                true,
+            ),
+        ];
+        let capabilities = [
+            ("repo.read", "repo.read", true),
+            ("*", "repo.read", true),
+            ("repo.read", "*", true),
+            ("*", "*", true),
+            ("repo.read", "repo.write", false),
+        ];
+        for effect in [GrantEffect::Deny, GrantEffect::Redact, GrantEffect::Review] {
+            for (subject, same_actor) in &subjects {
+                for (id, path, kind, restricted_id, restricted_path, resource_overlap) in resources
+                {
+                    for (capability, restricted_capability, capability_overlap) in capabilities {
+                        let mut resource = ResourceRef::new(ResourceKind::Repo, id);
+                        resource.path = path.map(str::to_owned);
+                        let mut restricted = ResourceRef::new(kind, restricted_id);
+                        restricted.path = restricted_path.map(str::to_owned);
+                        let mut allowed = repo_grant("allow", actor.clone(), "*", "*");
+                        allowed.principal.display_name = Some("Earlier actor label".to_owned());
+                        let previous = vec![
+                            policy_grant("delegate", actor.clone(), CAP_POLICY_DELEGATE),
+                            allowed,
+                            Grant::new(
+                                "restriction",
+                                subject.clone(),
+                                Capability::new(restricted_capability),
+                                restricted,
+                                effect,
+                            ),
+                        ];
+                        let mut change = PolicyChange::new(
+                            "delegate",
+                            actor.clone(),
+                            root(1),
+                            root(2),
+                            PolicyChangeAction::Delegate,
+                        );
+                        change.proposed_grants.push(ProposedGrant::new(
+                            "proposed",
+                            agent("recipient"),
+                            [capability],
+                            resource,
+                            GrantEffect::Allow,
+                        ));
+                        let change = signed_change(&authority, change, &["key_alpha"]);
+                        let evaluation =
+                            evaluate_policy_change(&change, &authority, &previous, &context(1));
+                        let blocked = *same_actor && resource_overlap && capability_overlap;
+                        assert_eq!(evaluation.trust, PolicyChangeTrust::Trusted);
+                        assert_eq!(evaluation.outcome, if blocked { PolicyChangeOutcome::Denied } else { PolicyChangeOutcome::Approved }, "effect={effect:?}, subject={subject:?}, capability={capability}, restriction={restricted_capability}, id={id}, restricted_id={restricted_id}, kind={kind:?}, path={path:?}, restricted_path={restricted_path:?}");
+                        assert_eq!(
+                            evaluation.denied_grant_ids,
+                            if blocked { vec!["proposed"] } else { vec![] }
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn delegation_cannot_use_another_actors_allow_grant() {
+        let authority = authority(1);
+        let actor = user("delegator");
+        let previous = vec![
+            policy_grant("delegate", actor.clone(), CAP_POLICY_DELEGATE),
+            repo_grant("other_read", user("other"), "repo.read", "repo_main"),
+        ];
+        let mut change = PolicyChange::new(
+            "delegate",
+            actor,
+            root(1),
+            root(2),
+            PolicyChangeAction::Delegate,
+        );
+        change.proposed_grants.push(ProposedGrant::new(
+            "proposed",
+            agent("recipient"),
+            ["repo.read"],
+            ResourceRef::new(ResourceKind::Repo, "repo_main"),
+            GrantEffect::Allow,
+        ));
+        let change = signed_change(&authority, change, &["key_alpha"]);
+        let evaluation = evaluate_policy_change(&change, &authority, &previous, &context(1));
+        assert_eq!(evaluation.outcome, PolicyChangeOutcome::Denied);
+        assert_eq!(evaluation.denied_grant_ids, vec!["proposed"]);
+    }
+
+    #[test]
+    fn delegation_cannot_bypass_denied_operation_authority() {
+        let authority = authority(1);
+        let actor = user("delegator");
+        let mut denied = policy_grant("deny_delegate", actor.clone(), CAP_POLICY_DELEGATE);
+        denied.effect = GrantEffect::Deny;
+        let previous = vec![
+            policy_grant("delegate", actor.clone(), CAP_POLICY_DELEGATE),
+            repo_grant("read", actor.clone(), "repo.read", "repo_main"),
+            denied,
+        ];
+        let mut change = PolicyChange::new(
+            "delegate",
+            actor,
+            root(1),
+            root(2),
+            PolicyChangeAction::Delegate,
+        );
+        change.proposed_grants.push(ProposedGrant::new(
+            "proposed",
+            agent("recipient"),
+            ["repo.read"],
+            ResourceRef::new(ResourceKind::Repo, "repo_main"),
+            GrantEffect::Allow,
+        ));
+        let change = signed_change(&authority, change, &["key_alpha"]);
+        let evaluation = evaluate_policy_change(&change, &authority, &previous, &context(1));
+        assert_eq!(evaluation.trust, PolicyChangeTrust::Trusted);
+        assert_eq!(evaluation.outcome, PolicyChangeOutcome::Denied);
+        assert_eq!(evaluation.denied_grant_ids, vec!["proposed"]);
     }
 
     #[test]
