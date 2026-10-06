@@ -6,6 +6,18 @@ on:
   pull_request:
 
 jobs:
+  msrv:
+    name: Rust minimum (1.92.0)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Check locked workspace on minimum Rust
+        run: cargo check --locked --workspace --all-targets
+
   e2e:
     runs-on: ubuntu-latest
     permissions:

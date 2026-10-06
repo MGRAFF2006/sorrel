@@ -7,5 +7,4 @@ if (!root) {
 
 mountHubApp(root, {
   platformKind: 'web',
-  convexUrl: import.meta.env.VITE_CONVEX_URL as string | undefined,
 });

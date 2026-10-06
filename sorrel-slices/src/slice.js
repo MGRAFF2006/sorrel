@@ -104,10 +104,10 @@ export function parseImports(source) {
   const { masked, codePositions } = maskCommentsAndStrings(source);
   const imports = [];
   const patterns = [
-    { kind: "static", syntax: "import", regex: /\bimport\s+(?:type\s+)?(?:[^;"']*?\s+from\s*)?["']([^"']+)["']/g },
-    { kind: "static", syntax: "export", regex: /\bexport\s+(?:type\s+)?[^;"']*?\bfrom\s*["']([^"']+)["']/g },
-    { kind: "static", syntax: "require", regex: /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g },
-    { kind: "dynamic", syntax: "import", regex: /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g }
+    { kind: "static", syntax: "import", regex: /\bimport\s+(?:type\s+)?(?:[^;"']*?\s+from\s*)?("(?:\\(?:\r\n|[\s\S])|[^"\\\r\n])*"|'(?:\\(?:\r\n|[\s\S])|[^'\\\r\n])*')/g },
+    { kind: "static", syntax: "export", regex: /\bexport\s+(?:type\s+)?[^;"']*?\bfrom\s*("(?:\\(?:\r\n|[\s\S])|[^"\\\r\n])*"|'(?:\\(?:\r\n|[\s\S])|[^'\\\r\n])*')/g },
+    { kind: "static", syntax: "require", regex: /\brequire\s*\(\s*("(?:\\(?:\r\n|[\s\S])|[^"\\\r\n])*"|'(?:\\(?:\r\n|[\s\S])|[^'\\\r\n])*')\s*\)/g },
+    { kind: "dynamic", syntax: "import", regex: /\bimport\s*\(\s*("(?:\\(?:\r\n|[\s\S])|[^"\\\r\n])*"|'(?:\\(?:\r\n|[\s\S])|[^'\\\r\n])*')\s*\)/g }
   ];
 
   for (const pattern of patterns) {
@@ -117,16 +117,57 @@ export function parseImports(source) {
         pattern.regex.lastIndex = match.index + 1;
         continue;
       }
+      const specifier = decodeModuleString(match[1]);
+      if (specifier === undefined) continue;
       imports.push({
         kind: pattern.kind,
         syntax: pattern.syntax,
-        specifier: match[1],
+        specifier,
         index: match.index
       });
     }
   }
 
   return sortObjects(dedupeImports(imports), ["index", "kind", "syntax", "specifier"]).map(({ index: _index, ...item }) => item);
+}
+
+// Decode literal spelling, never evaluate source or resolve bindings.
+function decodeModuleString(literal) {
+  const source = literal.slice(1, -1);
+  const controls = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
+  let value = "";
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    if (char !== "\\") {
+      value += char;
+      continue;
+    }
+    const escape = source[++index];
+    if (escape === undefined) return undefined;
+    if (escape === "\n" || escape === "\u2028" || escape === "\u2029") continue;
+    if (escape === "\r") {
+      if (source[index + 1] === "\n") index += 1;
+      continue;
+    }
+    if (escape === "x" || escape === "u") {
+      const tail = source.slice(index + 1);
+      const braced = escape === "u" && tail.startsWith("{");
+      const match = tail.match(braced ? /^\{([0-9a-f]+)\}/i : escape === "x" ? /^([0-9a-f]{2})/i : /^([0-9a-f]{4})/i);
+      if (!match) return undefined;
+      const point = Number.parseInt(match[1], 16);
+      if (point > 0x10ffff) return undefined;
+      value += String.fromCodePoint(point);
+      index += match[0].length;
+    } else if (/[0-7]/.test(escape)) {
+      // Legacy CommonJS strings may contain octal escapes.
+      const digits = source.slice(index).match(escape <= "3" ? /^[0-7]{1,3}/ : /^[0-7]{1,2}/)[0];
+      value += String.fromCharCode(Number.parseInt(digits, 8));
+      index += digits.length - 1;
+    } else {
+      value += controls[escape] ?? escape;
+    }
+  }
+  return value;
 }
 
 function resolveProjectRoot(projectRoot) {

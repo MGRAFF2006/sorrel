@@ -13,7 +13,7 @@ import {
 import { Icon } from './components/Icon.tsx';
 import { ProjectSwitcher } from './components/ProjectSwitcher.tsx';
 import { ErrorText, Loading } from './components/ui.tsx';
-import { useOpenProposalsCount, useOpenProposalsCountFromHub } from './convex/openProposals.ts';
+import { useOpenProposalsCountFromHub } from './convex/openProposals.ts';
 import type { Project, Proposal } from './domain.ts';
 import { initials } from './domain.ts';
 import type { Platform } from './platform.ts';
@@ -29,7 +29,6 @@ import { WorkView } from './views/WorkView.tsx';
 
 export type HubAppOptions = {
   platform: Platform;
-  convexUrl?: string;
   base?: string;
 };
 
@@ -183,15 +182,7 @@ export function HubApp(props: HubAppOptions) {
   });
   onMount(() => setPrincipalProvider(effectivePrincipal));
 
-  const convexUrl = createMemo(() => {
-    if (props.convexUrl) return props.convexUrl;
-    const configured = capabilities()?.convex;
-    if (configured?.enabled === false) return null;
-    return configured?.url ?? (import.meta.env.VITE_CONVEX_URL as string | undefined) ?? null;
-  });
-  const convexCount = useOpenProposalsCount(convexUrl);
-  const fallbackCount = useOpenProposalsCountFromHub(() => !convexUrl() && apiOk() === true);
-  const openCount = createMemo(() => convexCount() ?? fallbackCount());
+  const openCount = useOpenProposalsCountFromHub(() => true);
 
   onMount(() => {
     void (async () => {

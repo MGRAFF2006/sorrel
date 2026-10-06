@@ -466,6 +466,7 @@ async function main() {
       SORREL_HUB_DATA_DIR: join(HUB_DATA, 'sync'),
       SORREL_HUB_METADATA_DIR: join(HUB_DATA, 'metadata'),
       SORREL_HUB_BOOTSTRAP_GRANTS: '1',
+      SORREL_HUB_LOCAL_DEMO: '1',
     },
   });
 

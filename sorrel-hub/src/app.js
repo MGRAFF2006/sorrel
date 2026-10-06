@@ -4,8 +4,10 @@ import { createAuthAdapterFromEnv } from './auth/adapter.js';
 import { resolveCapabilities } from './capabilities.js';
 import { createConvexMirror } from './convex-mirror.js';
 import { PolicyDeniedError, PolicyEvaluationError } from './core-policy.js';
+import { FsRepoSyncStore } from './fs-sync-store.js';
 import { HttpError, sendJson, sendNotFound } from './http.js';
 import { ModelValidationError } from './models.js';
+import { resolveResourceLimits } from './resource-limits.js';
 import { handleAdminRoute } from './routes/admin.js';
 import { handleCollaborationRoute } from './routes/collaboration.js';
 import { handleProjectsRoute } from './routes/projects.js';
@@ -23,16 +25,20 @@ const FILESYSTEM_ERROR_CODES = new Set([
 ]);
 
 export function createApp(options = {}) {
+  const limits = resolveResourceLimits(options.env);
   const store = options.store ?? createInMemoryStore();
   const trustedGrantsById = options.trustedGrantsById ?? {};
   const trustedPoliciesById = options.trustedPoliciesById ?? {};
   const authAdapter = options.authAdapter ?? createAuthAdapterFromEnv(options.env);
+  const localDemo = authAdapter.mode === 'dev' && (options.env ?? process.env).SORREL_HUB_LOCAL_DEMO === '1';
   const convexMirror = options.convexMirror ?? createConvexMirror(options.env);
   const capabilities =
     options.capabilities ??
     resolveCapabilities({
       authMode: authAdapter.mode,
       env: options.env,
+      objectStorage: store.sync instanceof FsRepoSyncStore ? 'fs' : 'memory',
+      convexEnabled: convexMirror.enabled === true,
     });
 
   return {
@@ -62,7 +68,10 @@ export function createApp(options = {}) {
         }
 
         // Resolve session once per request (auth off the hot object path).
-        const session = await authAdapter.resolveSession(request);
+        const session = authAdapter.mode === 'dev' && !localDemo ? null :
+          await authAdapter.resolveSession(request) ?? (localDemo && request.headers['x-sorrel-acting-principal'] === undefined ? {
+            principal: { type: 'user', id: 'local' }, sessionId: 'dev:user:local', authMode: 'dev',
+          } : null);
 
         if (request.method === 'GET' && url.pathname === '/session') {
           return sendJson(response, 200, {
@@ -84,17 +93,19 @@ export function createApp(options = {}) {
           });
         }
 
-        if (authAdapter.mode !== 'dev' && !session && !['GET', 'HEAD'].includes(request.method)) {
+        if (!session) {
           throw new HttpError(401, 'a verified Hub session is required', 'authentication_required');
         }
 
         const routeContext = {
           store,
+          limits,
           url,
           trustedGrantsById,
           trustedPoliciesById,
           authAdapter,
           session,
+          localDemo,
           convexMirror,
           capabilities,
         };
@@ -158,6 +169,7 @@ function sendError(response, error, method) {
   }
 
   if (error instanceof HttpError) {
+    if (error.statusCode === 413) response.setHeader('connection', 'close');
     return sendJson(response, error.statusCode, {
       error: {
         code: error.code,
