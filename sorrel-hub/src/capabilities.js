@@ -26,6 +26,8 @@ import { PROPOSAL_STATUS_TRANSITIONS } from './models.js';
  * @param {{
  *   authMode?: 'dev' | 'workos' | 'oidc',
  *   env?: NodeJS.ProcessEnv,
+ *   objectStorage?: 'fs' | 'memory',
+ *   convexEnabled?: boolean,
  * }} [options]
  * @returns {HubCapabilities}
  */
@@ -40,7 +42,8 @@ export function resolveCapabilities(options = {}) {
   const actions = false;
   const agents = false;
   const secrets = false;
-  const objectStorage = env.SORREL_HUB_SYNC_STORE === 'memory' ? 'memory' : 'fs';
+  const objectStorage = options.objectStorage ??
+    (env.SORREL_HUB_SYNC_STORE === 'memory' ? 'memory' : 'fs');
 
   let deploy = /** @type {'saas'|'selfhost'|'dev'} */ ('dev');
   if (env.SORREL_HUB_DEPLOY === 'saas' || env.SORREL_HUB_DEPLOY === 'selfhost') {
@@ -65,7 +68,7 @@ export function resolveCapabilities(options = {}) {
       session: authMode === 'dev' ? 'none' : 'bearer',
     },
     convex: {
-      enabled: isConvexMirrorEnabled(env),
+      enabled: options.convexEnabled ?? isConvexMirrorEnabled(env),
     },
     deploy,
   };

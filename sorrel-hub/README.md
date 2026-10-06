@@ -462,6 +462,10 @@ Proposal records may carry lane-submit fields: `syncRepoId`, `sourceLane`,
   updates likewise record metadata only.
 - `/capabilities` includes `collaboration.proposalTransitions`, derived from
   the same state-transition rules that validate proposal mutations.
+  Object storage and Convex availability describe the wired sync store and
+  server mirror, including instances supplied to `createApp()`. Mirror
+  availability reports configuration, not backend health. The standalone
+  `resolveCapabilities({ env })` helper retains environment-based defaults.
 
 Admin proposal creation, updates, and lane submissions share verified
 attribution and best-effort Convex mirroring. Lane-submit reuse is scoped to
