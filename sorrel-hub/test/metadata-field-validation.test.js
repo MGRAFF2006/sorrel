@@ -14,7 +14,7 @@ const grant = { id: 'grant_validation', source: 'core', principal, action: 'poli
 const nativeGrant = { id: 'grant_validation_native', schemaVersion: 'sorrel.protocol.v0', kind: 'Grant',
   principal: { kind: 'user', id: principal.id }, effect: 'allow',
   resources: [{ kind: 'org', id: '*' }, { kind: 'project', id: '*' }, { kind: 'repo', id: '*' }],
-  capabilities: ['org.write', 'project.create', 'project.read', 'policy.grant', 'proposal.read',
+  capabilities: ['org.read', 'repo.read', 'policy.read', 'review.comment.read', 'workflow.run.read', 'org.write', 'project.create', 'project.read', 'policy.grant', 'proposal.read',
     'proposal.write', 'review.comment.write', 'workflow.run.write'] };
 const fixtures = [
   ['/admin/organizations', 'organizations', { id: 'org_candidate', name: 'Candidate' }],
