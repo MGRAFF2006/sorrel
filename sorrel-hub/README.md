@@ -220,7 +220,7 @@ Required JSON fields:
 
 Optional JSON fields:
 
-- `slug`
+- `slug` (optional string; omitted, null, or blank derives it from the name)
 - `description`
 - `status`
 - `repositoryIds`
