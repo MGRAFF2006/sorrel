@@ -139,8 +139,14 @@ scrubbed for:
 
 - declared SecretRef ids
 - job-level SecretRef ids
-- literal env values whose keys match `TOKEN`, `SECRET`, `PASSWORD`, or `KEY`
-  by default
+- literal job env values and inherited process env values whose keys contain
+  `TOKEN`, `SECRET`, `PASSWORD`, or `KEY` by default (case-sensitive)
+
+Process environment inheritance is preserved. Inherited masking terms stay in
+memory and are not attached to bundles or stored in result metadata. The same
+minimum length, mask, and visible prefix/suffix settings apply as for literal
+job env values; this heuristic does not identify arbitrary secrets under other
+variable names.
 
 The raw values are not stored in `JobRunResult`. Redaction preserves the original
 line endings in captured output and logged commands.

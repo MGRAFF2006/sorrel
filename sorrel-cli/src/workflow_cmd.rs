@@ -237,6 +237,11 @@ fn run_job_with_backend(
     {
         match try_devenv_run(&cwd, &bundle.command) {
             Ok(Some(devenv)) => {
+                let redaction = bundle
+                    .native
+                    .as_ref()
+                    .map(|native| native.redaction.clone())
+                    .unwrap_or_default();
                 return Ok(crate::cli_runner::RunOutcome {
                     status: if devenv.success {
                         RunStatus::Completed
@@ -244,8 +249,8 @@ fn run_job_with_backend(
                         RunStatus::Failed
                     },
                     exit_code: devenv.exit_code,
-                    stdout: devenv.stdout,
-                    stderr: devenv.stderr,
+                    stdout: sorrel_runners::redact_inherited_env(&devenv.stdout, &redaction),
+                    stderr: sorrel_runners::redact_inherited_env(&devenv.stderr, &redaction),
                     backend: RunnerBackendKind::Devenv.as_str().to_owned(),
                     injected_secrets: vec![],
                 });
