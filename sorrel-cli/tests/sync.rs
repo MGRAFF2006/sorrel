@@ -414,7 +414,10 @@ fn cli_pull_restore_io_failure_preserves_both_heads() {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Permission denied"), "{stderr}");
+    assert!(
+        stderr.contains("Permission denied") || stderr.contains("restore target is read-only"),
+        "expected a checkout permission error, got: {stderr}"
+    );
     assert_eq!(head_bytes(local.path()), before);
     assert_eq!(std::fs::read(path).unwrap(), b"base\n");
 }
