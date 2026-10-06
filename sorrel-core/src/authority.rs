@@ -501,7 +501,8 @@ fn delegation_within_scope(
     previous_grants: &[Grant],
 ) -> bool {
     let contained = previous_grants.iter().any(|grant| {
-        grant.principal == *actor
+        grant.principal.kind == actor.kind
+            && grant.principal.id == actor.id
             && grant.effect == GrantEffect::Allow
             && resource_within(&proposed.resource, &grant.resource)
             && proposed
@@ -947,9 +948,11 @@ mod tests {
                         resource.path = path.map(str::to_owned);
                         let mut restricted = ResourceRef::new(kind, restricted_id);
                         restricted.path = restricted_path.map(str::to_owned);
+                        let mut allowed = repo_grant("allow", actor.clone(), "*", "*");
+                        allowed.principal.display_name = Some("Earlier actor label".to_owned());
                         let previous = vec![
                             policy_grant("delegate", actor.clone(), CAP_POLICY_DELEGATE),
-                            repo_grant("allow", actor.clone(), "*", "*"),
+                            allowed,
                             Grant::new(
                                 "restriction",
                                 subject.clone(),
@@ -986,6 +989,34 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn delegation_cannot_use_another_actors_allow_grant() {
+        let authority = authority(1);
+        let actor = user("delegator");
+        let previous = vec![
+            policy_grant("delegate", actor.clone(), CAP_POLICY_DELEGATE),
+            repo_grant("other_read", user("other"), "repo.read", "repo_main"),
+        ];
+        let mut change = PolicyChange::new(
+            "delegate",
+            actor,
+            root(1),
+            root(2),
+            PolicyChangeAction::Delegate,
+        );
+        change.proposed_grants.push(ProposedGrant::new(
+            "proposed",
+            agent("recipient"),
+            ["repo.read"],
+            ResourceRef::new(ResourceKind::Repo, "repo_main"),
+            GrantEffect::Allow,
+        ));
+        let change = signed_change(&authority, change, &["key_alpha"]);
+        let evaluation = evaluate_policy_change(&change, &authority, &previous, &context(1));
+        assert_eq!(evaluation.outcome, PolicyChangeOutcome::Denied);
+        assert_eq!(evaluation.denied_grant_ids, vec!["proposed"]);
     }
 
     #[test]
