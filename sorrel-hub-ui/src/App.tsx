@@ -11,6 +11,7 @@ import {
   type HubSessionInfo,
 } from './api.ts';
 import { Icon } from './components/Icon.tsx';
+import { ProjectSwitcher } from './components/ProjectSwitcher.tsx';
 import { ErrorText, Loading } from './components/ui.tsx';
 import { useOpenProposalsCountFromHub } from './convex/openProposals.ts';
 import type { Project, Proposal } from './domain.ts';
@@ -89,6 +90,7 @@ function GlobalShell(
           <A href="/orgs" activeClass="active"><Icon name="org" />Organizations</A>
         </nav>
         <div class="global-tools">
+          <ProjectSwitcher />
           <span class={`api-indicator ${props.apiOk === true ? 'ok' : props.apiOk === false ? 'down' : ''}`}>
             <span />Hub
           </span>

@@ -100,10 +100,10 @@ workflows:
             backend, guarded by Core grant decisions (<code>secret.read</code>,
             <code>secret.inject</code>), and runner output is redacted against resolved values.
           </p>
-          <pre><code>$ npm run vault -- import .env      # keys only — values are never persisted
-$ npm run vault -- list             # SecretRef declarations + environments
-$ npm run vault -- grant ...        # allow / deny / needs_grant decision
-$ npm run vault -- redact run.log   # scrub resolved secrets from text</code></pre>
+          <pre><code>npm run vault -- import .env      # keys only — values are never persisted
+npm run vault -- list             # SecretRef declarations + environments
+npm run vault -- grant ...        # allow / deny / needs_grant decision
+npm run vault -- redact run.log   # scrub resolved secrets from text</code></pre>
           <div class="doc-note">
             <p>
               A local YAML file cannot bypass policy: vault operations evaluate the same Core

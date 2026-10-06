@@ -2,15 +2,18 @@
 //!
 //! The CLI (or another host) loads and saves the cache bytes; this module does
 //! not hardcode `.sorrel/` paths. During tree materialization, each file's
-//! `(size, mtime)` is compared to a cached entry; on a match **and** a live
-//! object in the store, the cached blob id is reused without reading file
-//! bytes from disk.
+//! size, mtime, and a platform-specific change fingerprint are compared to a
+//! cached entry; on a match **and** a live object in the store, the cached blob
+//! is reused without reading workspace file bytes.
 //!
-//! # mtime granularity
-//!
-//! Entries use [`std::fs::Metadata::modified`]. On filesystems with
-//! one-second resolution, two edits within the same second that keep the same
-//! size may not be detected (acceptable for v0).
+//! Unix fingerprints include device, inode, and ctime. Missing fingerprints,
+//! unsupported platforms, and ctimes with only whole-second precision cause a
+//! safe cache miss. Verification within the ctime second also misses, so writes
+//! within a filesystem clock tick cannot seed a reusable entry. Filesystems
+//! must update ctime on later writes; this is
+//! an optimization for ordinary filesystem writes, not an integrity boundary
+//! against forged filesystem metadata. Concurrent workspace mutation is not an
+//! atomic snapshot and may require another snapshot after writers finish.
 //!
 //! # CLI integration example
 //!
@@ -103,7 +106,13 @@ pub struct StatCacheEntry {
 /// Maps workspace-relative paths (UTF-8, `/` separators) to cached stat entries.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct StatCache {
-    entries: BTreeMap<String, StatCacheEntry>,
+    entries: BTreeMap<String, CachedEntry>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CachedEntry {
+    data: StatCacheEntry,
+    fingerprint: Option<ChangeFingerprint>,
 }
 
 impl StatCache {
@@ -119,22 +128,49 @@ impl StatCache {
     /// (for example `src/lib.rs`).
     #[must_use]
     pub fn get(&self, path: &str) -> Option<&StatCacheEntry> {
-        self.entries.get(path)
+        self.entries.get(path).map(|entry| &entry.data)
     }
 
     /// Inserts or replaces the cache entry for `path`.
+    ///
+    /// Manually inserted entries have no verified change fingerprint and cause
+    /// a safe miss until a filesystem materialization refreshes them.
     pub fn insert(&mut self, path: impl Into<String>, entry: StatCacheEntry) {
-        self.entries.insert(path.into(), entry);
+        self.insert_verified(path.into(), entry, None);
     }
 
     /// Removes the cache entry for `path`, if present.
     pub fn remove(&mut self, path: &str) -> Option<StatCacheEntry> {
-        self.entries.remove(path)
+        self.entries.remove(path).map(|entry| entry.data)
     }
 
     /// Drops entries whose paths were not seen during the latest tree walk.
     pub fn retain(&mut self, paths_seen: &BTreeSet<String>) {
         self.entries.retain(|path, _| paths_seen.contains(path));
+    }
+
+    pub(crate) fn matches_fingerprint(&self, path: &str, metadata: &std::fs::Metadata) -> bool {
+        ChangeFingerprint::from_metadata(metadata).is_some_and(|fingerprint| {
+            self.entries
+                .get(path)
+                .and_then(|entry| entry.fingerprint.as_ref())
+                == Some(&fingerprint)
+        })
+    }
+
+    pub(crate) fn insert_verified(
+        &mut self,
+        path: String,
+        entry: StatCacheEntry,
+        fingerprint: Option<ChangeFingerprint>,
+    ) {
+        self.entries.insert(
+            path,
+            CachedEntry {
+                data: entry,
+                fingerprint,
+            },
+        );
     }
 
     /// Deserializes a stat cache from bytes.
@@ -162,6 +198,45 @@ impl StatCache {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ChangeFingerprint {
+    device: u64,
+    inode: u64,
+    ctime_secs: i64,
+    ctime_nanos: i64,
+}
+
+impl ChangeFingerprint {
+    pub(crate) fn from_metadata(metadata: &std::fs::Metadata) -> Option<Self> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let nanos = metadata.ctime_nsec();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()?;
+            if !(1..1_000_000_000).contains(&nanos)
+                || metadata.ino() == 0
+                || i128::from(metadata.ctime()) >= i128::from(now.as_secs())
+            {
+                return None;
+            }
+            Some(Self {
+                device: metadata.dev(),
+                inode: metadata.ino(),
+                ctime_secs: metadata.ctime(),
+                ctime_nanos: nanos,
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = metadata;
+            None
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredStatCache {
@@ -176,7 +251,12 @@ impl StoredStatCache {
             entries: cache
                 .entries
                 .iter()
-                .map(|(path, entry)| (path.clone(), StoredStatCacheEntry::from_entry(entry)))
+                .map(|(path, entry)| {
+                    (
+                        path.clone(),
+                        StoredStatCacheEntry::from_entry(&entry.data, entry.fingerprint.clone()),
+                    )
+                })
                 .collect(),
         }
     }
@@ -189,13 +269,12 @@ impl StoredStatCache {
             });
         }
 
-        let entries = self
-            .entries
-            .into_iter()
-            .map(|(path, entry)| entry.into_entry().map(|e| (path, e)))
-            .collect::<StatCacheResult<BTreeMap<_, _>>>()?;
-
-        Ok(StatCache { entries })
+        let mut cache = StatCache::new();
+        for (path, entry) in self.entries {
+            let fingerprint = entry.change_fingerprint.clone();
+            cache.insert_verified(path, entry.into_entry()?, fingerprint);
+        }
+        Ok(cache)
     }
 }
 
@@ -206,15 +285,18 @@ struct StoredStatCacheEntry {
     mtime_secs: u64,
     mtime_nanos: u32,
     object_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    change_fingerprint: Option<ChangeFingerprint>,
 }
 
 impl StoredStatCacheEntry {
-    fn from_entry(entry: &StatCacheEntry) -> Self {
+    fn from_entry(entry: &StatCacheEntry, change_fingerprint: Option<ChangeFingerprint>) -> Self {
         Self {
             size: entry.size,
             mtime_secs: entry.mtime_secs,
             mtime_nanos: entry.mtime_nanos,
             object_id: entry.object_id.to_string(),
+            change_fingerprint,
         }
     }
 
@@ -243,6 +325,34 @@ mod tests {
         materialize_snapshot_excluding_with_stat_cache, InMemoryObjectStore, ObjectStore,
         SnapshotOptions,
     };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Default)]
+    struct CountingStore {
+        inner: InMemoryObjectStore,
+        blob_writes: AtomicUsize,
+        after_blob_write: Option<Box<dyn Fn()>>,
+    }
+
+    impl ObjectStore for CountingStore {
+        fn read(&self, id: &ObjectId) -> crate::ObjectStoreResult<Vec<u8>> {
+            self.inner.read(id)
+        }
+
+        fn has(&self, id: &ObjectId) -> crate::ObjectStoreResult<bool> {
+            self.inner.has(id)
+        }
+
+        fn write(&self, bytes: &[u8]) -> crate::ObjectStoreResult<ObjectId> {
+            if bytes.starts_with(b"sorrel.blob.v0\n") {
+                self.blob_writes.fetch_add(1, Ordering::Relaxed);
+                if let Some(hook) = &self.after_blob_write {
+                    hook();
+                }
+            }
+            self.inner.write(bytes)
+        }
+    }
 
     #[test]
     fn round_trips_through_json() {
@@ -296,7 +406,32 @@ mod tests {
         let file_path = temp_dir.path().join("data.txt");
         std::fs::write(&file_path, b"unchanged content").unwrap();
 
-        let store = InMemoryObjectStore::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let metadata = std::fs::metadata(&file_path).unwrap();
+            // A file verified in its ctime second intentionally cannot seed a
+            // reusable entry: age it before testing actual read avoidance.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while metadata.ctime_nsec() > 0
+                && metadata.ino() > 0
+                && i128::from(metadata.ctime())
+                    >= i128::from(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                    )
+            {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "clock did not advance"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+
+        let store = CountingStore::default();
         let mut cache = StatCache::new();
         let options = SnapshotOptions::new("repo");
 
@@ -308,7 +443,11 @@ mod tests {
             options.clone(),
         )
         .unwrap();
-        let writes_after_first = store.len();
+        assert_eq!(store.blob_writes.load(Ordering::Relaxed), 1);
+        // Reuse must survive the actual persistence boundary too.
+        cache = StatCache::load(&cache.to_bytes().unwrap()).unwrap();
+        let reusable =
+            ChangeFingerprint::from_metadata(&std::fs::metadata(&file_path).unwrap()).is_some();
 
         materialize_snapshot_excluding_with_stat_cache(
             &store,
@@ -320,11 +459,131 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            store.len(),
-            writes_after_first,
-            "unchanged file should reuse cached blob without new store objects"
+            store.blob_writes.load(Ordering::Relaxed),
+            if reusable { 1 } else { 2 },
+            "usable fingerprints skip blob writes; unsupported metadata rereads safely"
         );
         assert!(cache.get("data.txt").is_some());
+    }
+
+    #[test]
+    fn legacy_cache_missing_fingerprint_rehashes_preserved_mtime_edit() {
+        use std::fs::{File, FileTimes};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.txt");
+        std::fs::write(&path, b"old").unwrap();
+        let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let store = CountingStore::default();
+        let mut cache = StatCache::new();
+        let materialize = |cache: &mut StatCache| {
+            materialize_snapshot_excluding_with_stat_cache(
+                &store,
+                dir.path(),
+                std::iter::empty::<&str>(),
+                Some(cache),
+                SnapshotOptions::new("repo"),
+            )
+            .unwrap()
+        };
+        materialize(&mut cache);
+        let mut legacy: serde_json::Value =
+            serde_json::from_slice(&cache.to_bytes().unwrap()).unwrap();
+        legacy["entries"]["data.txt"]
+            .as_object_mut()
+            .unwrap()
+            .remove("changeFingerprint");
+        cache = StatCache::load(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+        assert!(
+            cache.get("data.txt").is_some(),
+            "old cache remains readable"
+        );
+        std::fs::write(&path, b"new").unwrap();
+        File::open(&path)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(mtime))
+            .unwrap();
+        materialize(&mut cache);
+        assert_eq!(store.blob_writes.load(Ordering::Relaxed), 2);
+        let blob = crate::read_blob(&store, &cache.get("data.txt").unwrap().object_id).unwrap();
+        assert_eq!(blob.content, b"new");
+    }
+
+    #[test]
+    fn public_insert_invalidates_private_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.txt");
+        std::fs::write(&path, b"content").unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        let mut cache = StatCache::new();
+        materialize_snapshot_excluding_with_stat_cache(
+            &InMemoryObjectStore::new(),
+            dir.path(),
+            std::iter::empty::<&str>(),
+            Some(&mut cache),
+            SnapshotOptions::new("repo"),
+        )
+        .unwrap();
+        let entry = cache.get("data.txt").unwrap().clone();
+        cache.insert("data.txt", entry);
+        assert!(!cache.matches_fingerprint("data.txt", &metadata));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn changed_during_read_does_not_seed_reusable_fingerprint() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.txt");
+        std::fs::write(&path, b"old").unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        if !(1..1_000_000_000).contains(&metadata.ctime_nsec()) || metadata.ino() == 0 {
+            // This regression requires a reusable Unix fingerprint.
+            return;
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while ChangeFingerprint::from_metadata(&metadata).is_none() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "clock did not advance"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let changed_path = path.clone();
+        let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let did_change = std::sync::atomic::AtomicBool::new(false);
+        let store = CountingStore {
+            after_blob_write: Some(Box::new(move || {
+                if !did_change.swap(true, Ordering::Relaxed) {
+                    std::fs::write(&changed_path, b"new").unwrap();
+                    std::fs::File::open(&changed_path)
+                        .unwrap()
+                        .set_times(std::fs::FileTimes::new().set_modified(mtime))
+                        .unwrap();
+                }
+            })),
+            ..CountingStore::default()
+        };
+        let mut cache = StatCache::new();
+        let materialize = |cache: &mut StatCache| {
+            materialize_snapshot_excluding_with_stat_cache(
+                &store,
+                dir.path(),
+                std::iter::empty::<&str>(),
+                Some(cache),
+                SnapshotOptions::new("repo"),
+            )
+            .unwrap()
+        };
+        materialize(&mut cache);
+        assert!(
+            cache.entries["data.txt"].fingerprint.is_none(),
+            "a file changed during verification must not persist a reusable fingerprint"
+        );
+        assert!(!cache.matches_fingerprint("data.txt", &std::fs::metadata(&path).unwrap()));
+        materialize(&mut cache);
+        let blob = crate::read_blob(&store, &cache.get("data.txt").unwrap().object_id).unwrap();
+        assert_eq!(blob.content, b"new");
+        assert_eq!(store.blob_writes.load(Ordering::Relaxed), 2);
     }
 
     #[test]
@@ -470,15 +729,8 @@ mod tests {
         .unwrap();
         let stale_id = cache.get("data.txt").unwrap().object_id;
 
-        cache.insert(
-            "data.txt",
-            StatCacheEntry {
-                size: std::fs::metadata(&file_path).unwrap().len(),
-                mtime_secs: file_mtime(&file_path).0,
-                mtime_nanos: file_mtime(&file_path).1,
-                object_id: ObjectId::from_bytes([0xAA; 32]),
-            },
-        );
+        cache.entries.get_mut("data.txt").unwrap().data.object_id =
+            ObjectId::from_bytes([0xAA; 32]);
         assert!(!store.has(&ObjectId::from_bytes([0xAA; 32])).unwrap());
 
         materialize_snapshot_excluding_with_stat_cache(
@@ -494,17 +746,5 @@ mod tests {
         assert_ne!(refreshed.object_id, ObjectId::from_bytes([0xAA; 32]));
         assert_eq!(refreshed.object_id, stale_id);
         assert!(store.has(&refreshed.object_id).unwrap());
-    }
-
-    fn file_mtime(path: &std::path::Path) -> (u64, u32) {
-        use std::time::UNIX_EPOCH;
-
-        let modified = std::fs::metadata(path)
-            .unwrap()
-            .modified()
-            .unwrap()
-            .duration_since(UNIX_EPOCH)
-            .unwrap();
-        (modified.as_secs(), modified.subsec_nanos())
     }
 }
