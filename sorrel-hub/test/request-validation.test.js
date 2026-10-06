@@ -116,3 +116,50 @@ test('malformed absolute request targets return 400 and leave the server alive',
   assert.equal(status, 400);
   assert.equal((await fetch(`${baseUrl}/healthz`)).status, 200);
 });
+
+test('organization and project slugs reject non-string values before creating records', async (t) => {
+  const { app, baseUrl } = await withServer(t);
+  for (const route of ['/projects', '/admin/organizations']) {
+    for (const slug of [true, false, 1, 0, -1, [], ['explicit'], {}, { slug: 'explicit' }]) {
+      const response = await fetch(`${baseUrl}${route}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Invalid slug', organizationId: 'org_test', slug }),
+      });
+      assert.equal(response.status, 400, `${route}: ${JSON.stringify(slug)}`);
+      const body = await response.json();
+      assert.equal(body.error.code, 'model_validation_failed');
+      assert.equal(body.error.message, 'slug must be a string');
+    }
+  }
+  assert.deepEqual(app.store.listOrganizations(), []);
+  assert.deepEqual(app.store.listProjects(), []);
+  assert.equal((await fetch(`${baseUrl}/healthz`)).status, 200);
+});
+
+test('optional slugs derive names, explicit slugs normalize, and unusable strings reject', async (t) => {
+  const { baseUrl } = await withServer(t);
+  let count = 0;
+  for (const route of ['/projects', '/admin/organizations']) {
+    for (const slug of [undefined, null, '', ' \t\n ']) {
+      const name = `Derived Name ${count++}`;
+      const response = await fetch(`${baseUrl}${route}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, organizationId: 'org_test', slug }),
+      });
+      assert.equal(response.status, 201);
+      assert.equal((await response.json()).data.slug, name.toLowerCase().replaceAll(' ', '-'));
+    }
+    const explicit = await fetch(`${baseUrl}${route}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Display Name', organizationId: 'org_test', slug: '  My_Explicit-Slug  ' }),
+    });
+    assert.equal(explicit.status, 201);
+    assert.equal((await explicit.json()).data.slug, 'my-explicit-slug');
+    const invalid = await fetch(`${baseUrl}${route}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Display Name', organizationId: 'org_test', slug: '!!!' }),
+    });
+    assert.equal(invalid.status, 400);
+    assert.equal((await invalid.json()).error.code, 'model_validation_failed');
+  }
+});
