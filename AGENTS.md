@@ -45,7 +45,8 @@ PR when it needs clarification.
 
 ## Rust toolchain
 
-Rust modules require stable Rust 1.85+ with clippy and rustfmt. If needed:
+Rust modules require Rust 1.92+ with clippy and rustfmt. CI checks the locked
+workspace with Rust 1.92.0 and runs the full gate on current stable. If needed:
 
 ```sh
 rustup toolchain install stable --profile minimal -c clippy -c rustfmt

@@ -185,7 +185,7 @@ secret backend are not part of this alpha.
 
 ## Build from source or run the development Hub
 
-Source builds and the development Hub require Git, Rust stable 1.85+ with
+Source builds and the development Hub require Git, Rust 1.92+ with
 `clippy` and `rustfmt`, and Node.js 22+. Docker or Podman is optional for the
 container preview.
 
