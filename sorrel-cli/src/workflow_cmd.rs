@@ -6,7 +6,7 @@ use crate::cli_runner::{CorePermissionEvaluator, JobBundle, LocalProcessRunner, 
 use crate::env_cmd::{select_backend, try_devenv_run, RunnerBackendKind};
 use crate::run_log::{self, RunManifest};
 use crate::secretspec_bridge::{
-    load_secret_handles, redact_text, resolve_handles, secret_policy_context, BridgeError,
+    load_secret_handles, redact_text, resolve_handles, secret_policy_context_for, BridgeError,
 };
 use clap::Args;
 use serde_json::{json, Value};
@@ -78,7 +78,7 @@ pub fn workflow_run_output(args: WorkflowRunJobArgs) -> CommandOutput {
 
     let principal =
         PrincipalId::parse(CLI_AGENT_PRINCIPAL).expect("CLI agent principal is well-formed");
-    let context = match workflow_execution_context() {
+    let context = match workflow_execution_context(Some(&bundle)) {
         Ok(context) => context,
         Err(error) => {
             return CommandOutput {
@@ -382,7 +382,7 @@ fn resolve_workflow_path(file: &Option<PathBuf>) -> Result<PathBuf, WorkflowErro
     Err(WorkflowError::FileNotFound { path: default_path })
 }
 
-fn workflow_execution_context() -> Result<PolicyContext, BridgeError> {
+fn workflow_execution_context(bundle: Option<&JobBundle>) -> Result<PolicyContext, BridgeError> {
     if std::env::var_os("SORREL_WORKFLOW_POLICY").as_deref()
         == Some(std::ffi::OsStr::new("restrictive"))
     {
@@ -401,7 +401,30 @@ fn workflow_execution_context() -> Result<PolicyContext, BridgeError> {
             "workspace grant registry is not a directory",
         )));
     }
-    let mut context = secret_policy_context()?;
+    if let Some(bundle) = bundle.filter(|bundle| !bundle.secret_refs.is_empty()) {
+        let handles = load_secret_handles(&std::env::current_dir()?)?;
+        for id in &bundle.secret_refs {
+            let handle = handles
+                .iter()
+                .find(|handle| handle.id == *id)
+                .ok_or_else(|| BridgeError::NotFound(id.clone()))?;
+            if bundle.environment.as_deref() != Some(handle.environment.as_str()) {
+                return Err(BridgeError::Policy {
+                    action: "secret.read".to_owned(),
+                    secret_id: id.clone(),
+                    reason:
+                        "SecretRef environment does not match the workflow execution environment"
+                            .to_owned(),
+                    result: "deny".to_owned(),
+                });
+            }
+        }
+    }
+    let mut context = secret_policy_context_for(
+        bundle.and_then(|bundle| bundle.environment.as_deref()),
+        bundle.map(|bundle| bundle.workflow_id.as_str()),
+        bundle.map(|bundle| bundle.runner_id.as_str()),
+    )?;
     context
         .default_rules
         .retain(|rule| rule.action != "workflow.run");
@@ -618,7 +641,7 @@ mod tests {
     #[test]
     fn restrictive_policy_mode_denies_without_grants() {
         std::env::set_var("SORREL_WORKFLOW_POLICY", "restrictive");
-        let context = workflow_execution_context().unwrap();
+        let context = workflow_execution_context(None).unwrap();
         std::env::remove_var("SORREL_WORKFLOW_POLICY");
         assert!(context.grants.is_empty());
         assert!(context.default_rules.is_empty());
