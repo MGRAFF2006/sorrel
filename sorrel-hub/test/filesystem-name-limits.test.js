@@ -78,11 +78,11 @@ test('atomic writes validate full destination names before creating directories 
   const targetDir = path.join(root, 'must-not-exist');
   assert.throws(() => atomicWrite(path.join(targetDir, 'a'.repeat(256)), 'fixture'), FilesystemNameTooLongError);
   assert.equal(fs.existsSync(targetDir), false);
-  const write = fs.writeFileSync;
+  const rename = fs.renameSync;
   const filenames = [];
-  t.mock.method(fs, 'writeFileSync', (filename, ...args) => {
-    filenames.push(path.basename(filename));
-    return write(filename, ...args);
+  t.mock.method(fs, 'renameSync', (source, destination) => {
+    filenames.push(path.basename(source));
+    return rename(source, destination);
   });
   const target = path.join(root, 'a'.repeat(255));
   atomicWrite(target, 'fixture');
