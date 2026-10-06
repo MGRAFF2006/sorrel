@@ -562,3 +562,30 @@ Initial in-memory model factories live in `src/models.js` for:
 
 Organizations, projects, repositories, proposals, review comments, workflow
 runs, and policies carry Core principal/resource/policy references where useful.
+
+## Request and sync safety limits
+
+Hub rejects oversized JSON bodies and sync traversals with HTTP 413 and
+`request_body_too_large` or `sync_traversal_too_large`. Configure positive safe
+integer values before starting the server:
+
+| Environment variable | Default | Unit |
+| --- | --- | --- |
+| `SORREL_HUB_MAX_BODY_BYTES` | 67108864 (64 MiB) | Raw request-body bytes, including JSON/base64 overhead |
+| `SORREL_HUB_MAX_TRAVERSAL_LINKS` | 100000 | Queued roots and outgoing references, including duplicates |
+| `SORREL_HUB_MAX_TRAVERSAL_OBJECTS` | 100000 | Unique referenced object IDs, including missing objects |
+| `SORREL_HUB_MAX_TRAVERSAL_BYTES` | 268435456 (256 MiB) | Object bytes read during traversal |
+
+The body limit applies to every JSON-writing route. Traversal budgets apply to
+sync missing-object negotiation and ref validation; closure and ancestry checks
+share one request budget. Repeated references do not reread terminal blobs within
+a closure, but repeated links still consume the link budget. Bytes reread during
+ancestry checks count again. A ref is never published after exceeding its budget.
+Invalid settings fail startup rather than disabling limits.
+
+The CLI currently uploads objects in one JSON batch. Large pushes may require a
+higher body limit (allow for base64 expansion), and repositories with long
+histories or large closures may require higher traversal limits. Increase limits
+only to fit the deployment's memory budget; these limits do not provide a global
+concurrency quota or streaming uploads. Bytes are counted after each store read,
+so one already-stored large object can still be allocated before rejection.

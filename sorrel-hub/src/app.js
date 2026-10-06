@@ -7,6 +7,7 @@ import { PolicyDeniedError, PolicyEvaluationError } from './core-policy.js';
 import { FsRepoSyncStore } from './fs-sync-store.js';
 import { HttpError, sendJson, sendNotFound } from './http.js';
 import { ModelValidationError } from './models.js';
+import { resolveResourceLimits } from './resource-limits.js';
 import { handleAdminRoute } from './routes/admin.js';
 import { handleCollaborationRoute } from './routes/collaboration.js';
 import { handleProjectsRoute } from './routes/projects.js';
@@ -24,6 +25,7 @@ const FILESYSTEM_ERROR_CODES = new Set([
 ]);
 
 export function createApp(options = {}) {
+  const limits = resolveResourceLimits(options.env);
   const store = options.store ?? createInMemoryStore();
   const trustedGrantsById = options.trustedGrantsById ?? {};
   const trustedPoliciesById = options.trustedPoliciesById ?? {};
@@ -97,6 +99,7 @@ export function createApp(options = {}) {
 
         const routeContext = {
           store,
+          limits,
           url,
           trustedGrantsById,
           trustedPoliciesById,
@@ -166,6 +169,7 @@ function sendError(response, error, method) {
   }
 
   if (error instanceof HttpError) {
+    if (error.statusCode === 413) response.setHeader('connection', 'close');
     return sendJson(response, error.statusCode, {
       error: {
         code: error.code,

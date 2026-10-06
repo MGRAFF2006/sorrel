@@ -14,7 +14,7 @@ export async function handleProjectsRoute(request, response, context) {
       throw new HttpError(404, 'resource not found', 'not_found');
     }
     await assertCoreAccess(context, 'project.write', projectScope(context, projectId));
-    const body = await readJsonBody(request);
+    const body = await readJsonBody(request, context.limits.requestBodyBytes);
     if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.syncRepoId !== 'string' || !body.syncRepoId.trim()) {
       throw new HttpError(400, 'syncRepoId is required', 'invalid_request_body');
     }
@@ -64,7 +64,7 @@ async function listProjects(response, context) {
 }
 
 async function createProject(request, response, context) {
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');

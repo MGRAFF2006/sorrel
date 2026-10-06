@@ -177,7 +177,7 @@ async function getProposalComments(response, context, proposalId) {
 }
 
 async function createCollectionItem(request, response, context, collection, collectionName) {
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
@@ -224,7 +224,7 @@ async function updateCollectionItem(
 ) {
   const existing = context.store[collection.get](itemId);
   await assertCollectionRead(context, collectionName, existing);
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
