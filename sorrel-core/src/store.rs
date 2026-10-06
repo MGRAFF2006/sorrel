@@ -147,6 +147,25 @@ impl FileObjectStore {
         Ok(Self { root })
     }
 
+    /// Opens an existing store without creating or recovering filesystem state.
+    /// This validates the objects directory; subsequent reads still verify content digests.
+    pub fn open_existing(root: impl Into<PathBuf>) -> ObjectStoreResult<Self> {
+        let root = root.into();
+        let objects = root.join("objects");
+        let info =
+            fs::metadata(&objects).map_err(|source| ObjectStoreError::io(&objects, source))?;
+        if !info.is_dir() {
+            return Err(ObjectStoreError::io(
+                &objects,
+                io::Error::new(
+                    io::ErrorKind::NotADirectory,
+                    "object storage is not a directory",
+                ),
+            ));
+        }
+        Ok(Self { root })
+    }
+
     fn objects_dir(&self) -> PathBuf {
         self.root.join("objects")
     }
