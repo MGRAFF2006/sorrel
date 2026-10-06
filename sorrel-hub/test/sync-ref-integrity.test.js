@@ -17,6 +17,7 @@ async function withServer(t, sync) {
   const app = createApp({
     store: createInMemoryStore(sync ? { sync } : {}),
     trustedGrantsById: createLocalBootstrapGrants(),
+    env: { SORREL_HUB_LOCAL_DEMO: '1' },
   });
   const server = http.createServer(app.handleRequest);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

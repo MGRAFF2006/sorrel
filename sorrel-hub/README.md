@@ -91,7 +91,12 @@ survives restarts:
   loopback unless the insecure-demo override is explicit.
 - `oidc` verifies RS256/ES256 Bearer JWTs using
   `SORREL_OIDC_ISSUER` and optional `SORREL_OIDC_AUDIENCE`; keys are read from
-  `<issuer>/.well-known/jwks.json`.
+  `<issuer>/.well-known/jwks.json`. Keys are cached for ten minutes. An unknown
+  signing-key ID triggers a shared refresh, limited to once per issuer URI every
+  30 seconds (including failed refreshes); HTTP fetches time out after five
+  seconds. A failed refresh rejects the new key while previously cached keys
+  remain usable until cache expiry. A rotation during cooldown may require a
+  retry after the remaining cooldown.
 - `workos` uses `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, optional
   `WORKOS_ISSUER`, and optional `WORKOS_AUDIENCE` for Bearer verification.
 
@@ -213,7 +218,7 @@ Required JSON fields:
 
 Optional JSON fields:
 
-- `slug`
+- `slug` (optional string; omitted, null, or blank derives it from the name)
 - `description`
 - `status`
 - `repositoryIds`
@@ -243,7 +248,7 @@ Lightweight collection endpoints for administration data:
 - `GET|POST /admin/repositories` (filters: `organizationId`, `projectId`)
 - `GET /admin/repositories/:id`
 - `GET|POST /admin/proposals` (filters: `projectId`, `repositoryId`, `syncRepoId`, `status`, `sourceLane`)
-- `GET|PATCH /admin/proposals/:id` — detail; PATCH status (`draft`→`open`→`approved`/`rejected`/`merged`/`closed`) and editable fields
+- `GET|PATCH /admin/proposals/:id` — detail; PATCH status (`draft`→`open`→`approved`/`rejected`/`merged`/`closed`) and editable fields. Repository, branch, lane, and snapshot inputs cannot change in an update involving approved or merged status (`400 model_validation_failed`); title and description remain editable. Reopen an approved proposal in a separate status-only update before replacing its inputs.
 - `GET /admin/proposals/:id?include=comments` — proposal plus nested review comments
 - `GET /admin/proposals/:id/comments` — comments only
 - `GET|POST /admin/review-comments` (filters: `proposalId`, `state`)
@@ -251,6 +256,16 @@ Lightweight collection endpoints for administration data:
 - `GET|POST /admin/workflow-runs` (filters: `projectId`, `proposalId`, `status`)
 - `GET|PATCH /admin/workflow-runs/:id` — status updates (`queued`→`in_progress`→`succeeded`/…)
 - `GET|POST /admin/policies`
+
+Metadata with a `projectId` must refer to an existing Hub project. Repository and
+project-scoped policy organization IDs must match that project's organization
+namespace. Proposal repository IDs and workflow-run proposal IDs must belong to
+the same project; proposal workflow-run links must resolve in that project and
+cannot identify a run attached to another proposal. Missing parents return
+`404 not_found`; scope mismatches return `400 model_validation_failed` before
+any record is saved. Project organization IDs remain namespace identifiers and
+do not require a local organization record. Core references and external sync,
+lane, snapshot, and provider IDs do not require local metadata records.
 - `GET /admin/policies/:id`
 - `GET /admin/sync-repos` — sync transport repos (`{ "repos": [ { "id", "refCount" } ] }`)
 
