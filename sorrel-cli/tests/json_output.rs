@@ -65,6 +65,88 @@ fn init_is_idempotent_and_does_not_clobber() {
 }
 
 #[test]
+fn workspace_manifest_rejects_unsupported_or_missing_schema_versions() {
+    let versions = [
+        Some(json!("sorrel.protocol.v1")),
+        Some(json!("private-version-marker")),
+        Some(json!(null)),
+        Some(json!(42)),
+        None,
+    ];
+    let commands: &[&[&str]] = &[
+        &["status", "--json"],
+        &["init", "--json"],
+        &["change", "create", "-m", "blocked", "--json"],
+        &["grant", "list", "--json"],
+        &["workflow", "validate", "--json"],
+        &["secret", "run", "--", "command-that-must-not-run"],
+    ];
+    for version in versions {
+        let dir = TempDir::new().unwrap();
+        command_json(dir.path(), &["init", "--json"]);
+        let path = dir.path().join(".sorrel/manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        match version {
+            Some(version) => {
+                manifest["schemaVersion"] = version;
+            }
+            None => {
+                manifest.as_object_mut().unwrap().remove("schemaVersion");
+            }
+        }
+        let bytes = serde_json::to_vec_pretty(&manifest).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        let head = std::fs::read(dir.path().join(".sorrel/HEAD")).unwrap();
+        std::fs::write(dir.path().join("tracked.txt"), b"must not snapshot").unwrap();
+        for args in commands {
+            let output = Command::cargo_bin("sorrel")
+                .unwrap()
+                .current_dir(dir.path())
+                .args(*args)
+                .output()
+                .unwrap();
+            assert!(
+                !output.status.success(),
+                "{args:?} must reject incompatible manifest"
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("unsupported workspace schema version"),
+                "{args:?}: {stderr}"
+            );
+            assert!(!stderr.contains("private-version-marker"));
+            assert!(output.stdout.is_empty());
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            assert_eq!(
+                std::fs::read(dir.path().join(".sorrel/HEAD")).unwrap(),
+                head
+            );
+            assert!(!dir.path().join(".sorrel/stat-cache.json").exists());
+        }
+    }
+}
+
+#[test]
+fn workspace_manifest_preserves_supported_optional_fields() {
+    let dir = TempDir::new().unwrap();
+    command_json(dir.path(), &["init", "--json"]);
+    let path = dir.path().join(".sorrel/manifest.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    manifest["extension"] = json!({"enabled": true});
+    let bytes = serde_json::to_vec_pretty(&manifest).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    assert_eq!(
+        command_json(dir.path(), &["init", "--json"])["status"],
+        "already_initialized"
+    );
+    assert_eq!(
+        command_json(dir.path(), &["status", "--json"])["status"],
+        "clean"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
 fn status_reports_real_persisted_state_for_initialized_workspace() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     let init = command_json(temp_dir.path(), &["init", "--json"]);
@@ -98,7 +180,7 @@ fn status_detects_dirty_working_tree() {
 }
 
 #[test]
-fn status_writes_stat_cache_and_reuses_it_on_unchanged_resnapshot() {
+fn status_persists_stat_cache_across_unchanged_resnapshots() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     command_json(temp_dir.path(), &["init", "--json"]);
     std::fs::write(temp_dir.path().join("tracked.txt"), b"cached bytes\n").expect("write file");
@@ -122,7 +204,8 @@ fn status_writes_stat_cache_and_reuses_it_on_unchanged_resnapshot() {
     );
 
     // Re-running status with an unchanged working tree must still succeed and
-    // report the same dirty result (cache hit path exercised).
+    // report the same dirty result. Newly written files may conservatively miss
+    // until verified after their ctime second.
     let second = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(second["status"], "dirty");
     assert_eq!(
@@ -143,6 +226,74 @@ fn status_writes_stat_cache_and_reuses_it_on_unchanged_resnapshot() {
     assert!(cache_path.is_file(), "change create must persist the cache");
     let after = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(after["status"], "clean");
+}
+
+#[test]
+fn stat_cache_detects_preserved_mtime_edits_and_replacements() {
+    use std::fs::{File, FileTimes};
+
+    for replace in [false, true] {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let path = temp_dir.path().join("tracked.txt");
+        std::fs::write(&path, b"old\n").expect("initial file");
+        command_json(temp_dir.path(), &["init", "--json"]);
+        // Verify an aged file so this exercises reusable Unix fingerprints,
+        // rather than only the conservative current-second miss.
+        #[cfg(unix)]
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        command_json(
+            temp_dir.path(),
+            &["change", "create", "-m", "initial bytes", "--json"],
+        );
+        let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(
+            command_json(temp_dir.path(), &["status", "--json"])["status"],
+            "clean"
+        );
+
+        let cache_path = temp_dir.path().join(".sorrel/stat-cache.json");
+        let initial_cache = std::fs::read(&cache_path).unwrap();
+
+        let changed_path = if replace {
+            temp_dir.path().join("replacement.tmp")
+        } else {
+            path.clone()
+        };
+        std::fs::write(&changed_path, b"new\n").expect("same-size edit");
+        File::open(&changed_path)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(mtime))
+            .unwrap();
+        if replace {
+            std::fs::rename(&changed_path, &path).expect("replace tracked file");
+        }
+        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), mtime);
+        let status = command_json(temp_dir.path(), &["status", "--json"]);
+        assert_eq!(status["status"], "dirty", "replacement={replace}");
+        assert_eq!(
+            status["worktree"]["changes"]["modified"],
+            json!(["tracked.txt"])
+        );
+        // Independently prove change create rejects the stale cached bytes,
+        // without depending on status having refreshed the entry first.
+        std::fs::write(&cache_path, initial_cache).unwrap();
+        let recorded = command_json(
+            temp_dir.path(),
+            &["change", "create", "-m", "preserved mtime edit", "--json"],
+        );
+        let snapshot_id = recorded["object"]["resultingSnapshot"]["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let store = FileObjectStore::new(temp_dir.path().join(".sorrel")).unwrap();
+        let files = sorrel_core::read_snapshot_files(&store, &snapshot_id).unwrap();
+        assert_eq!(files[Path::new("tracked.txt")], b"new\n");
+        assert_eq!(
+            command_json(temp_dir.path(), &["status", "--json"])["status"],
+            "clean"
+        );
+    }
 }
 
 #[test]
@@ -267,6 +418,49 @@ fn diff_reports_line_level_hunks_for_modified_text() {
     assert!(lines
         .iter()
         .any(|line| line["kind"] == "added" && line["text"] == "line4"));
+}
+
+#[test]
+fn diff_reports_final_newline_and_crlf_changes() {
+    for (old, new, removed_ending, added_ending, marker) in [
+        ("a\n", "a", None, Some("none"), "No newline at end of file"),
+        ("a", "a\n", Some("none"), None, "No newline at end of file"),
+        ("a\r\n", "a\n", Some("crlf"), None, "CRLF line ending"),
+        ("a\n", "a\r\n", None, Some("crlf"), "CRLF line ending"),
+    ] {
+        let temp = TempDir::new().unwrap();
+        std::fs::write(temp.path().join("a.txt"), old).unwrap();
+        command_json(temp.path(), &["init", "--json"]);
+        command_json(temp.path(), &["change", "create", "-m", "base", "--json"]);
+        std::fs::write(temp.path().join("a.txt"), new).unwrap();
+        let diff = command_json(temp.path(), &["diff", "--json"]);
+        let file = &diff["files"][0];
+        assert_eq!(file["kind"], "modified");
+        assert_eq!(file["binary"], false);
+        let lines = file["hunks"][0]["lines"].as_array().unwrap();
+        let removed = lines.iter().find(|line| line["kind"] == "removed").unwrap();
+        let added = lines.iter().find(|line| line["kind"] == "added").unwrap();
+        assert_eq!(removed["text"], "a");
+        assert_eq!(added["text"], "a");
+        assert_eq!(
+            removed.get("lineEnding").and_then(Value::as_str),
+            removed_ending
+        );
+        assert_eq!(
+            added.get("lineEnding").and_then(Value::as_str),
+            added_ending
+        );
+        let human = Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(temp.path())
+            .arg("diff")
+            .output()
+            .unwrap();
+        assert!(human.status.success());
+        let human = String::from_utf8(human.stdout).unwrap();
+        assert!(human.contains(marker));
+        assert!(human.contains("@@ -1,1 +1,1 @@"));
+    }
 }
 
 #[test]

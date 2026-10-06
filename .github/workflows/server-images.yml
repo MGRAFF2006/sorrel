@@ -7,6 +7,10 @@ on:
       - deploy/sorrel-server.compose.yml
       - scripts/check-release.mjs
       - scripts/smoke-server-images.sh
+      - Cargo.toml
+      - Cargo.lock
+      - .dockerignore
+      - sorrel-core/**
       - sorrel-hub/**
       - sorrel-hub-ui/**
       - sorrel-hub-web/**
@@ -29,7 +33,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build release images
         run: |
-          docker build --tag sorrel-hub:smoke ./sorrel-hub
+          docker build --tag sorrel-hub:smoke --file sorrel-hub/Dockerfile .
           docker build --tag sorrel-hub-web:smoke --file sorrel-hub-web/Dockerfile .
       - name: Exercise the packaged stack
         run: ./scripts/smoke-server-images.sh
@@ -63,7 +67,7 @@ jobs:
       matrix:
         include:
           - image: sorrel-hub
-            context: ./sorrel-hub
+            context: .
             file: ./sorrel-hub/Dockerfile
           - image: sorrel-hub-web
             context: .

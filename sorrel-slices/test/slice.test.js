@@ -9,6 +9,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const basicFixture = path.join(__dirname, "fixtures", "basic");
 
+test("parseImports distinguishes module calls from property and identifier lookalikes", () => {
+  const source = `
+    object.require("./property");
+    object?.require("./optional");
+    object. /* comment */ require("./commented-property");
+    object.import("./import-property");
+    $require("./prefixed-name");
+    custom$require("./long-prefixed-name");
+    require("./real");
+    import("./lazy");
+  `;
+  assert.doesNotThrow(() => new Function(source));
+  assert.deepEqual(parseImports(source), [
+    { kind: "static", syntax: "require", specifier: "./real" },
+    { kind: "dynamic", syntax: "import", specifier: "./lazy" }
+  ]);
+});
+
 test("creates deterministic dependency closure manifests", () => {
   const manifest = createSliceManifest({
     projectRoot: basicFixture,

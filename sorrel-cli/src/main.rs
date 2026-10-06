@@ -11,13 +11,13 @@ use cli_policy::{
 use serde_json::{json, Value};
 use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
-    create_change, create_lane, create_stack, git_export, git_import, is_descendant,
-    materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree, parse_object_id_hex,
-    read_conflict, read_snapshot, read_snapshot_files, read_stack, restore_snapshot_to_directory,
-    snapshot_diff, write_snapshot, write_tree, ChangeOptions, ConflictType, FileObjectStore,
-    GitExportOptions, GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions,
-    ObjectId, ObjectKind, ObjectRef, ObjectStore, PathChangeKind, Principal, SnapshotOptions,
-    StackOptions, StatCache, Visibility,
+    create_change, create_lane, create_stack, git_export, git_export_with_force, git_import,
+    is_descendant, materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree,
+    parse_object_id_hex, read_conflict, read_snapshot, read_snapshot_files, read_stack,
+    restore_snapshot_to_directory, snapshot_diff, write_snapshot, write_tree, ChangeOptions,
+    ConflictType, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
+    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
+    PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -174,7 +174,7 @@ struct GitExportArgs {
     #[arg(long)]
     snapshot: Option<String>,
 
-    /// Overwrite / proceed even when the destination already has commits on the branch.
+    /// Allow a non-fast-forward update of the destination branch.
     #[arg(long)]
     force: bool,
 }
@@ -520,6 +520,8 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> io::Result<ExitCode> {
+    // Check before recovery, registry writes, or launching external commands.
+    let _ = repo::load_manifest()?;
     if let Commands::Secret {
         command: sorrel_cli::secret_cmd::SecretCommand::Run(args),
     } = cli.command
@@ -943,14 +945,22 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
                             "oldLen": hunk.old_len,
                             "newStart": hunk.new_start,
                             "newLen": hunk.new_len,
-                            "lines": hunk.lines.iter().map(|line| json!({
-                                "kind": match line.kind {
-                                    linediff::LineKind::Context => "context",
-                                    linediff::LineKind::Added => "added",
-                                    linediff::LineKind::Removed => "removed",
-                                },
-                                "text": line.text,
-                            })).collect::<Vec<_>>()
+                            "lines": hunk.lines.iter().map(|line| {
+                                let mut value = json!({
+                                    "kind": match line.kind {
+                                        linediff::LineKind::Context => "context",
+                                        linediff::LineKind::Added => "added",
+                                        linediff::LineKind::Removed => "removed",
+                                    },
+                                    "text": line.text,
+                                });
+                                match line.line_ending {
+                                    linediff::LineEnding::Lf => {},
+                                    linediff::LineEnding::CrLf => value["lineEnding"] = json!("crlf"),
+                                    linediff::LineEnding::None => value["lineEnding"] = json!("none"),
+                                }
+                                value
+                            }).collect::<Vec<_>>()
                         })
                     })
                     .collect();
@@ -1708,13 +1718,8 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
 
     let mut snapshot_to_git: std::collections::BTreeMap<ObjectId, String> =
         std::collections::BTreeMap::new();
-    let mut existing_map: Option<Value> = None;
-    if repo::git_map_path().is_file() {
-        let bytes = fs::read(repo::git_map_path())?;
-        let map: Value = serde_json::from_slice(&bytes)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-        existing_map = Some(map.clone());
-        if let Some(obj) = map.get("gitToSnapshot").and_then(Value::as_object) {
+    if let Some(map) = load_git_map_fields()? {
+        if let Some(obj) = map.git_to_snapshot.as_object() {
             for (sha, snap) in obj {
                 if let Some(hex) = snap.as_str() {
                     if let Ok(id) = parse_object_id_hex(hex) {
@@ -1723,7 +1728,7 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
                 }
             }
         }
-        if let Some(commits) = map.get("commits").and_then(Value::as_array) {
+        if let Some(commits) = map.commits.as_array() {
             for commit in commits {
                 let sha = commit.get("gitSha").and_then(Value::as_str);
                 let snap = commit.get("snapshot").and_then(Value::as_str);
@@ -1736,20 +1741,11 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
         }
     }
 
-    // Refuse to clobber an existing non-empty branch unless --force or we have a map.
-    if !args.force && snapshot_to_git.is_empty() && git_branch_exists(&git_path, &args.branch) {
-        return Err(io::Error::other(format!(
-            "Git branch '{}' already exists at {}; pass --force to overwrite",
-            args.branch,
-            git_path.display()
-        )));
-    }
-
     let mut options = GitExportOptions::new(&git_path, tip);
     options.branch = args.branch;
     options.snapshot_to_git = snapshot_to_git;
 
-    let exported = to_io(git_export(&store, options))?;
+    let exported = to_io(git_export_with_force(&store, options, args.force))?;
     let created = exported.commits.iter().filter(|c| c.created).count();
 
     let commits_json: Vec<Value> = exported
@@ -1777,7 +1773,6 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
         "branch": exported.branch,
         "commits": commits_json,
         "gitToSnapshot": git_to_snapshot,
-        "previous": existing_map,
     });
     repo::write_json_atomic(&repo::git_map_path(), &map_value)?;
 
@@ -1810,17 +1805,6 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
             exported.head_git_sha
         ),
     })
-}
-
-fn git_branch_exists(git_path: &Path, branch: &str) -> bool {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--verify", &format!("refs/heads/{branch}")])
-        .current_dir(git_path)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
 }
 
 /// Bidirectional fast-forward sync between the workspace and a mirrored Git
@@ -2218,17 +2202,33 @@ fn park_git_lane(
     Ok((lane_id, name))
 }
 
+#[derive(serde::Deserialize)]
+struct GitMapFields {
+    #[serde(default, rename = "gitToSnapshot")]
+    git_to_snapshot: Value,
+    #[serde(default)]
+    commits: Value,
+}
+
+fn load_git_map_fields() -> io::Result<Option<GitMapFields>> {
+    if !repo::git_map_path().is_file() {
+        return Ok(None);
+    }
+    // Serde skips legacy `previous` archives iteratively instead of building
+    // their recursive Value trees. Keep normal limits on the fields we use.
+    serde_json::from_reader(io::BufReader::new(fs::File::open(repo::git_map_path())?))
+        .map(Some)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+}
+
 /// Loads `.sorrel/git-map.json` into a Git SHA → snapshot id map. Reads the
 /// `gitToSnapshot` object plus per-commit entries from import/export/sync maps.
 fn load_git_sha_map() -> io::Result<std::collections::BTreeMap<String, ObjectId>> {
     let mut map = std::collections::BTreeMap::new();
-    if !repo::git_map_path().is_file() {
+    let Some(value) = load_git_map_fields()? else {
         return Ok(map);
-    }
-    let bytes = fs::read(repo::git_map_path())?;
-    let value: Value = serde_json::from_slice(&bytes)
-        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-    if let Some(obj) = value.get("gitToSnapshot").and_then(Value::as_object) {
+    };
+    if let Some(obj) = value.git_to_snapshot.as_object() {
         for (sha, snap) in obj {
             if let Some(hex) = snap.as_str() {
                 if let Ok(id) = parse_object_id_hex(hex) {
@@ -2237,7 +2237,7 @@ fn load_git_sha_map() -> io::Result<std::collections::BTreeMap<String, ObjectId>
             }
         }
     }
-    if let Some(commits) = value.get("commits").and_then(Value::as_array) {
+    if let Some(commits) = value.commits.as_array() {
         for commit in commits {
             let sha = commit.get("gitSha").and_then(Value::as_str);
             let snap = commit.get("snapshot").and_then(Value::as_str);
