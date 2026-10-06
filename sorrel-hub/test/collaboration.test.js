@@ -123,6 +123,81 @@ test('full proposal lifecycle: create, get, comment, status transitions', async 
   });
 });
 
+test('approved and merged proposal inputs remain bound to their review', async () => {
+  await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_review', organizationId: 'org_local', name: 'Review' });
+    app.store.createRepository({ id: 'repo_product', projectId: 'proj_review', organizationId: 'org_local', provider: 'sorrel', owner: 'local', name: 'Reviewed repository' });
+    app.store.createRepository({ id: 'replacement', projectId: 'proj_review', organizationId: 'org_local', provider: 'sorrel', owner: 'local', name: 'Other repository' });
+    const inputs = {
+      repositoryId: 'repo_product',
+      syncRepoId: 'repo_sync',
+      sourceBranch: 'feature',
+      targetBranch: 'main',
+      sourceLane: 'lane_feature',
+      targetLane: 'lane_main',
+      sourceSnapshot: 'aa'.repeat(32),
+      targetSnapshot: 'bb'.repeat(32),
+    };
+    for (const status of ['approved', 'merged']) {
+      const proposal = app.store.createProposal({
+        projectId: 'proj_review', title: 'Reviewed change',
+        authorPrincipal: { type: 'user', id: 'local' }, status, ...inputs,
+      });
+      const url = `${baseUrl}/admin/proposals/${proposal.id}`;
+      for (const field of Object.keys(inputs)) {
+        for (const value of ['replacement', null]) {
+          const response = await patchJson(url, { [field]: value });
+          assert.equal(response.status, 400, `${status}: ${field} = ${value}`);
+          assert.equal((await response.json()).error.code, 'model_validation_failed');
+          assert.deepEqual(app.store.getProposal(proposal.id), proposal);
+        }
+      }
+      const transition = status === 'approved' ? 'open' : 'closed';
+      const combined = await patchJson(url, {
+        status: transition, sourceSnapshot: 'cc'.repeat(32),
+      });
+      assert.equal(combined.status, 400);
+      assert.deepEqual(app.store.getProposal(proposal.id), proposal);
+
+      const editable = await patchJson(url, {
+        title: 'Clarified title', description: 'Clarified description',
+        ...Object.fromEntries(Object.entries(inputs).map(([field, value]) => [field, ` ${value} `])),
+      });
+      assert.equal(editable.status, 200);
+      const updated = (await editable.json()).data;
+      assert.equal(updated.title, 'Clarified title');
+      assert.equal(updated.description, 'Clarified description');
+      assert.equal(updated.status, status);
+      for (const [field, value] of Object.entries(inputs)) assert.equal(updated[field], value);
+    }
+  });
+});
+
+test('open proposal inputs can change, with an explicit reopen before replacing approved inputs', async () => {
+  await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_review', organizationId: 'org_local', name: 'Review' });
+    const proposal = app.store.createProposal({
+      projectId: 'proj_review', title: 'Open change', status: 'open',
+      authorPrincipal: { type: 'user', id: 'local' }, sourceSnapshot: 'aa'.repeat(32),
+    });
+    const url = `${baseUrl}/admin/proposals/${proposal.id}`;
+    const edited = await patchJson(url, { sourceSnapshot: 'bb'.repeat(32), targetLane: 'lane_main' });
+    assert.equal(edited.status, 200);
+    assert.equal((await edited.json()).data.sourceSnapshot, 'bb'.repeat(32));
+    for (const status of ['approved', 'merged']) {
+      const before = structuredClone(app.store.getProposal(proposal.id));
+      const combined = await patchJson(url, { status, sourceSnapshot: 'cc'.repeat(32) });
+      assert.equal(combined.status, 400);
+      assert.deepEqual(app.store.getProposal(proposal.id), before);
+    }
+    assert.equal((await patchJson(url, { status: 'approved' })).status, 200);
+    assert.equal((await patchJson(url, { status: 'open' })).status, 200);
+    assert.equal((await patchJson(url, { sourceSnapshot: 'cc'.repeat(32) })).status, 200);
+    assert.equal(app.store.getProposal(proposal.id).status, 'open');
+    assert.equal(app.store.getProposal(proposal.id).sourceSnapshot, 'cc'.repeat(32));
+  });
+});
+
 test('review comment requires an existing proposal', async () => {
   await withServer(async (baseUrl) => {
     const response = await postJson(`${baseUrl}/admin/review-comments`, {
@@ -215,7 +290,8 @@ test('lane-submit attributes an authenticated session instead of a spoofed body 
 });
 
 test('workflow run status updates', async () => {
-  await withServer(async (baseUrl) => {
+  await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_ci', organizationId: 'org_local', name: 'proj_ci' });
     const runRes = await postJson(`${baseUrl}/admin/workflow-runs`, {
       projectId: 'proj_ci',
       name: 'validate',
@@ -263,7 +339,8 @@ test('GET project by id', async () => {
 });
 
 test('list proposals filters by status and sourceLane', async () => {
-  await withServer(async (baseUrl) => {
+  await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_f', organizationId: 'org_local', name: 'proj_f' });
     await postJson(`${baseUrl}/admin/proposals`, {
       projectId: 'proj_f',
       title: 'A',
@@ -294,7 +371,9 @@ test('list proposals filters by status and sourceLane', async () => {
 test('admin and lane submissions share verified attribution and mirroring', async () => {
   const principal = { type: 'user', id: 'verified' };
   const mirrored = [];
-  await withServer(async (baseUrl) => {
+  await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_one', organizationId: 'org_local', name: 'proj_one' });
+    app.store.createProject({ id: 'proj_two', organizationId: 'org_local', name: 'proj_two' });
     const payload = {
       projectId: 'proj_one', title: 'Review', syncRepoId: 'repo_one', sourceLane: 'lane_feature',
       sourceSnapshot: 'aa'.repeat(32), authorPrincipal: { type: 'user', id: 'forged' },
@@ -321,7 +400,9 @@ test('admin and lane submissions share verified attribution and mirroring', asyn
 
 
 test('lane-submit reuse is scoped to project and normalized repository', async () => {
-  await withServer(async (baseUrl) => {
+  await withServer(async (baseUrl, app) => {
+    app.store.createProject({ id: 'proj_a', organizationId: 'org_local', name: 'proj_a' });
+    app.store.createProject({ id: 'proj_b', organizationId: 'org_local', name: 'proj_b' });
     const payload = {
       projectId: 'proj_a', syncRepoId: 'repo_shared', title: 'Tip',
       sourceLane: 'lane_feature', sourceSnapshot: 'dd'.repeat(32),

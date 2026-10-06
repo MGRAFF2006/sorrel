@@ -63,7 +63,7 @@ Build and exercise the exact server containers that the server release workflow
 will publish:
 
 ```sh
-docker build --tag sorrel-hub:smoke ./sorrel-hub
+docker build --tag sorrel-hub:smoke --file sorrel-hub/Dockerfile .
 docker build --tag sorrel-hub-web:smoke --file sorrel-hub-web/Dockerfile .
 ./scripts/smoke-server-images.sh
 SORREL_VERSION=0.1.0-alpha.2 \

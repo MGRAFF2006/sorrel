@@ -12,7 +12,7 @@
   --fg: #f2f4f7;
   --fg-muted: #c8d0dc;
   --muted: #98a4b6;
-  --dim: #687487;
+  --dim: #8f9caf;
   --accent: #8fced8;
   --accent-bright: #a5d8e0;
   --accent-soft: rgba(143, 206, 216, 0.09);
@@ -21,6 +21,7 @@
   --warn: #ebcb8b;
   --warn-soft: rgba(235, 203, 139, 0.1);
   --red: #bf616a;
+  --red-text: #e38b92;
   --red-soft: rgba(191, 97, 106, 0.1);
   --frost: #81a1c1;
   --border: #343c49;
@@ -140,7 +141,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
 .pill-open, .pill-in-progress, .pill-running { color: var(--accent); border-color: rgba(143,206,216,.42); }
 .pill-draft, .pill-queued { color: var(--frost); border-color: rgba(129,161,193,.42); }
 .pill-approved, .pill-merged, .pill-resolved, .pill-succeeded, .pill-active { color: var(--green); border-color: rgba(163,190,140,.42); }
-.pill-rejected, .pill-failed, .pill-cancelled { color: var(--red); border-color: rgba(191,97,106,.48); }
+.pill-rejected, .pill-failed, .pill-cancelled { color: var(--red-text); border-color: rgba(191,97,106,.48); }
 .pill-closed, .pill-archived { color: var(--dim); }
 
 .page, .directory-page { width: min(1220px, calc(100% - 48px)); margin: 0 auto; padding: 28px 0 70px; }
