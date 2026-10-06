@@ -1689,6 +1689,7 @@ secretRefs:
             &[
                 "grant",
                 "create",
+                "--local-demo",
                 "--action",
                 "secret.read",
                 "--secret",
@@ -1710,6 +1711,7 @@ secretRefs:
         .unwrap()
         .current_dir(root)
         .env("XDG_CONFIG_HOME", config)
+        .env("SORREL_LOCAL_DEMO", "1")
         .env("SORREL_TEST_RESOLUTION_BETA", "synthetic-env")
         .env("SECRETSPEC_SCOPE", "unselected-scope")
         .args(["secret", "check", "--json"])
