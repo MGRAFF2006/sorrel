@@ -7,6 +7,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+jiff = { version = "0.2.35", default-features = false, features = ["std"] }
 blake3 = "1.8.5"
 git2 = "0.21.0"
 ignore = "=0.4.23"

@@ -88,7 +88,7 @@ function snapshotTreeId(parsed) {
  */
 export function walkClosure(repoId, rootIds, store, rootKind) {
   const closure = new Set();
-  const expanded = new Set();
+  const expanded = new Map();
   const missing = new Set();
   const pending = rootIds.map((id) => ({ id, expectedKind: rootKind }));
 
@@ -97,6 +97,12 @@ export function walkClosure(repoId, rootIds, store, rootKind) {
     const normalized = normalizeId(id);
     if (!normalized || !/^[0-9a-f]{64}$/.test(normalized)) {
       throw new HttpError(422, 'closure contains an invalid object reference', 'invalid_sync_object');
+    }
+    if (!terminal && expanded.has(normalized)) {
+      if (expectedKind && expanded.get(normalized) !== expectedKind) {
+        throw new HttpError(422, `object ${normalized} is not a ${expectedKind}`, 'invalid_sync_object');
+      }
+      continue;
     }
     if (!store.has(repoId, normalized)) {
       missing.add(normalized);
@@ -113,10 +119,7 @@ export function walkClosure(repoId, rootIds, store, rootKind) {
     if (expectedKind || kind === 'snapshot' || kind === 'tree') {
       requireTypedObject(parsed, normalized, expectedKind ?? kind);
     }
-    if (expanded.has(normalized)) {
-      continue;
-    }
-    expanded.add(normalized);
+    expanded.set(normalized, kind);
 
     if (kind === 'snapshot') {
       const treeId = snapshotTreeId(parsed);
@@ -160,27 +163,13 @@ export function missingObjects(want, have, repoId, store) {
   const haveSet = new Set(have.map((id) => id.toLowerCase()));
   const missing = new Set();
 
-  for (const rawId of want) {
-    const id = rawId.toLowerCase();
-    if (!store.has(repoId, id)) {
-      missing.add(id);
-    }
+  const { closure, missingIds } = walkClosure(repoId, want, store);
+  for (const id of missingIds) {
+    missing.add(id);
   }
-
-  for (const rootId of want) {
-    const normalized = rootId.toLowerCase();
-    if (!store.has(repoId, normalized)) {
-      continue;
-    }
-
-    const { closure, missingIds } = walkClosure(repoId, [normalized], store);
-    for (const id of missingIds) {
+  for (const id of closure) {
+    if (!haveSet.has(id) && store.has(repoId, id)) {
       missing.add(id);
-    }
-    for (const id of closure) {
-      if (!haveSet.has(id) && store.has(repoId, id)) {
-        missing.add(id);
-      }
     }
   }
 

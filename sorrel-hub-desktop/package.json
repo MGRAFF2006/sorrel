@@ -48,5 +48,8 @@
   ],
   "allowScripts": {
     "esbuild": true
+  },
+  "overrides": {
+    "seroval": "1.6.8"
   }
 }

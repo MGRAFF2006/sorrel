@@ -33,8 +33,11 @@ export function coreSecretCapabilityForAction(action) {
   }
 }
 
-export function isGrantAllowed(grant, request) {
+export function isGrantAllowed(grant, request, now = Date.now()) {
+  const unexpired = grant.expiresAt === undefined ||
+    (typeof grant.expiresAt === "string" && Date.parse(grant.expiresAt) > now);
   return (
+    unexpired &&
     refsEqual(grant.secret, request.secret) &&
     grant.environment === request.environment &&
     grant.actions.includes(request.action) &&
