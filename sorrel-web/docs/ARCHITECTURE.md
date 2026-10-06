@@ -182,8 +182,10 @@ Hub separates product metadata from VCS transport:
   embedding and production-auth contracts.
 - The native mobile companion calls Hub directly through `sorrel-sdk-js`;
   bearer credentials stay in the platform keychain/keystore.
-- Optional Convex state mirrors proposal metadata only. VCS objects and refs do
-  not move into Convex.
+- Optional Convex state mirrors proposal metadata only through internal functions
+  and a server-held admin key. Product counters use the authenticated Hub API;
+  browsers have no direct Convex subscription. VCS objects and refs do not move
+  into Convex.
 
 Projects can explicitly link an already synchronized repository. Reviews record
 source and target snapshot IDs; comparison reads those immutable trees without

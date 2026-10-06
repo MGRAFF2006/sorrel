@@ -40,7 +40,7 @@ production AuthAdapter and network controls. See the root
 | **Hub UI** | Shared Solid `sorrel-hub-ui` — guided organization/repository connection, file previews and recorded before/after review comparisons, proposal-backed Work board, global Inbox, organization/profile surfaces; keyboard-accessible dialogs with pending/error/retry states. Hosted by thin `sorrel-hub-web`. |
 | **Desktop app** | Tauri host for the shared Hub UI; native installers are built for Windows, macOS, and Linux on x64 and ARM64. The app connects to a local loopback Hub and wires scoped native notification/external-link adapters. |
 | **Mobile app** | Native Expo/React Native Hub companion for iPhone, iPad, Android phones, and Android tablets; native stacks/tabs, secure bearer storage, project/review/comment lifecycle, and repository refs. |
-| **Hub install seams** | `GET /capabilities` + `GET /session`; AuthAdapter (`dev` / `workos` / OIDC JWKS); shared `sorrel-hub/convex/` schema for SaaS + self-host. |
+| **Hub install seams** | `GET /capabilities` + `GET /session`; AuthAdapter (`dev` / `workos` / OIDC JWKS); server-only internal `sorrel-hub/convex/` metadata mirror for SaaS + self-host; scoped proposal counters poll Hub. |
 | **Server distribution** | Release automation for unprivileged, health-checked Linux amd64/arm64 Hub API and browser-host images, with GHCR publication, SBOM/provenance, immutable digests, checksums, and a release Compose file. |
 | **Landing (`sorrel-web`)** | Static marketing site (Nord theme). Production deploy is Cloudflare Pages; local Docker is optional preview only. |
 | **Root E2E / CI** | `npm test` E2E and `npm run test:modules` from one checkout. Root Actions checks out the monorepo directly — no submodule PAT. |

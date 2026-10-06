@@ -58,6 +58,7 @@ test('capabilities do not advertise unavailable modules or storage backends', ()
       SORREL_HUB_OBJECT_STORAGE: 's3',
       SORREL_HUB_SYNC_STORE: 'memory',
       CONVEX_URL: 'http://127.0.0.1:3210',
+      CONVEX_DEPLOY_KEY: 'test-admin-key',
     },
   });
   assert.equal(caps.modules.actions, false);
@@ -67,18 +68,22 @@ test('capabilities do not advertise unavailable modules or storage backends', ()
   assert.equal(caps.auth.mode, 'oidc');
   assert.equal(caps.deploy, 'selfhost');
   assert.equal(caps.convex.enabled, true);
-  assert.equal(caps.convex.url, 'http://127.0.0.1:3210');
+  assert.equal('url' in caps.convex, false);
 });
 
-test('capabilities prefer the browser-reachable Convex URL', () => {
-  const caps = resolveCapabilities({
-    env: {
-      CONVEX_URL: 'http://convex-backend:3210',
-      CONVEX_PUBLIC_URL: 'http://127.0.0.1:3210',
-    },
-  });
-  assert.equal(caps.convex.enabled, true);
-  assert.equal(caps.convex.url, 'http://127.0.0.1:3210');
+test('capabilities advertise only configured privileged mirrors and never backend URLs', () => {
+  for (const env of [
+    { CONVEX_URL: 'http://convex-backend:3210' },
+    { CONVEX_PUBLIC_URL: 'http://127.0.0.1:3210', SORREL_HUB_CONVEX: '1' },
+    { CONVEX_URL: 'http://convex-backend:3210', CONVEX_DEPLOY_KEY: 'test-key', SORREL_HUB_CONVEX: '0' },
+  ]) {
+    assert.deepEqual(resolveCapabilities({ env }).convex, { enabled: false });
+  }
+  assert.deepEqual(resolveCapabilities({ env: {
+    CONVEX_SELF_HOSTED_URL: 'http://convex-backend:3210',
+    CONVEX_SELF_HOSTED_ADMIN_KEY: 'test-key',
+    CONVEX_PUBLIC_URL: 'http://127.0.0.1:3210',
+  } }).convex, { enabled: true });
 });
 
 test('AuthAdapter factory selects WorkOS / OIDC / dev', () => {
