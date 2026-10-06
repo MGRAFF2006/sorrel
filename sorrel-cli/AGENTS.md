@@ -50,10 +50,12 @@ merge). Registry helpers are in `src/repo.rs`.
 
 Working-tree snapshots use the engine's
 `materialize_workspace_snapshot`. The CLI loads
-`.sorrel/stat-cache.json` (size+mtime → blob id) before snapshotting and saves
-it atomically (temp file + rename) after `status` and `change create` succeed;
-unchanged files skip re-hashing. `diff` snapshots read-only and does not persist
-the cache. Cache helpers (`load_stat_cache`/`save_stat_cache`/`stat_cache_path`)
+`.sorrel/stat-cache.json` (size+mtime+Unix identity/ctime → blob id) before
+snapshotting and saves it atomically (temp file + rename) after `status` and
+`change create` succeed;
+unchanged files with a usable fingerprint skip re-hashing; old entries and
+unsupported platforms safely reread. `diff` snapshots read-only and does not
+persist the cache. Cache helpers (`load_stat_cache`/`save_stat_cache`/`stat_cache_path`)
 live in `src/repo.rs`; a corrupt cache is treated as empty (pure optimization).
 
 ## Common checks

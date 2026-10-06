@@ -43,6 +43,10 @@ root monorepo layout (`sorrel-core` as a sibling package directory):
 scripts/build-api-docs.sh            # or: scripts/build-api-docs.sh /path/to/sorrel-core
 ```
 
+The build uses the monorepo root `target/` by default and respects
+`CARGO_TARGET_DIR` when set. Generated pages and their shared rustdoc assets are
+copied together into `api/sorrel-core/`.
+
 ## Local preview
 
 ```bash

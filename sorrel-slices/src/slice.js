@@ -413,7 +413,7 @@ function maskCommentsAndStrings(source) {
         const end = index + word.length;
         const property = lastToken === ".";
         lastToken = property ? `.${word}` : word;
-        for (let position = index; position < end; position += 1) codePositions.add(position);
+        if (!property) codePositions.add(index);
         result += word;
         regexAllowed = /^(return|throw|case|delete|void|typeof|instanceof|in|new|else|do)$/.test(lastToken);
         index = end - 1;

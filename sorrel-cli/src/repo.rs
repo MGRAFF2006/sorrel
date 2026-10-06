@@ -96,6 +96,7 @@ pub struct WorkspaceLock {
 impl WorkspaceLock {
     /// Acquire the workspace guard and finish any interrupted metadata commit.
     pub fn acquire(root: &Path) -> io::Result<Self> {
+        let _ = load_manifest_at(&root.join(MANIFEST_FILE))?;
         fs::create_dir_all(root)?;
         let path = root.join("write.lock");
         let file = fs::OpenOptions::new()
@@ -119,6 +120,8 @@ impl WorkspaceLock {
             }
         })?;
         let guard = Self { _file: file };
+        // Recheck under the lock before interpreting any recovery journal.
+        let _ = load_manifest_at(&root.join(MANIFEST_FILE))?;
         recover_metadata_transaction(root)?;
         Ok(guard)
     }
@@ -603,14 +606,27 @@ pub fn write_json_atomic(path: &Path, value: &Value) -> io::Result<()> {
     write_bytes_atomic(path, &bytes)
 }
 
-/// Loads the workspace manifest, if present.
+/// Loads the workspace manifest, if present, rejecting unsupported versions.
+///
+/// Optional fields in the supported namespace are preserved. No migration or
+/// rewrite is performed when the version is missing, malformed, or unknown.
 pub fn load_manifest() -> io::Result<Option<Value>> {
-    let path = manifest_path();
-    if !path.is_file() {
-        return Ok(None);
+    load_manifest_at(&manifest_path())
+}
+
+fn load_manifest_at(path: &Path) -> io::Result<Option<Value>> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let value: Value = serde_json::from_slice(&bytes)?;
+    if value.get("schemaVersion").and_then(Value::as_str) != Some(PROTOCOL_VERSION) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsupported workspace schema version; expected {PROTOCOL_VERSION}"),
+        ));
     }
-    let bytes = fs::read(&path)?;
-    let value = serde_json::from_slice(&bytes)?;
     Ok(Some(value))
 }
 
@@ -878,6 +894,56 @@ fn sanitize_id(id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manifest_reader_rejects_unknown_versions_and_preserves_optional_fields() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(MANIFEST_FILE);
+        assert_eq!(load_manifest_at(&path).unwrap(), None);
+        let mut manifest = build_manifest("repo_test", "timestamp");
+        manifest["extension"] = json!({"enabled": true});
+        write_json_atomic(&path, &manifest).unwrap();
+        assert_eq!(load_manifest_at(&path).unwrap(), Some(manifest.clone()));
+        for version in [json!("sorrel.protocol.v1"), json!(null), json!(42)] {
+            manifest["schemaVersion"] = version;
+            write_json_atomic(&path, &manifest).unwrap();
+            assert!(
+                matches!(load_manifest_at(&path), Err(error) if error.kind() == io::ErrorKind::InvalidData)
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_manifest_blocks_lock_creation_and_transaction_recovery() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(MANIFEST_FILE);
+        let mut manifest = build_manifest("repo_test", "timestamp");
+        manifest["schemaVersion"] = json!("sorrel.protocol.v1");
+        write_json_atomic(&path, &manifest).unwrap();
+        let manifest_bytes = fs::read(&path).unwrap();
+        let head = root.path().join(HEAD_FILE);
+        fs::write(&head, b"old head").unwrap();
+        let staged = stage_bytes(&head, b"new head").unwrap();
+        let journal = root.path().join(TRANSACTION_FILE);
+        write_json_atomic(
+            &journal,
+            &json!([[
+                HEAD_FILE,
+                staged.strip_prefix(root.path()).unwrap(),
+                sorrel_core::ObjectId::for_bytes(b"new head").to_hex(),
+            ]]),
+        )
+        .unwrap();
+        let journal_bytes = fs::read(&journal).unwrap();
+        assert!(
+            matches!(WorkspaceLock::acquire(root.path()), Err(error) if error.kind() == io::ErrorKind::InvalidData)
+        );
+        assert_eq!(fs::read(&head).unwrap(), b"old head");
+        assert_eq!(fs::read(&path).unwrap(), manifest_bytes);
+        assert_eq!(fs::read(&journal).unwrap(), journal_bytes);
+        assert_eq!(fs::read(staged).unwrap(), b"new head");
+        assert!(!root.path().join("write.lock").exists());
+    }
 
     #[test]
     fn workspace_lock_rejects_another_writer_and_releases_on_drop() {

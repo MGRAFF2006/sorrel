@@ -7,7 +7,9 @@ import { test } from 'node:test';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 async function filesUnder(directory) {
-  const entries = await readdir(directory, { withFileTypes: true });
+  // Generated rustdoc has its own assets and scripts; validate authored site pages here.
+  const entries = (await readdir(directory, { withFileTypes: true }))
+    .filter((entry) => directory !== ROOT || entry.name !== 'api');
   const nested = await Promise.all(entries.map((entry) => {
     const path = resolve(directory, entry.name);
     return entry.isDirectory() ? filesUnder(path) : [path];
