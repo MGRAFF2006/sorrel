@@ -1,3 +1,5 @@
+import type { Project, Proposal, SyncRepo } from './types';
+
 export const PROPOSAL_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
   draft: ['open', 'closed'],
   open: ['approved', 'rejected', 'merged', 'closed', 'draft'],
@@ -42,6 +44,14 @@ export function unwrapList<T>(payload: unknown): T[] {
     if (Array.isArray(record[key])) return record[key] as T[];
   }
   return [];
+}
+
+export function connectedSyncRepos(project: Project, proposals: Proposal[], available: SyncRepo[]): SyncRepo[] {
+  const linked = new Set([
+    ...(project.repositoryIds ?? []),
+    ...proposals.map(proposal => proposal.syncRepoId).filter((id): id is string => Boolean(id)),
+  ]);
+  return available.filter(repo => linked.has(repo.id));
 }
 
 export function shortId(value: unknown, length = 12): string {
