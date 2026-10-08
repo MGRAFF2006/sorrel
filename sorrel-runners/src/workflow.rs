@@ -337,10 +337,10 @@ fn convert_job(job_id: &str, spec: &WorkflowJob) -> crate::Result<Job> {
 /// can route the job to a [`crate::ContainerRunner`]; the local process runner
 /// ignores this metadata and still executes the shell command.
 fn annotate_platform(job: &mut Job, platform: &WorkflowPlatform) {
-    if platform.runtime.as_deref() == Some(RUNTIME_CONTAINER) {
-        if let Some(image) = &platform.image {
-            job.name = Some(format!("container:{image}"));
-        }
+    if platform.runtime.as_deref() == Some(RUNTIME_CONTAINER)
+        && let Some(image) = &platform.image
+    {
+        job.name = Some(format!("container:{image}"));
     }
 }
 

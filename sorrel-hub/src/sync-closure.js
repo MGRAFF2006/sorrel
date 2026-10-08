@@ -7,6 +7,26 @@
  */
 
 import { HttpError } from './http.js';
+import { DEFAULT_LIMITS } from './resource-limits.js';
+
+/** One budget per sync request, shared by closure and ancestry validation. */
+export function createTraversalBudget(limits = DEFAULT_LIMITS) {
+  let links = 0;
+  let bytes = 0;
+  const objects = new Set();
+  const fail = () => { throw new HttpError(413, 'sync traversal exceeds configured safety limits', 'sync_traversal_too_large'); };
+  return {
+    link() { if (++links > limits.traversalLinks) fail(); },
+    object(id) {
+      objects.add(id);
+      if (objects.size > limits.traversalObjects) fail();
+    },
+    bytes(size) { bytes += size; if (bytes > limits.traversalBytes) fail(); },
+  };
+}
+
+const PROTOCOL_VERSION = 'sorrel.protocol.v0';
+const TYPED_KINDS = { snapshot: 'Snapshot', tree: 'Tree' };
 
 /**
  * @typedef {import('./sync-store.js').RepoSyncStore} RepoSyncStore
@@ -14,7 +34,7 @@ import { HttpError } from './http.js';
 
 /**
  * @param {Buffer} bytes
- * @returns {{ kind?: string, tree?: unknown, root?: unknown, rootTree?: unknown, parents?: unknown[], entries?: Array<Record<string, unknown>> } | null}
+ * @returns {{ schemaVersion?: string, kind?: string, tree?: unknown, root?: unknown, rootTree?: unknown, parents?: unknown[], entries?: Array<Record<string, unknown>> } | null}
  */
 export function parseJsonObject(bytes) {
   try {
@@ -26,6 +46,17 @@ export function parseJsonObject(bytes) {
   } catch {
     return null;
   }
+}
+
+/** Match Core's exact persisted kind/version boundary for snapshots and trees. */
+export function requireTypedObject(parsed, objectId, expectedKind) {
+  if (!Object.hasOwn(TYPED_KINDS, expectedKind) || parsed?.kind !== TYPED_KINDS[expectedKind]) {
+    throw new HttpError(422, `object ${objectId} is not a ${expectedKind}`, 'invalid_sync_object');
+  }
+  if (parsed.schemaVersion !== PROTOCOL_VERSION) {
+    throw new HttpError(422, `object ${objectId} has an unsupported schemaVersion`, 'invalid_sync_object');
+  }
+  return parsed;
 }
 
 function normalizeId(value) {
@@ -72,11 +103,14 @@ function snapshotTreeId(parsed) {
  * @param {string} [rootKind] required kind for stored roots (ref updates use snapshot)
  * @returns {{ closure: Set<string>, incomplete: boolean, missingIds: string[] }}
  */
-export function walkClosure(repoId, rootIds, store, rootKind) {
+export function walkClosure(repoId, rootIds, store, rootKind, budget = createTraversalBudget()) {
   const closure = new Set();
-  const expanded = new Set();
+  const expanded = new Map();
   const missing = new Set();
-  const pending = rootIds.map((id) => ({ id, expectedKind: rootKind }));
+  const pending = [];
+  const enqueue = (link) => { budget.link(); pending.push(link); };
+  for (const id of rootIds) enqueue({ id, expectedKind: rootKind });
+  const verifiedBlobs = new Set();
 
   while (pending.length > 0) {
     const { id, expectedKind, terminal } = pending.pop();
@@ -84,32 +118,40 @@ export function walkClosure(repoId, rootIds, store, rootKind) {
     if (!normalized || !/^[0-9a-f]{64}$/.test(normalized)) {
       throw new HttpError(422, 'closure contains an invalid object reference', 'invalid_sync_object');
     }
+    budget.object(normalized);
+    if (terminal && verifiedBlobs.has(normalized)) continue;
+    if (!terminal && expanded.has(normalized)) {
+      if (expectedKind && expanded.get(normalized) !== expectedKind) {
+        throw new HttpError(422, `object ${normalized} is not a ${expectedKind}`, 'invalid_sync_object');
+      }
+      continue;
+    }
     if (!store.has(repoId, normalized)) {
       missing.add(normalized);
       continue;
     }
 
     closure.add(normalized);
-    if (terminal) continue;
+    // Terminal blobs still need the store's digest verification before publication.
+    const bytes = store.get(repoId, normalized);
+    budget.bytes(bytes.length);
+    if (terminal) { verifiedBlobs.add(normalized); continue; }
 
-    const parsed = parseJsonObject(store.get(repoId, normalized));
+    const parsed = parseJsonObject(bytes);
     const kind = typeof parsed?.kind === 'string' ? parsed.kind.toLowerCase() : undefined;
-    if (expectedKind && kind !== expectedKind) {
-      throw new HttpError(422, `object ${normalized} is not a ${expectedKind}`, 'invalid_sync_object');
+    if (expectedKind || kind === 'snapshot' || kind === 'tree') {
+      requireTypedObject(parsed, normalized, expectedKind ?? kind);
     }
-    if (expanded.has(normalized)) {
-      continue;
-    }
-    expanded.add(normalized);
+    expanded.set(normalized, kind);
 
     if (kind === 'snapshot') {
       const treeId = snapshotTreeId(parsed);
       if (!treeId || !Array.isArray(parsed.parents ?? [])) {
         throw new HttpError(422, `snapshot ${normalized} has invalid links`, 'invalid_sync_object');
       }
-      pending.push({ id: treeId, expectedKind: 'tree' });
+      enqueue({ id: treeId, expectedKind: 'tree' });
       for (const parent of parsed.parents ?? []) {
-        pending.push({ id: refObjectId(parent), expectedKind: 'snapshot' });
+        enqueue({ id: refObjectId(parent), expectedKind: 'snapshot' });
       }
     } else if (kind === 'tree') {
       if (!Array.isArray(parsed.entries)) {
@@ -120,7 +162,7 @@ export function walkClosure(repoId, rootIds, store, rootKind) {
           (typeof entry?.object?.kind === 'string' && entry.object.kind.toLowerCase() === 'tree');
         const terminal = !directory && (entry?.type === 'file' ||
           (typeof entry?.object?.kind === 'string' && entry.object.kind.toLowerCase() === 'blob'));
-        pending.push({ id: entryObjectId(entry), expectedKind: directory ? 'tree' : undefined, terminal });
+        enqueue({ id: entryObjectId(entry), expectedKind: directory ? 'tree' : undefined, terminal });
       }
     }
   }
@@ -140,31 +182,17 @@ export function walkClosure(repoId, rootIds, store, rootKind) {
  * @param {RepoSyncStore} store
  * @returns {string[]}
  */
-export function missingObjects(want, have, repoId, store) {
+export function missingObjects(want, have, repoId, store, budget = createTraversalBudget()) {
   const haveSet = new Set(have.map((id) => id.toLowerCase()));
   const missing = new Set();
 
-  for (const rawId of want) {
-    const id = rawId.toLowerCase();
-    if (!store.has(repoId, id)) {
-      missing.add(id);
-    }
+  const { closure, missingIds } = walkClosure(repoId, want, store, undefined, budget);
+  for (const id of missingIds) {
+    missing.add(id);
   }
-
-  for (const rootId of want) {
-    const normalized = rootId.toLowerCase();
-    if (!store.has(repoId, normalized)) {
-      continue;
-    }
-
-    const { closure, missingIds } = walkClosure(repoId, [normalized], store);
-    for (const id of missingIds) {
+  for (const id of closure) {
+    if (!haveSet.has(id) && store.has(repoId, id)) {
       missing.add(id);
-    }
-    for (const id of closure) {
-      if (!haveSet.has(id) && store.has(repoId, id)) {
-        missing.add(id);
-      }
     }
   }
 
@@ -191,7 +219,7 @@ export function isClosureComplete(repoId, rootIds, store) {
  * @param {RepoSyncStore} store
  * @returns {boolean}
  */
-export function isDescendant(repoId, ancestorId, candidateId, store) {
+export function isDescendant(repoId, ancestorId, candidateId, store, budget = createTraversalBudget()) {
   const ancestor = ancestorId.toLowerCase();
   const candidate = candidateId.toLowerCase();
 
@@ -200,20 +228,25 @@ export function isDescendant(repoId, ancestorId, candidateId, store) {
   }
 
   const visited = new Set();
-  const queue = [candidate];
+  const queue = [];
+  const enqueue = (id) => { budget.link(); queue.push(id); };
+  enqueue(candidate);
 
   while (queue.length > 0) {
-    const current = queue.shift();
+    const current = queue.pop();
     if (!current || visited.has(current)) {
       continue;
     }
     visited.add(current);
+    budget.object(current);
 
     if (!store.has(repoId, current)) {
       continue;
     }
 
-    const parsed = parseJsonObject(store.get(repoId, current));
+    const bytes = store.get(repoId, current);
+    budget.bytes(bytes.length);
+    const parsed = parseJsonObject(bytes);
     if (!parsed || typeof parsed.kind !== 'string' || parsed.kind.toLowerCase() !== 'snapshot') {
       continue;
     }
@@ -223,6 +256,8 @@ export function isDescendant(repoId, ancestorId, candidateId, store) {
       if (!parentId) {
         continue;
       }
+      budget.link();
+      budget.object(parentId);
       if (parentId === ancestor) {
         return true;
       }

@@ -53,6 +53,7 @@ impl LiveHub {
                 .current_dir(&hub_dir)
                 .env("SORREL_HUB_SYNC_STORE", "memory")
                 .env("SORREL_HUB_BOOTSTRAP_GRANTS", "1")
+                .env("SORREL_HUB_LOCAL_DEMO", "1")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
                 .spawn()
@@ -388,6 +389,61 @@ fn cli_pull_rejects_ignored_path_collisions_before_restoring() {
             "blocked\n"
         );
         assert!(!local.path().join("aaa.txt").exists());
+    }
+}
+
+#[test]
+fn cli_pull_rejects_reserved_paths_before_removing_tracked_files() {
+    let hub = LiveHub::start();
+    for reserved in [".git", ".sorrel", ".GiT", ".sorrel. "] {
+        let repo_id = format!("repo_reserved_pull_{}", reserved.replace(['.', ' '], "x"));
+        let source = connected_workspace(&hub, &repo_id);
+        std::fs::write(source.path().join("tracked.txt"), b"preserve\n").unwrap();
+        cli_ok(source.path(), &["change", "create", "-m", "base"]);
+        cli_ok(source.path(), &["push"]);
+        let local = connected_workspace(&hub, &repo_id);
+        cli_ok(local.path(), &["pull"]);
+        let before = head_bytes(local.path());
+        let parent: Value = serde_json::from_slice(&before.0).unwrap();
+        let store = FileObjectStore::new(source.path().join(".sorrel")).unwrap();
+        let blob = sorrel_core::write_blob(&store, b"invalid destination\n").unwrap();
+        let tree = write_tree(
+            &store,
+            vec![sorrel_core::TreeEntry {
+                name: "new-file".to_owned(),
+                path: PathBuf::from(reserved).join("new-file"),
+                entry_type: sorrel_core::EntryType::File,
+                object: sorrel_core::ObjectRef::new(sorrel_core::ObjectKind::Blob, blob.id),
+                mode: sorrel_core::EntryMode::Normal,
+                size: Some(blob.size()),
+                content_hash: Some(blob.content_hash),
+            }],
+        )
+        .unwrap();
+        let mut options = SnapshotOptions::new(&repo_id);
+        options.parents = vec![sorrel_core::ObjectRef::new(
+            sorrel_core::ObjectKind::Snapshot,
+            parse_object_id_hex(parent["snapshot"].as_str().unwrap()).unwrap(),
+        )];
+        let snapshot = write_snapshot(&store, tree.id, options).unwrap();
+        let remote = repo::Remote {
+            url: hub.url().to_owned(),
+            repo_id,
+        };
+        sync::push(&store, &remote, "origin", "HEAD", &snapshot.id, None).unwrap();
+        let output = cli(local.path(), &["pull"]);
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("invalid snapshot path"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(head_bytes(local.path()), before);
+        assert_eq!(
+            std::fs::read(local.path().join("tracked.txt")).unwrap(),
+            b"preserve\n"
+        );
+        assert!(!local.path().join(reserved).join("new-file").exists());
     }
 }
 

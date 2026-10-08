@@ -153,7 +153,9 @@ fast-forward of local HEAD, restores the working tree, and only then updates
 HEAD and the active lane head. A freshly initialized workspace with a
 parentless empty snapshot can accept its first remote history.
 Existing ignored or untracked paths that a new remote file would overwrite are
-also rejected before checkout; move those paths aside and retry.
+also rejected before checkout; move those paths aside and retry. Incoming
+snapshot paths, including reserved `.git` and `.sorrel` destinations, are
+validated before any obsolete tracked files are removed.
 
 Divergent, unrelated, or rewound history is rejected; pull does not force-reset
 local work. Invalid or incomplete downloads leave HEAD and the working tree

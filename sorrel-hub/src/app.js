@@ -4,8 +4,10 @@ import { createAuthAdapterFromEnv } from './auth/adapter.js';
 import { resolveCapabilities } from './capabilities.js';
 import { createConvexMirror } from './convex-mirror.js';
 import { PolicyDeniedError, PolicyEvaluationError } from './core-policy.js';
+import { FsRepoSyncStore } from './fs-sync-store.js';
 import { HttpError, sendJson, sendNotFound } from './http.js';
 import { ModelValidationError } from './models.js';
+import { resolveResourceLimits } from './resource-limits.js';
 import { handleAdminRoute } from './routes/admin.js';
 import { handleCollaborationRoute } from './routes/collaboration.js';
 import { handleProjectsRoute } from './routes/projects.js';
@@ -16,21 +18,33 @@ import {
   SyncObjectNotFoundError,
 } from './sync-store.js';
 
+const DIAGNOSTIC_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'CONNECT', 'TRACE']);
+const FILESYSTEM_ERROR_CODES = new Set([
+  'EACCES', 'EPERM', 'ENOSPC', 'EDQUOT', 'EROFS', 'ENOENT', 'EEXIST',
+  'ENOTDIR', 'EISDIR', 'EMFILE', 'ENFILE', 'EIO', 'EXDEV', 'EBUSY', 'ELOOP', 'ENAMETOOLONG',
+]);
+
 export function createApp(options = {}) {
+  const limits = resolveResourceLimits(options.env);
   const store = options.store ?? createInMemoryStore();
   const trustedGrantsById = options.trustedGrantsById ?? {};
+  const trustedPoliciesById = options.trustedPoliciesById ?? {};
   const authAdapter = options.authAdapter ?? createAuthAdapterFromEnv(options.env);
+  const localDemo = authAdapter.mode === 'dev' && (options.env ?? process.env).SORREL_HUB_LOCAL_DEMO === '1';
   const convexMirror = options.convexMirror ?? createConvexMirror(options.env);
   const capabilities =
     options.capabilities ??
     resolveCapabilities({
       authMode: authAdapter.mode,
       env: options.env,
+      objectStorage: store.sync instanceof FsRepoSyncStore ? 'fs' : 'memory',
+      convexEnabled: convexMirror.enabled === true,
     });
 
   return {
     store,
     trustedGrantsById,
+    trustedPoliciesById,
     authAdapter,
     convexMirror,
     capabilities,
@@ -54,7 +68,10 @@ export function createApp(options = {}) {
         }
 
         // Resolve session once per request (auth off the hot object path).
-        const session = await authAdapter.resolveSession(request);
+        const session = authAdapter.mode === 'dev' && !localDemo ? null :
+          await authAdapter.resolveSession(request) ?? (localDemo && request.headers['x-sorrel-acting-principal'] === undefined ? {
+            principal: { type: 'user', id: 'local' }, sessionId: 'dev:user:local', authMode: 'dev',
+          } : null);
 
         if (request.method === 'GET' && url.pathname === '/session') {
           return sendJson(response, 200, {
@@ -76,16 +93,19 @@ export function createApp(options = {}) {
           });
         }
 
-        if (authAdapter.mode !== 'dev' && !session && !['GET', 'HEAD'].includes(request.method)) {
+        if (!session) {
           throw new HttpError(401, 'a verified Hub session is required', 'authentication_required');
         }
 
         const routeContext = {
           store,
+          limits,
           url,
           trustedGrantsById,
+          trustedPoliciesById,
           authAdapter,
           session,
+          localDemo,
           convexMirror,
           capabilities,
         };
@@ -108,7 +128,7 @@ export function createApp(options = {}) {
 
         return sendNotFound(response);
       } catch (error) {
-        return sendError(response, error);
+        return sendError(response, error, request.method);
       }
     },
   };
@@ -124,10 +144,10 @@ function isSyncPath(pathname) {
   return resource === 'refs' || resource === 'objects' || resource === 'tree' || resource === 'files';
 }
 
-function sendError(response, error) {
+function sendError(response, error, method) {
   const mapped = mapSyncStoreError(error);
   if (mapped !== error) {
-    return sendError(response, mapped);
+    return sendError(response, mapped, method);
   }
 
   if (error instanceof SyncObjectIdMismatchError) {
@@ -149,6 +169,7 @@ function sendError(response, error) {
   }
 
   if (error instanceof HttpError) {
+    if (error.statusCode === 413) response.setHeader('connection', 'close');
     return sendJson(response, error.statusCode, {
       error: {
         code: error.code,
@@ -196,7 +217,7 @@ function sendError(response, error) {
   }
 
   if (error instanceof PolicyEvaluationError) {
-    return sendJson(response, 403, {
+    return sendJson(response, error.statusCode ?? 403, {
       error: {
         code: error.code,
         message: error.message,
@@ -204,6 +225,12 @@ function sendError(response, error) {
     });
   }
 
+  const code = FILESYSTEM_ERROR_CODES.has(error?.code) ? error.code : undefined;
+  console.error('[sorrel-hub] unexpected request failure', {
+    method: DIAGNOSTIC_METHODS.has(method) ? method : 'UNKNOWN',
+    category: code ? 'filesystem' : 'internal',
+    ...(code ? { code } : {}),
+  });
   return sendJson(response, 500, {
     error: {
       code: 'internal_server_error',

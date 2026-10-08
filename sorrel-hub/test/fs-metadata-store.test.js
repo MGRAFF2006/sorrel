@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createApp } from '../src/app.js';
+import { createDemoApp as createApp } from '../test-support/demo-app.js';
 import {
   createFsMetadataStore,
   FsMetadataStore,
@@ -247,6 +247,7 @@ test('invalid Unicode IDs cannot persist or overwrite replacement-character IDs'
 test('duplicate record IDs never overwrite existing metadata', (t) => {
   const dir = tempDir(t);
   const store = createFsMetadataStore(dir);
+  store.createProject({ id: 'proj_base', organizationId: 'org_test', name: 'Base' });
   const proposal = store.createProposal({ id: 'prop_base', projectId: 'proj_base', title: 'Original', authorRef: 'user:local' });
   const cases = [
     ['organizations', 'createOrganization', { id: 'org_test', name: 'Original' }],
@@ -281,6 +282,7 @@ test('failed metadata creation leaves no visible record and permits a retry', (t
 test('failed metadata updates preserve the previous record in memory and after restart', (t) => {
   const dir = tempDir(t);
   const store = createFsMetadataStore(dir);
+  store.createProject({ id: 'proj_test', organizationId: 'org_test', name: 'Base' });
   const proposal = store.createProposal({ id: 'prop_test', projectId: 'proj_test', title: 'Original', authorRef: 'user:local' });
   const comment = store.createReviewComment({ id: 'comment_test', proposalId: proposal.id, body: 'Original', authorRef: 'user:local' });
   const run = store.createWorkflowRun({ id: 'run_test', projectId: 'proj_test', name: 'Validate' });

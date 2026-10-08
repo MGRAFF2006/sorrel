@@ -96,6 +96,7 @@ pub struct WorkspaceLock {
 impl WorkspaceLock {
     /// Acquire the workspace guard and finish any interrupted metadata commit.
     pub fn acquire(root: &Path) -> io::Result<Self> {
+        let _ = load_manifest_at(&root.join(MANIFEST_FILE))?;
         fs::create_dir_all(root)?;
         let path = root.join("write.lock");
         let file = fs::OpenOptions::new()
@@ -119,12 +120,74 @@ impl WorkspaceLock {
             }
         })?;
         let guard = Self { _file: file };
+        // Recheck under the lock before interpreting any recovery journal.
+        let _ = load_manifest_at(&root.join(MANIFEST_FILE))?;
+        sorrel_core::durability::flush_root_ancestors(root)?;
         recover_metadata_transaction(root)?;
         Ok(guard)
     }
 }
 
+/// A metadata rename/unlink succeeded, but its directory barrier failed.
+/// The visible state may already be committed; retain pending journal data.
+#[derive(Debug)]
+pub struct MetadataDurabilityUncertain {
+    path: PathBuf,
+    source: io::Error,
+}
+
+impl std::fmt::Display for MetadataDurabilityUncertain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "metadata publication at {} may already have changed; durability is uncertain: {}",
+            self.path.display(),
+            self.source
+        )
+    }
+}
+impl std::error::Error for MetadataDurabilityUncertain {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+fn publication_uncertain(path: &Path, source: io::Error) -> io::Error {
+    io::Error::new(
+        source.kind(),
+        MetadataDurabilityUncertain {
+            path: path.to_owned(),
+            source,
+        },
+    )
+}
+fn is_publication_uncertain(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<MetadataDurabilityUncertain>())
+}
+fn metadata_root(path: &Path) -> &Path {
+    path.ancestors()
+        .skip(1)
+        .find(|ancestor| ancestor.file_name().is_some_and(|name| name == SORREL_DIR))
+        .unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")))
+}
+
+#[cfg(test)]
 fn stage_bytes(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
+    stage_bytes_with_flush(
+        metadata_root(path),
+        path,
+        bytes,
+        &sorrel_core::durability::flush_directory_chain,
+    )
+}
+
+fn stage_bytes_with_flush(
+    root: &Path,
+    path: &Path,
+    bytes: &[u8],
+    flush: &dyn Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<PathBuf> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
     loop {
@@ -139,7 +202,11 @@ fn stage_bytes(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         };
-        if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+        if let Err(error) = file
+            .write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .and_then(|()| flush(parent, root))
+        {
             drop(file);
             let _ = fs::remove_file(&temporary);
             return Err(error);
@@ -149,15 +216,42 @@ fn stage_bytes(path: &Path, bytes: &[u8]) -> io::Result<PathBuf> {
 }
 
 fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let temporary = stage_bytes(path, bytes)?;
+    write_bytes_atomic_with_flush(
+        metadata_root(path),
+        path,
+        bytes,
+        &sorrel_core::durability::flush_directory_chain,
+    )
+}
+
+fn write_bytes_atomic_with_flush(
+    root: &Path,
+    path: &Path,
+    bytes: &[u8],
+    flush: &dyn Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let temporary = stage_bytes_with_flush(root, path, bytes, flush)?;
     if let Err(error) = fs::rename(&temporary, path) {
         let _ = fs::remove_file(&temporary);
         return Err(error);
     }
-    Ok(())
+    flush(path.parent().unwrap_or_else(|| Path::new(".")), root)
+        .map_err(|source| publication_uncertain(path, source))
 }
 
 fn metadata_transaction(root: &Path, updates: &[(PathBuf, Vec<u8>)]) -> io::Result<()> {
+    metadata_transaction_with_flush(
+        root,
+        updates,
+        &sorrel_core::durability::flush_directory_chain,
+    )
+}
+
+fn metadata_transaction_with_flush(
+    root: &Path,
+    updates: &[(PathBuf, Vec<u8>)],
+    flush: &dyn Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
     let journal = root.join(TRANSACTION_FILE);
     if journal.exists() {
         return Err(io::Error::other(
@@ -174,25 +268,36 @@ fn metadata_transaction(root: &Path, updates: &[(PathBuf, Vec<u8>)]) -> io::Resu
                     target.display()
                 )));
             }
-            let temporary = stage_bytes(target, bytes)?;
+            let temporary = stage_bytes_with_flush(root, target, bytes, flush)?;
             staged.push((
                 target.strip_prefix(root).unwrap().to_path_buf(),
                 temporary.strip_prefix(root).unwrap().to_path_buf(),
                 sorrel_core::ObjectId::for_bytes(bytes).to_hex(),
             ));
         }
-        write_json_atomic(&journal, &serde_json::to_value(&staged)?)
+        let mut bytes = serde_json::to_vec_pretty(&staged)?;
+        bytes.push(b'\n');
+        write_bytes_atomic_with_flush(root, &journal, &bytes, flush)
     })();
     if let Err(error) = preparation {
-        for (_, temporary, _) in &staged {
-            let _ = fs::remove_file(root.join(temporary));
+        if !is_publication_uncertain(&error) {
+            for (_, temporary, _) in &staged {
+                let _ = fs::remove_file(root.join(temporary));
+            }
         }
         return Err(error);
     }
-    recover_metadata_transaction(root)
+    recover_metadata_transaction_with_flush(root, flush)
 }
 
 fn recover_metadata_transaction(root: &Path) -> io::Result<()> {
+    recover_metadata_transaction_with_flush(root, &sorrel_core::durability::flush_directory_chain)
+}
+
+fn recover_metadata_transaction_with_flush(
+    root: &Path,
+    flush: &dyn Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
     let journal = root.join(TRANSACTION_FILE);
     let bytes = match fs::read(&journal) {
         Ok(bytes) => bytes,
@@ -220,21 +325,75 @@ fn recover_metadata_transaction(root: &Path) -> io::Result<()> {
             ));
         }
     }
-    for (target, temporary, digest) in entries {
+    // A journal rename may have succeeded before its barrier failed.
+    flush(root, root).map_err(|source| publication_uncertain(&journal, source))?;
+    let mut snapshots = std::collections::BTreeSet::new();
+    let mut changes = std::collections::BTreeSet::new();
+    for (target, temporary, digest) in &entries {
         let target = root.join(target);
         let temporary = root.join(temporary);
-        if temporary.is_file() {
-            fs::rename(&temporary, &target)?;
-        } else if !target.is_file()
-            || sorrel_core::ObjectId::for_bytes(&fs::read(&target)?).to_hex() != digest
-        {
+        let data = fs::read(if temporary.is_file() {
+            &temporary
+        } else {
+            &target
+        })?;
+        if sorrel_core::ObjectId::for_bytes(&data).to_hex() != *digest {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "metadata transaction is missing staged data",
             ));
         }
+        if target.file_name().is_some_and(|name| name == HEAD_FILE)
+            || target.parent() == Some(root.join(HEADS_DIR).as_path())
+        {
+            if let Ok(value) = serde_json::from_slice::<Value>(&data) {
+                if let Some(snapshot) = value.get("snapshot").and_then(Value::as_str) {
+                    snapshots.insert(snapshot.to_owned());
+                }
+            }
+        }
+        if target
+            .file_name()
+            .is_some_and(|name| name == CHANGES_INDEX_FILE)
+        {
+            for line in String::from_utf8_lossy(&data).lines() {
+                if let Ok(value) = serde_json::from_str::<Value>(line) {
+                    if let Some(snapshot) = value.get("snapshot").and_then(Value::as_str) {
+                        snapshots.insert(snapshot.to_owned());
+                    }
+                    if let Some(change) = value.get("change").and_then(Value::as_str) {
+                        changes.insert(change.to_owned());
+                    }
+                }
+            }
+        }
     }
-    fs::remove_file(journal)
+    if !snapshots.is_empty() || !changes.is_empty() {
+        let snapshots: Vec<_> = snapshots.iter().map(String::as_str).collect();
+        let changes: Vec<_> = changes.iter().map(String::as_str).collect();
+        flush_core_references(root, &snapshots, &changes)?;
+    }
+    for (target, temporary, _) in entries {
+        let target = root.join(target);
+        let temporary = root.join(temporary);
+        let data_path = if temporary.is_file() {
+            &temporary
+        } else {
+            &target
+        };
+        #[cfg(unix)]
+        let file = fs::File::open(data_path)?;
+        #[cfg(not(unix))]
+        let file = fs::OpenOptions::new().write(true).open(data_path)?;
+        file.sync_all()?;
+        if temporary.is_file() {
+            fs::rename(&temporary, &target)?;
+        }
+        flush(target.parent().unwrap(), root)
+            .map_err(|source| publication_uncertain(&target, source))?;
+    }
+    fs::remove_file(&journal)?;
+    flush(root, root).map_err(|source| publication_uncertain(&journal, source))
 }
 
 /// Absolute-ish path to the `.sorrel` directory rooted at the current dir.
@@ -419,7 +578,8 @@ pub fn write_merge_state(merge_result_id: &str) -> io::Result<()> {
 /// Removes `.sorrel/MERGE_STATE` if present.
 pub fn clear_merge_state() -> io::Result<()> {
     match fs::remove_file(merge_state_path()) {
-        Ok(()) => Ok(()),
+        Ok(()) => sorrel_core::durability::flush_directory_chain(&sorrel_dir(), &sorrel_dir())
+            .map_err(|source| publication_uncertain(&merge_state_path(), source)),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
@@ -479,6 +639,7 @@ pub fn load_changes_index() -> BTreeMap<String, String> {
 /// file via temp + rename so concurrent readers never see a partial write.
 /// The caller must hold [`WorkspaceLock`] to serialize read-modify-write.
 pub fn append_changes_index(entry: &ChangesIndexEntry) -> io::Result<()> {
+    flush_core_references(&sorrel_dir(), &[&entry.snapshot], &[&entry.change])?;
     write_bytes_atomic(&changes_index_path(), &changes_index_bytes(entry)?)
 }
 
@@ -603,14 +764,27 @@ pub fn write_json_atomic(path: &Path, value: &Value) -> io::Result<()> {
     write_bytes_atomic(path, &bytes)
 }
 
-/// Loads the workspace manifest, if present.
+/// Loads the workspace manifest, if present, rejecting unsupported versions.
+///
+/// Optional fields in the supported namespace are preserved. No migration or
+/// rewrite is performed when the version is missing, malformed, or unknown.
 pub fn load_manifest() -> io::Result<Option<Value>> {
-    let path = manifest_path();
-    if !path.is_file() {
-        return Ok(None);
+    load_manifest_at(&manifest_path())
+}
+
+fn load_manifest_at(path: &Path) -> io::Result<Option<Value>> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let value: Value = serde_json::from_slice(&bytes)?;
+    if value.get("schemaVersion").and_then(Value::as_str) != Some(PROTOCOL_VERSION) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unsupported workspace schema version; expected {PROTOCOL_VERSION}"),
+        ));
     }
-    let bytes = fs::read(&path)?;
-    let value = serde_json::from_slice(&bytes)?;
     Ok(Some(value))
 }
 
@@ -651,7 +825,44 @@ pub fn write_head_and_change(head: &Head, entry: &ChangesIndexEntry) -> io::Resu
     commit_head(head, Some(entry))
 }
 
+fn flush_snapshot_closure(root: &Path, snapshot: &str) -> io::Result<()> {
+    flush_core_references(root, &[snapshot], &[])
+}
+
+fn flush_core_references(root: &Path, snapshots: &[&str], changes: &[&str]) -> io::Result<()> {
+    let store = sorrel_core::FileObjectStore::open_existing(root).map_err(io::Error::other)?;
+    let mut roots = snapshots
+        .iter()
+        .map(|id| sorrel_core::parse_object_id_hex(id))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(io::Error::other)?;
+    let mut change_queue = changes
+        .iter()
+        .map(|id| sorrel_core::parse_object_id_hex(id))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(io::Error::other)?;
+    let mut ids = std::collections::BTreeSet::new();
+    while let Some(id) = change_queue.pop() {
+        if !ids.insert(id) {
+            continue;
+        }
+        let change = sorrel_core::read_change(&store, &id).map_err(io::Error::other)?;
+        roots.extend([change.base_snapshot.id, change.resulting_snapshot.id]);
+        change_queue.extend(change.parent_changes.iter().map(|parent| parent.id));
+    }
+    ids.extend(sorrel_core::collect_closure(&store, &roots).map_err(io::Error::other)?);
+    for id in ids {
+        store.flush_existing(&id).map_err(io::Error::other)?;
+    }
+    Ok(())
+}
+
 fn commit_head(head: &Head, entry: Option<&ChangesIndexEntry>) -> io::Result<()> {
+    let changes: Vec<_> = entry
+        .map(|entry| entry.change.as_str())
+        .into_iter()
+        .collect();
+    flush_core_references(&sorrel_dir(), &[&head.snapshot], &changes)?;
     let mut updates = Vec::new();
     if let Some(entry) = entry {
         updates.push((changes_index_path(), changes_index_bytes(entry)?));
@@ -693,6 +904,7 @@ pub fn load_lane_head(lane_id: &str) -> io::Result<Option<String>> {
 
 /// Writes the per-lane head snapshot pointer atomically.
 pub fn write_lane_head(lane_id: &str, snapshot: &str) -> io::Result<()> {
+    flush_snapshot_closure(&sorrel_dir(), snapshot)?;
     let value = json!({ "snapshot": snapshot });
     write_json_atomic(&lane_head_path(lane_id), &value)
 }
@@ -880,6 +1092,56 @@ mod tests {
     use super::*;
 
     #[test]
+    fn manifest_reader_rejects_unknown_versions_and_preserves_optional_fields() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(MANIFEST_FILE);
+        assert_eq!(load_manifest_at(&path).unwrap(), None);
+        let mut manifest = build_manifest("repo_test", "timestamp");
+        manifest["extension"] = json!({"enabled": true});
+        write_json_atomic(&path, &manifest).unwrap();
+        assert_eq!(load_manifest_at(&path).unwrap(), Some(manifest.clone()));
+        for version in [json!("sorrel.protocol.v1"), json!(null), json!(42)] {
+            manifest["schemaVersion"] = version;
+            write_json_atomic(&path, &manifest).unwrap();
+            assert!(
+                matches!(load_manifest_at(&path), Err(error) if error.kind() == io::ErrorKind::InvalidData)
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_manifest_blocks_lock_creation_and_transaction_recovery() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(MANIFEST_FILE);
+        let mut manifest = build_manifest("repo_test", "timestamp");
+        manifest["schemaVersion"] = json!("sorrel.protocol.v1");
+        write_json_atomic(&path, &manifest).unwrap();
+        let manifest_bytes = fs::read(&path).unwrap();
+        let head = root.path().join(HEAD_FILE);
+        fs::write(&head, b"old head").unwrap();
+        let staged = stage_bytes(&head, b"new head").unwrap();
+        let journal = root.path().join(TRANSACTION_FILE);
+        write_json_atomic(
+            &journal,
+            &json!([[
+                HEAD_FILE,
+                staged.strip_prefix(root.path()).unwrap(),
+                sorrel_core::ObjectId::for_bytes(b"new head").to_hex(),
+            ]]),
+        )
+        .unwrap();
+        let journal_bytes = fs::read(&journal).unwrap();
+        assert!(
+            matches!(WorkspaceLock::acquire(root.path()), Err(error) if error.kind() == io::ErrorKind::InvalidData)
+        );
+        assert_eq!(fs::read(&head).unwrap(), b"old head");
+        assert_eq!(fs::read(&path).unwrap(), manifest_bytes);
+        assert_eq!(fs::read(&journal).unwrap(), journal_bytes);
+        assert_eq!(fs::read(staged).unwrap(), b"new head");
+        assert!(!root.path().join("write.lock").exists());
+    }
+
+    #[test]
     fn workspace_lock_rejects_another_writer_and_releases_on_drop() {
         let root = tempfile::tempdir().unwrap();
         let first = WorkspaceLock::acquire(root.path()).unwrap();
@@ -1004,6 +1266,216 @@ mod tests {
         assert!(value["index"].as_u64().unwrap() < 8);
         assert_eq!(value["content"].as_str().unwrap().len(), 100_000);
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn pending_head_recovery_validates_and_flushes_real_snapshot_closure_without_tmp() {
+        use sorrel_core::{ObjectStore, SnapshotOptions};
+        let outer = tempfile::tempdir().unwrap();
+        let workspace = outer.path().join("workspace");
+        fs::create_dir(&workspace).unwrap();
+        fs::write(workspace.join("hello.txt"), b"hello").unwrap();
+        let root = outer.path().join(SORREL_DIR);
+        let store = sorrel_core::FileObjectStore::new(&root).unwrap();
+        let snapshot = sorrel_core::materialize_snapshot(
+            &store,
+            &workspace,
+            SnapshotOptions::new("repo_fixture"),
+        )
+        .unwrap();
+        let tree = sorrel_core::read_tree(&store, &snapshot.root_tree.id).unwrap();
+        let blob = tree.entries[0].object.id;
+        let original = store.read(&blob).unwrap();
+        let hex = blob.to_hex();
+        let path = root.join("objects").join(&hex[..2]).join(&hex[2..]);
+        fs::remove_dir(root.join("tmp")).unwrap();
+        let head = root.join(HEAD_FILE);
+        fs::write(&head, b"old").unwrap();
+        let next =
+            serde_json::to_vec(&json!({"lane": "lane_main", "snapshot": snapshot.id.to_hex()}))
+                .unwrap();
+        let error = metadata_transaction_with_flush(
+            &root,
+            &[(head.clone(), next.clone())],
+            &fail_nth_barrier(3),
+        )
+        .unwrap_err();
+        assert!(is_publication_uncertain(&error));
+        fs::write(&path, b"corrupt terminal bytes").unwrap();
+        assert!(recover_metadata_transaction(&root).is_err());
+        assert_eq!(fs::read(&head).unwrap(), b"old");
+        assert!(root.join(TRANSACTION_FILE).is_file());
+        fs::write(path, original).unwrap();
+        recover_metadata_transaction(&root).unwrap();
+        assert_eq!(fs::read(head).unwrap(), next);
+        assert!(!root.join(TRANSACTION_FILE).exists());
+        assert!(!root.join("tmp").exists());
+    }
+
+    fn fail_nth_barrier(n: usize) -> impl Fn(&Path, &Path) -> io::Result<()> {
+        let remaining = std::cell::Cell::new(n);
+        move |path, root| {
+            remaining.set(remaining.get().saturating_sub(1));
+            if remaining.get() == 0 {
+                return Err(io::Error::other("injected directory barrier failure"));
+            }
+            sorrel_core::durability::flush_directory_chain(path, root)
+        }
+    }
+
+    #[test]
+    fn atomic_metadata_barrier_failure_distinguishes_staging_from_publication() {
+        let root = tempfile::tempdir().unwrap();
+        let head = root.path().join(HEAD_FILE);
+        fs::write(&head, b"old").unwrap();
+        let before =
+            write_bytes_atomic_with_flush(root.path(), &head, b"new", &fail_nth_barrier(1))
+                .unwrap_err();
+        assert!(!is_publication_uncertain(&before));
+        assert_eq!(fs::read(&head).unwrap(), b"old");
+        let after = write_bytes_atomic_with_flush(root.path(), &head, b"new", &fail_nth_barrier(2))
+            .unwrap_err();
+        assert!(is_publication_uncertain(&after));
+        assert_eq!(fs::read(&head).unwrap(), b"new");
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn journal_publication_failure_keeps_staging_and_retry_finishes() {
+        let root = tempfile::tempdir().unwrap();
+        let head = root.path().join(HEAD_FILE);
+        fs::write(&head, b"old").unwrap();
+        let error = metadata_transaction_with_flush(
+            root.path(),
+            &[(head.clone(), b"new".to_vec())],
+            &fail_nth_barrier(3),
+        )
+        .unwrap_err();
+        assert!(is_publication_uncertain(&error));
+        assert_eq!(fs::read(&head).unwrap(), b"old");
+        assert!(root.path().join(TRANSACTION_FILE).is_file());
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 3);
+        recover_metadata_transaction(root.path()).unwrap();
+        assert_eq!(fs::read(&head).unwrap(), b"new");
+        assert!(!root.path().join(TRANSACTION_FILE).exists());
+    }
+
+    #[test]
+    fn recovery_retries_barriers_for_already_published_targets_before_journal_cleanup() {
+        let root = tempfile::tempdir().unwrap();
+        let head = root.path().join(HEAD_FILE);
+        fs::write(&head, b"old").unwrap();
+        // Three preparation barriers, one journal retry barrier, then target rename.
+        let error = metadata_transaction_with_flush(
+            root.path(),
+            &[(head.clone(), b"new".to_vec())],
+            &fail_nth_barrier(5),
+        )
+        .unwrap_err();
+        assert!(is_publication_uncertain(&error));
+        assert_eq!(fs::read(&head).unwrap(), b"new");
+        assert!(root.path().join(TRANSACTION_FILE).is_file());
+        let calls = std::cell::Cell::new(0);
+        recover_metadata_transaction_with_flush(root.path(), &|path, root| {
+            calls.set(calls.get() + 1);
+            sorrel_core::durability::flush_directory_chain(path, root)
+        })
+        .unwrap();
+        assert_eq!(calls.get(), 3); // journal confirmation, target, journal deletion
+        assert!(!root.path().join(TRANSACTION_FILE).exists());
+        assert_eq!(fs::read(&head).unwrap(), b"new");
+    }
+
+    #[test]
+    fn failed_journal_cleanup_reports_uncertainty_and_reappeared_journal_is_replayable() {
+        let root = tempfile::tempdir().unwrap();
+        let head = root.path().join(HEAD_FILE);
+        fs::write(&head, b"old").unwrap();
+        let calls = std::cell::Cell::new(0);
+        let saved_journal = std::cell::RefCell::new(Vec::new());
+        let error = metadata_transaction_with_flush(
+            root.path(),
+            &[(head.clone(), b"new".to_vec())],
+            &|path, root| {
+                calls.set(calls.get() + 1);
+                if calls.get() == 5 {
+                    *saved_journal.borrow_mut() = fs::read(root.join(TRANSACTION_FILE))?;
+                }
+                if calls.get() == 6 {
+                    return Err(io::Error::other("injected journal cleanup barrier failure"));
+                }
+                sorrel_core::durability::flush_directory_chain(path, root)
+            },
+        )
+        .unwrap_err();
+        assert!(is_publication_uncertain(&error));
+        assert_eq!(fs::read(&head).unwrap(), b"new");
+        assert!(!root.path().join(TRANSACTION_FILE).exists());
+        assert!(!saved_journal.borrow().is_empty());
+        // Model an unlink that was visible but did not survive a restart.
+        fs::write(root.path().join(TRANSACTION_FILE), &*saved_journal.borrow()).unwrap();
+        recover_metadata_transaction(root.path()).unwrap();
+        assert_eq!(fs::read(&head).unwrap(), b"new");
+        assert!(!root.path().join(TRANSACTION_FILE).exists());
+    }
+
+    #[test]
+    fn index_only_recovery_checks_parent_changes_and_their_linked_snapshot_blobs() {
+        use sorrel_core::{ChangeOptions, ObjectStore, Principal, SnapshotOptions};
+        let outer = tempfile::tempdir().unwrap();
+        let workspace = outer.path().join("workspace");
+        fs::create_dir(&workspace).unwrap();
+        let root = outer.path().join(SORREL_DIR);
+        let store = sorrel_core::FileObjectStore::new(&root).unwrap();
+        let mut snapshots = Vec::new();
+        for content in ["first", "second", "third"] {
+            fs::write(workspace.join("hello.txt"), content).unwrap();
+            snapshots.push(
+                sorrel_core::materialize_snapshot(
+                    &store,
+                    &workspace,
+                    SnapshotOptions::new("repo_fixture"),
+                )
+                .unwrap(),
+            );
+        }
+        let first = sorrel_core::create_change(
+            &store,
+            snapshots[0].id,
+            snapshots[1].id,
+            ChangeOptions::new(Principal::system(), "first change"),
+        )
+        .unwrap();
+        let mut options = ChangeOptions::new(Principal::system(), "second change");
+        options.parent_changes.push(first.id);
+        let second =
+            sorrel_core::create_change(&store, snapshots[1].id, snapshots[2].id, options).unwrap();
+        let index = root.join(CHANGES_INDEX_FILE);
+        fs::write(&index, b"old index\n").unwrap();
+        let next = format!(
+            "{}\n",
+            json!({"snapshot": snapshots[2].id.to_hex(), "change": second.id.to_hex()})
+        );
+        let error = metadata_transaction_with_flush(
+            &root,
+            &[(index.clone(), next.as_bytes().to_vec())],
+            &fail_nth_barrier(3),
+        )
+        .unwrap_err();
+        assert!(is_publication_uncertain(&error));
+        let tree = sorrel_core::read_tree(&store, &snapshots[0].root_tree.id).unwrap();
+        let blob = tree.entries[0].object.id;
+        let original = store.read(&blob).unwrap();
+        let hex = blob.to_hex();
+        let blob_path = root.join("objects").join(&hex[..2]).join(&hex[2..]);
+        fs::write(&blob_path, b"corrupt parent-change base blob").unwrap();
+        assert!(recover_metadata_transaction(&root).is_err());
+        assert_eq!(fs::read(&index).unwrap(), b"old index\n");
+        assert!(root.join(TRANSACTION_FILE).is_file());
+        fs::write(blob_path, original).unwrap();
+        recover_metadata_transaction(&root).unwrap();
+        assert_eq!(fs::read(index).unwrap(), next.as_bytes());
+        assert!(!root.join(TRANSACTION_FILE).exists());
     }
 
     #[test]

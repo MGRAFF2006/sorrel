@@ -4,6 +4,7 @@ pub mod authority;
 pub mod change;
 pub mod conflict;
 pub mod dag;
+pub mod durability;
 pub mod git_export;
 pub mod git_import;
 pub mod history;
@@ -36,7 +37,8 @@ pub use conflict::{
 };
 pub use dag::{DagError, DagResult};
 pub use git_export::{
-    git_export, ExportResult, ExportedCommit, GitExportError, GitExportOptions, GitExportResult,
+    git_export, git_export_with_force, ExportResult, ExportedCommit, GitExportError,
+    GitExportOptions, GitExportResult,
 };
 pub use git_import::{
     git_import, GitImportError, GitImportOptions, GitImportResult, ImportResult, ImportedCommit,
@@ -62,10 +64,11 @@ pub use snapshot::{
     materialize_snapshot, materialize_snapshot_excluding,
     materialize_snapshot_excluding_with_stat_cache, materialize_snapshot_with_stat_cache,
     read_blob, read_snapshot, read_snapshot_files, read_tree, restore_snapshot_to_directory,
-    write_blob, write_snapshot, write_tree, write_tree_from_directory,
-    write_tree_from_directory_excluding, write_tree_from_directory_excluding_with_stat_cache,
-    write_tree_from_directory_with_stat_cache, Blob, EntryMode, EntryType, ObjectKind, ObjectRef,
-    Principal, Snapshot, SnapshotError, SnapshotOptions, SnapshotResult, Tree, TreeEntry,
+    validate_snapshot_restore_to_directory, write_blob, write_snapshot, write_tree,
+    write_tree_from_directory, write_tree_from_directory_excluding,
+    write_tree_from_directory_excluding_with_stat_cache, write_tree_from_directory_with_stat_cache,
+    Blob, EntryMode, EntryType, ObjectKind, ObjectRef, Principal, Snapshot, SnapshotError,
+    SnapshotOptions, SnapshotResult, Tree, TreeEntry,
 };
 pub use stat_cache::{StatCache, StatCacheEntry, StatCacheError, StatCacheResult};
 pub use store::{
@@ -76,4 +79,6 @@ pub use transport::{
     TransportError, TransportResult,
 };
 
-pub use workspace::materialize_workspace_snapshot;
+pub use workspace::{
+    explain_workspace_path, materialize_workspace_snapshot, WorkspacePathExplanation,
+};

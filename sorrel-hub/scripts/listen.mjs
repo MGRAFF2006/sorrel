@@ -8,6 +8,7 @@
  *   SORREL_HUB_SYNC_STORE   default "memory" for tests
  *   SORREL_HUB_DATA_DIR     optional FS sync root when store is fs
  *   SORREL_HUB_METADATA_DIR optional FS metadata root
+ *   SORREL_HUB_LOCAL_DEMO    set to "1" to enable explicit local test/demo identity
  *   SORREL_HUB_BOOTSTRAP_GRANTS  set to "1" to enable dev-only local grants
  *
  * Stdout (single line): {"url":"http://127.0.0.1:<port>","pid":N}
@@ -18,7 +19,7 @@ import http from 'node:http';
 import path from 'node:path';
 
 import { createApp } from '../src/app.js';
-import { resolveTrustedGrants } from '../src/bootstrap-grants.js';
+import { resolveTrustedGrants, resolveTrustedPolicies } from '../src/bootstrap-grants.js';
 import { createFsMetadataStore } from '../src/fs-metadata-store.js';
 import { createFsRepoSyncStore } from '../src/fs-sync-store.js';
 import { createInMemoryStore } from '../src/store.js';
@@ -34,7 +35,8 @@ const store =
     : createFsMetadataStore(metadataDir, { sync: createFsRepoSyncStore(dataDir) });
 
 const trustedGrantsById = resolveTrustedGrants();
-const app = createApp({ store, trustedGrantsById });
+const trustedPoliciesById = resolveTrustedPolicies();
+const app = createApp({ store, trustedGrantsById, trustedPoliciesById });
 const server = http.createServer(app.handleRequest);
 
 server.listen(0, '127.0.0.1', () => {

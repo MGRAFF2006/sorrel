@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -11,13 +12,15 @@ use cli_policy::{
 use serde_json::{json, Value};
 use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
-    create_change, create_lane, create_stack, git_export, git_import, is_descendant,
-    materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree, parse_object_id_hex,
-    read_conflict, read_snapshot, read_snapshot_files, read_stack, restore_snapshot_to_directory,
-    snapshot_diff, write_snapshot, write_tree, ChangeOptions, ConflictType, FileObjectStore,
-    GitExportOptions, GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions,
-    ObjectId, ObjectKind, ObjectRef, ObjectStore, PathChangeKind, Principal, SnapshotOptions,
-    StackOptions, StatCache, Visibility,
+    create_change, create_lane, create_stack, git_export, git_export_with_force, git_import,
+    is_descendant, materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree,
+    parse_object_id_hex, read_conflict, read_merge_result, read_snapshot, read_snapshot_files,
+    read_stack, read_tree, restore_snapshot_to_directory, snapshot_diff,
+    validate_snapshot_restore_to_directory, write_snapshot, write_tree, ChangeOptions,
+    ConflictType, EntryMode, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
+    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
+    ObjectStoreError, ObjectStoreResult, PathChangeKind, Principal, SnapshotOptions, StackOptions,
+    StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -47,7 +50,12 @@ struct Cli {
 enum Commands {
     /// Initialize Sorrel metadata for the current repository.
     Init,
-    /// Show Sorrel repository status (real dirty detection vs HEAD).
+    /// Explain how workspace paths are selected.
+    Path {
+        #[command(subcommand)]
+        command: PathCommand,
+    },
+    /// Show working-tree changes and pending merge conflicts.
     Status,
     /// Show line-level differences between the working tree and HEAD.
     Diff(DiffArgs),
@@ -133,6 +141,10 @@ struct MergeArgs {
     /// Finalize an in-progress merge after conflicts are resolved in the worktree.
     #[arg(long = "continue")]
     r#continue: bool,
+
+    /// Acknowledge a resolved non-text conflict path; repeat for every binary or modify/delete conflict.
+    #[arg(long, requires = "continue")]
+    resolved: Vec<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -174,7 +186,7 @@ struct GitExportArgs {
     #[arg(long)]
     snapshot: Option<String>,
 
-    /// Overwrite / proceed even when the destination already has commits on the branch.
+    /// Allow a non-fast-forward update of the destination branch.
     #[arg(long)]
     force: bool,
 }
@@ -242,6 +254,12 @@ struct ChangeCreateArgs {
     /// Optional longer description.
     #[arg(long)]
     description: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+enum PathCommand {
+    /// Explain inclusion, tracking, ignore, protection, and metadata rules without reading file contents.
+    Explain { path: PathBuf },
 }
 
 #[derive(Debug, Args)]
@@ -413,7 +431,7 @@ struct PolicyChangeApplyArgs {
 #[derive(Debug, Subcommand)]
 enum GrantCommand {
     /// Create a permission grant and evaluate it via Core.
-    Create(GrantCreateArgs),
+    Create(Box<GrantCreateArgs>),
     /// List persisted permission grants.
     List,
 }
@@ -424,17 +442,17 @@ struct GrantCreateArgs {
     #[arg(long, default_value = "secret.inject")]
     action: String,
 
-    /// Agent policy allowed by the grant.
+    /// Agent policies allowed by the grant (repeat for multiple recipients).
     #[arg(long, default_value = "agent_mock_cli")]
-    agent: String,
+    agent: Vec<String>,
 
     /// Workflow allowed by the grant.
-    #[arg(long, default_value = "workflow_validate_vault")]
-    workflow: String,
+    #[arg(long)]
+    workflow: Vec<String>,
 
     /// Runner allowed by the grant.
-    #[arg(long, default_value = "runner_local_process")]
-    runner: String,
+    #[arg(long)]
+    runner: Vec<String>,
 
     /// SecretRef id for secret.* grants.
     #[arg(long, default_value = "secret_database_url_dev")]
@@ -450,6 +468,22 @@ struct GrantCreateArgs {
         default_value = "Local validation can inject the dev secret handle."
     )]
     reason: String,
+
+    /// Output the canonical scope and native proposals for operator signing; do not persist.
+    #[arg(long, conflicts_with_all = ["local_demo", "authority_context", "policy_change"])]
+    request_only: bool,
+
+    /// Issue an explicitly mocked local-demo grant, never an authoritative approval.
+    #[arg(long, conflicts_with_all = ["authority_context", "policy_change"])]
+    local_demo: bool,
+
+    /// Operator-trusted native Core authority context JSON (never persisted).
+    #[arg(long, requires = "policy_change")]
+    authority_context: Option<PathBuf>,
+
+    /// Signed native Core PolicyChange matching the request-only proposals.
+    #[arg(long, requires = "authority_context")]
+    policy_change: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -504,6 +538,8 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> io::Result<ExitCode> {
+    // Check before recovery, registry writes, or launching external commands.
+    let _ = repo::load_manifest()?;
     if let Commands::Secret {
         command: sorrel_cli::secret_cmd::SecretCommand::Run(args),
     } = cli.command
@@ -554,7 +590,7 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
                     command: GitCommand::Import(_)
                 }
         );
-    let _workspace_lock = if matches!(&command, Commands::Workflow { .. }) {
+    let _workspace_lock = if matches!(&command, Commands::Workflow { .. } | Commands::Path { .. }) {
         None
     } else if needs_workspace_lock {
         Some(repo::WorkspaceLock::acquire(&root)?)
@@ -564,6 +600,9 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
     match command {
         Commands::Init => init_output(),
         Commands::Status => status_output(),
+        Commands::Path {
+            command: PathCommand::Explain { path },
+        } => path_explain_output(&path),
         Commands::Diff(args) => diff_output(args),
         Commands::Log(args) => log_output(args),
         Commands::Change { command } => match command {
@@ -595,7 +634,7 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
             },
         },
         Commands::Grant { command } => match command {
-            GrantCommand::Create(args) => grant_create_output(args),
+            GrantCommand::Create(args) => grant_create_output(*args),
             GrantCommand::List => grant_list_output(),
         },
         Commands::Secret { command } => sorrel_cli::secret_cmd::execute(command),
@@ -727,6 +766,20 @@ fn status_output() -> io::Result<CommandOutput> {
     // Real working-tree dirty detection: snapshot the current tree (minus
     // `.sorrel/`) and diff it against HEAD.
     let store = to_io(FileObjectStore::new(repo::object_store_root()))?;
+    let merge_in_progress = repo::merge_in_progress();
+    let conflicts = if merge_in_progress {
+        let merge_result = repo::load_merge_state()?
+            .ok_or_else(|| io::Error::other("MERGE_STATE has no merge result id"))?;
+        let merge_result_id = merge_result
+            .parse::<ObjectId>()
+            .map_err(|_| io::Error::other("invalid merge result id in MERGE_STATE"))?;
+        to_io(read_merge_result(&store, &merge_result_id))?
+            .conflicts
+            .len()
+    } else {
+        0
+    };
+
     let (worktree_json, dirty, status_label) = match head.as_ref().and_then(|head| {
         head_snapshot_id(head)
             .transpose()
@@ -735,29 +788,48 @@ fn status_output() -> io::Result<CommandOutput> {
         Some(result) => {
             let (_, base_id) = result?;
             let mut stat_cache = repo::load_stat_cache();
-            let current = materialize_worktree(&store, &repo_id, None, &[], Some(&mut stat_cache))?;
+            let preview = StatusPreview::new(&store)?;
+            let current =
+                materialize_worktree(&preview, &repo_id, None, &[], Some(&mut stat_cache))?;
+            let diff = to_io(snapshot_diff(&preview, &base_id, &current))?;
+            // Changed paths may reference preview-only blobs. Keep cache entries
+            // only for unchanged files whose content remains in the durable store.
+            for change in &diff.changes {
+                let path = change
+                    .path
+                    .iter()
+                    .map(|part| part.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                stat_cache.remove(&path);
+            }
+            preview.close()?;
             repo::save_stat_cache(&stat_cache)?;
-            let diff = to_io(snapshot_diff(&store, &base_id, &current))?;
             let (changes, total) = diff_json(&diff);
             let dirty = total > 0;
             (
-                json!({ "dirty": dirty, "changes": changes, "conflicts": 0 }),
+                json!({ "dirty": dirty, "changes": changes, "conflicts": conflicts, "mergeInProgress": merge_in_progress }),
                 dirty,
                 if dirty { "dirty" } else { "clean" },
             )
         }
         None => (
-            json!({ "dirty": false, "changes": json!({"added": [], "modified": [], "deleted": []}), "conflicts": 0 }),
+            json!({ "dirty": false, "changes": json!({"added": [], "modified": [], "deleted": []}), "conflicts": conflicts, "mergeInProgress": merge_in_progress }),
             false,
             "clean",
         ),
     };
 
-    let human = if dirty {
+    let mut human = if dirty {
         format!("Sorrel repository {repo_id} on lane {lane}: dirty")
     } else {
         format!("Sorrel repository {repo_id} on lane {lane}: clean")
     };
+    if merge_in_progress {
+        human.push_str(&format!(
+            "; merge in progress ({conflicts} pending conflict(s)); use `sorrel merge --continue` or `sorrel merge --abort`"
+        ));
+    }
 
     Ok(CommandOutput {
         json: json!({
@@ -880,6 +952,41 @@ fn open_repo() -> io::Result<RepoContext> {
     })
 }
 
+fn path_explain_output(path: &Path) -> io::Result<CommandOutput> {
+    let root = std::env::current_dir()?;
+    let explanation = if repo::is_initialized() {
+        repo::load_manifest()?;
+        let head = repo::load_head()?.ok_or_else(|| io::Error::other("missing HEAD pointer"))?;
+        let store = to_io(FileObjectStore::open_existing(repo::object_store_root()))?;
+        let baseline = parse_object_id_hex(&head.snapshot).map_err(io::Error::other)?;
+        to_io(sorrel_core::explain_workspace_path(
+            &store,
+            &root,
+            Some(&baseline),
+            path,
+        ))?
+    } else {
+        to_io(sorrel_core::explain_workspace_path(
+            &sorrel_core::InMemoryObjectStore::new(),
+            &root,
+            None,
+            path,
+        ))?
+    };
+    let state = if explanation.included {
+        "Included"
+    } else {
+        "Excluded"
+    };
+    let fact =
+        |value: Option<bool>| value.map_or("unknown", |value| if value { "true" } else { "false" });
+    let human = format!("{state}: {}\ntracked={} ignored={} protected={} metadata={} exists={} directory={} supportedType={}", explanation.path.display(), explanation.tracked, explanation.ignored, explanation.protected, explanation.metadata, fact(explanation.exists), fact(explanation.is_directory), fact(explanation.supported_type));
+    let mut json = serde_json::to_value(&explanation)?;
+    json["command"] = json!("path explain");
+    json["mocked"] = json!(false);
+    Ok(CommandOutput { json, human })
+}
+
 fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
     let context = 3usize;
     let RepoContext {
@@ -897,6 +1004,8 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
 
     let base_files = to_io(read_snapshot_files(&store, &base_id))?;
     let current_files = to_io(read_snapshot_files(&store, &current))?;
+    let base_modes = snapshot_modes(&store, &base_id)?;
+    let current_modes = snapshot_modes(&store, &current)?;
 
     let mut files_json = Vec::new();
     let mut human = String::new();
@@ -912,7 +1021,8 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
         let old_bytes = base_files.get(&path).map(Vec::as_slice).unwrap_or(&[]);
         let new_bytes = current_files.get(&path).map(Vec::as_slice).unwrap_or(&[]);
 
-        let (file_json, file_human) = match (
+        let header = format!("diff --sorrel {path_str} ({kind})\n");
+        let (mut file_json, mut file_human) = match (
             std::str::from_utf8(old_bytes),
             std::str::from_utf8(new_bytes),
         ) {
@@ -927,28 +1037,57 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
                             "oldLen": hunk.old_len,
                             "newStart": hunk.new_start,
                             "newLen": hunk.new_len,
-                            "lines": hunk.lines.iter().map(|line| json!({
-                                "kind": match line.kind {
-                                    linediff::LineKind::Context => "context",
-                                    linediff::LineKind::Added => "added",
-                                    linediff::LineKind::Removed => "removed",
-                                },
-                                "text": line.text,
-                            })).collect::<Vec<_>>()
+                            "lines": hunk.lines.iter().map(|line| {
+                                let mut value = json!({
+                                    "kind": match line.kind {
+                                        linediff::LineKind::Context => "context",
+                                        linediff::LineKind::Added => "added",
+                                        linediff::LineKind::Removed => "removed",
+                                    },
+                                    "text": line.text,
+                                });
+                                match line.line_ending {
+                                    linediff::LineEnding::Lf => {},
+                                    linediff::LineEnding::CrLf => value["lineEnding"] = json!("crlf"),
+                                    linediff::LineEnding::None => value["lineEnding"] = json!("none"),
+                                }
+                                value
+                            }).collect::<Vec<_>>()
                         })
                     })
                     .collect();
                 (
                     json!({ "path": path_str, "kind": kind, "binary": false, "hunks": hunks_json }),
-                    format!("diff --sorrel {path_str} ({kind})\n{rendered}"),
+                    format!("{header}{rendered}"),
                 )
             }
             _ => (
                 json!({ "path": path_str, "kind": kind, "binary": true, "hunks": [] }),
-                format!("diff --sorrel {path_str} ({kind})\nBinary file changed\n"),
+                format!(
+                    "{header}{}",
+                    if old_bytes == new_bytes {
+                        ""
+                    } else {
+                        "Binary file changed\n"
+                    }
+                ),
             ),
         };
 
+        let old_mode = base_modes.get(&path).copied();
+        let new_mode = current_modes.get(&path).copied();
+        file_json["oldMode"] = json!(old_mode);
+        file_json["newMode"] = json!(new_mode);
+        if old_mode != new_mode {
+            let mut mode_lines = String::new();
+            if let Some(mode) = old_mode {
+                mode_lines.push_str(&format!("old mode {mode}\n"));
+            }
+            if let Some(mode) = new_mode {
+                mode_lines.push_str(&format!("new mode {mode}\n"));
+            }
+            file_human.insert_str(header.len(), &mode_lines);
+        }
         files_json.push(file_json);
         human.push_str(&file_human);
     }
@@ -967,6 +1106,39 @@ fn diff_output(_args: DiffArgs) -> io::Result<CommandOutput> {
         }),
         human: human.trim_end().to_owned(),
     })
+}
+
+fn snapshot_modes(
+    store: &impl ObjectStore,
+    snapshot: &ObjectId,
+) -> io::Result<BTreeMap<PathBuf, &'static str>> {
+    fn collect(
+        store: &impl ObjectStore,
+        tree: &ObjectId,
+        modes: &mut BTreeMap<PathBuf, &'static str>,
+    ) -> io::Result<()> {
+        for entry in to_io(read_tree(store, tree))?.entries {
+            modes.insert(
+                entry.path,
+                match entry.mode {
+                    EntryMode::Normal => "normal",
+                    EntryMode::Executable => "executable",
+                    EntryMode::Directory => "directory",
+                },
+            );
+            if entry.object.kind == ObjectKind::Tree {
+                collect(store, &entry.object.id, modes)?;
+            }
+        }
+        Ok(())
+    }
+    let mut modes = BTreeMap::new();
+    collect(
+        store,
+        &to_io(read_snapshot(store, snapshot))?.root_tree.id,
+        &mut modes,
+    )?;
+    Ok(modes)
 }
 
 fn log_output(args: LogArgs) -> io::Result<CommandOutput> {
@@ -1692,13 +1864,8 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
 
     let mut snapshot_to_git: std::collections::BTreeMap<ObjectId, String> =
         std::collections::BTreeMap::new();
-    let mut existing_map: Option<Value> = None;
-    if repo::git_map_path().is_file() {
-        let bytes = fs::read(repo::git_map_path())?;
-        let map: Value = serde_json::from_slice(&bytes)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-        existing_map = Some(map.clone());
-        if let Some(obj) = map.get("gitToSnapshot").and_then(Value::as_object) {
+    if let Some(map) = load_git_map_fields()? {
+        if let Some(obj) = map.git_to_snapshot.as_object() {
             for (sha, snap) in obj {
                 if let Some(hex) = snap.as_str() {
                     if let Ok(id) = parse_object_id_hex(hex) {
@@ -1707,7 +1874,7 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
                 }
             }
         }
-        if let Some(commits) = map.get("commits").and_then(Value::as_array) {
+        if let Some(commits) = map.commits.as_array() {
             for commit in commits {
                 let sha = commit.get("gitSha").and_then(Value::as_str);
                 let snap = commit.get("snapshot").and_then(Value::as_str);
@@ -1720,20 +1887,11 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
         }
     }
 
-    // Refuse to clobber an existing non-empty branch unless --force or we have a map.
-    if !args.force && snapshot_to_git.is_empty() && git_branch_exists(&git_path, &args.branch) {
-        return Err(io::Error::other(format!(
-            "Git branch '{}' already exists at {}; pass --force to overwrite",
-            args.branch,
-            git_path.display()
-        )));
-    }
-
     let mut options = GitExportOptions::new(&git_path, tip);
     options.branch = args.branch;
     options.snapshot_to_git = snapshot_to_git;
 
-    let exported = to_io(git_export(&store, options))?;
+    let exported = to_io(git_export_with_force(&store, options, args.force))?;
     let created = exported.commits.iter().filter(|c| c.created).count();
 
     let commits_json: Vec<Value> = exported
@@ -1761,7 +1919,6 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
         "branch": exported.branch,
         "commits": commits_json,
         "gitToSnapshot": git_to_snapshot,
-        "previous": existing_map,
     });
     repo::write_json_atomic(&repo::git_map_path(), &map_value)?;
 
@@ -1794,17 +1951,6 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
             exported.head_git_sha
         ),
     })
-}
-
-fn git_branch_exists(git_path: &Path, branch: &str) -> bool {
-    std::process::Command::new("git")
-        .args(["rev-parse", "--verify", &format!("refs/heads/{branch}")])
-        .current_dir(git_path)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
 }
 
 /// Bidirectional fast-forward sync between the workspace and a mirrored Git
@@ -2202,17 +2348,33 @@ fn park_git_lane(
     Ok((lane_id, name))
 }
 
+#[derive(serde::Deserialize)]
+struct GitMapFields {
+    #[serde(default, rename = "gitToSnapshot")]
+    git_to_snapshot: Value,
+    #[serde(default)]
+    commits: Value,
+}
+
+fn load_git_map_fields() -> io::Result<Option<GitMapFields>> {
+    if !repo::git_map_path().is_file() {
+        return Ok(None);
+    }
+    // Serde skips legacy `previous` archives iteratively instead of building
+    // their recursive Value trees. Keep normal limits on the fields we use.
+    serde_json::from_reader(io::BufReader::new(fs::File::open(repo::git_map_path())?))
+        .map(Some)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))
+}
+
 /// Loads `.sorrel/git-map.json` into a Git SHA → snapshot id map. Reads the
 /// `gitToSnapshot` object plus per-commit entries from import/export/sync maps.
 fn load_git_sha_map() -> io::Result<std::collections::BTreeMap<String, ObjectId>> {
     let mut map = std::collections::BTreeMap::new();
-    if !repo::git_map_path().is_file() {
+    let Some(value) = load_git_map_fields()? else {
         return Ok(map);
-    }
-    let bytes = fs::read(repo::git_map_path())?;
-    let value: Value = serde_json::from_slice(&bytes)
-        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-    if let Some(obj) = value.get("gitToSnapshot").and_then(Value::as_object) {
+    };
+    if let Some(obj) = value.git_to_snapshot.as_object() {
         for (sha, snap) in obj {
             if let Some(hex) = snap.as_str() {
                 if let Ok(id) = parse_object_id_hex(hex) {
@@ -2221,7 +2383,7 @@ fn load_git_sha_map() -> io::Result<std::collections::BTreeMap<String, ObjectId>
             }
         }
     }
-    if let Some(commits) = value.get("commits").and_then(Value::as_array) {
+    if let Some(commits) = value.commits.as_array() {
         for commit in commits {
             let sha = commit.get("gitSha").and_then(Value::as_str);
             let snap = commit.get("snapshot").and_then(Value::as_str);
@@ -2312,7 +2474,7 @@ fn merge_output(args: MergeArgs) -> io::Result<CommandOutput> {
             io::ErrorKind::InvalidInput,
             "specify either a lane id or --abort, not both",
         )),
-        (false, true, None) => merge_continue_output(),
+        (false, true, None) => merge_continue_output(&args.resolved),
         (false, true, Some(_)) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "specify either a lane id or --continue, not both",
@@ -2362,7 +2524,7 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
     })
 }
 
-fn merge_continue_output() -> io::Result<CommandOutput> {
+fn merge_continue_output(resolved: &[PathBuf]) -> io::Result<CommandOutput> {
     let RepoContext {
         repo_id,
         head,
@@ -2395,6 +2557,62 @@ fn merge_continue_output() -> io::Result<CommandOutput> {
         return Err(io::Error::other(
             "HEAD moved since the conflicted merge started; abort and re-merge",
         ));
+    }
+
+    let merge_result_id = state
+        .merge_result
+        .parse::<ObjectId>()
+        .map_err(|error| io::Error::other(format!("invalid merge result id: {error}")))?;
+    let merge_result = to_io(read_merge_result(&store, &merge_result_id))?;
+    if merge_result.ours_snapshot != ours_id || merge_result.theirs_snapshot != theirs_id {
+        return Err(io::Error::other(
+            "MERGE_STATE does not match its stored merge result; abort and re-merge",
+        ));
+    }
+    let mut conflict_paths = std::collections::BTreeSet::new();
+    let mut nontext_paths = std::collections::BTreeSet::new();
+    for id in &merge_result.conflicts {
+        let conflict = to_io(read_conflict(&store, id))?;
+        if matches!(
+            conflict.conflict_type,
+            ConflictType::Binary | ConflictType::ModifyDelete
+        ) {
+            nontext_paths.insert(conflict.path.clone());
+        }
+        conflict_paths.insert(conflict.path);
+    }
+    let mut acknowledged = std::collections::BTreeSet::new();
+    for path in resolved {
+        let mut normalized = PathBuf::new();
+        for component in path.components() {
+            match component {
+                std::path::Component::Normal(name) => normalized.push(name),
+                std::path::Component::CurDir => {}
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "--resolved paths must be workspace-relative without parent components",
+                    ))
+                }
+            }
+        }
+        if !conflict_paths.contains(&normalized) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "--resolved path is not a pending conflict: {}",
+                    path.display()
+                ),
+            ));
+        }
+        acknowledged.insert(normalized);
+    }
+    let missing: Vec<_> = nontext_paths
+        .difference(&acknowledged)
+        .map(|path| path.display().to_string())
+        .collect();
+    if !missing.is_empty() {
+        return Err(io::Error::other(format!("non-text conflicts need explicit acknowledgment: {}; choose each file's contents or deletion, then repeat --resolved <path> for every listed path with --continue", missing.join(", "))));
     }
 
     let remaining = conflict_marker_paths()?;
@@ -2624,7 +2842,7 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
 
         let listed = paths.join(", ");
         return Err(io::Error::other(format!(
-            "merge conflicts in: {listed}; fix markers then `sorrel merge --continue`, or `sorrel merge --abort`"
+            "merge conflicts in: {listed}; fix text markers and acknowledge every binary or modify/delete path with `sorrel merge --continue --resolved <path>` (repeat --resolved), or `sorrel merge --abort`"
         )));
     };
 
@@ -2765,6 +2983,12 @@ fn restore_worktree_to_snapshot(
 ) -> io::Result<()> {
     let current_files = to_io(read_snapshot_files(store, current))?;
     let target_files = to_io(read_snapshot_files(store, target))?;
+    // Reject invalid destinations before removing any obsolete tracked files.
+    to_io(validate_snapshot_restore_to_directory(
+        store,
+        target,
+        Path::new("."),
+    ))?;
 
     for path in current_files.keys() {
         if !target_files.contains_key(path) {
@@ -3073,87 +3297,87 @@ fn grant_create_output(args: GrantCreateArgs) -> io::Result<CommandOutput> {
     })
 }
 
-/// Builds a real Grant document, evaluates the authorizing Core decision, and
-/// persists the grant under `.sorrel/grants/` only when the workspace is
-/// initialized. The grant is keyed by a content-derived id.
+/// Persist only an explicitly approved, fully bound secret grant.
 fn grant_create_real(args: &GrantCreateArgs) -> io::Result<(Value, String)> {
-    // Evaluate the authorizing decision through Core: does the requesting
-    // principal have the action on the target secret resource?
-    let resource = ResourceRef::parse(&format!("secret:{}", args.secret)).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("invalid secret ref `{}`", args.secret),
-        )
-    })?;
-    let principal = PrincipalId::parse(&format!("agent:{}", args.agent)).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("invalid agent principal `{}`", args.agent),
-        )
-    })?;
-    let context = PolicyContext::headless_default();
-    let decision = evaluate(
-        &EvaluateInput {
-            principal,
-            action: args.action.clone(),
-            resource,
-            environment: Some(args.environment.clone()),
-        },
-        &context,
-    );
-    let status = decision.decision.as_str().to_owned();
-
-    let seed = format!(
-        "{}|{}|{}|{}|{}|{}",
-        args.action, args.agent, args.workflow, args.runner, args.secret, args.environment
-    );
-    let grant_id = format!(
-        "grant_{}",
-        &sorrel_core::ObjectId::for_bytes(seed.as_bytes()).to_hex()[..16]
-    );
-
-    let grant = json!({
-        "schemaVersion": PROTOCOL_VERSION,
-        "kind": "Grant",
-        "id": grant_id,
-        "action": args.action,
-        "resource": { "type": "secret", "ref": args.secret },
-        "environment": args.environment,
-        "access": {
-            "agents": [{ "kind": "AgentPolicy", "id": args.agent }],
-            "workflows": [{ "kind": "Workflow", "id": args.workflow }],
-            "runners": [{ "kind": "Runner", "id": args.runner }]
-        },
-        "reason": args.reason,
-        "createdAt": repo::now_rfc3339(),
-        "decision": status,
-        "metadata": { "mocked": false, "backend": "local-headless" }
-    });
-
-    let persisted = if repo::is_initialized() {
-        repo::write_registry_entry(repo::GRANTS_DIR, &grant_id, &grant)?;
-        true
-    } else {
-        false
+    use sorrel_cli::secretspec_bridge::{
+        load_authority_context, verify_secret_grant_approval, SecretGrantScope,
     };
-
-    let out = json!({
-        "command": "grant create",
-        "mocked": false,
-        "status": status,
-        "persisted": persisted,
-        "object": grant
-    });
-    let human = format!(
-        "Grant {grant_id} {} ({}: {status})",
-        if persisted {
-            "persisted"
-        } else {
-            "not persisted: run `sorrel init`"
+    let canonical = |values: &[String]| {
+        let mut values = values.to_vec();
+        values.sort();
+        values.dedup();
+        values
+    };
+    let scope = SecretGrantScope {
+        action: args.action.clone(),
+        agents: canonical(&args.agent),
+        workflows: canonical(&args.workflow),
+        runners: canonical(&args.runner),
+        secret: args.secret.clone(),
+        environment: args.environment.clone(),
+    };
+    let invalid = |error: sorrel_cli::secretspec_bridge::BridgeError| {
+        io::Error::new(io::ErrorKind::InvalidInput, error)
+    };
+    let grant_id = scope.id().map_err(invalid)?;
+    if args.request_only {
+        return Ok((
+            json!({
+                "command":"grant create", "mocked":false, "status":"request", "persisted":false,
+                "grantId":grant_id, "scope":scope, "proposedGrants":scope.proposals().map_err(invalid)?,
+            }),
+            format!(
+                "Grant request {grant_id}: sign the native proposals with an authorized operator"
+            ),
+        ));
+    }
+    let approval = if args.local_demo {
+        Some(json!({"mode":"local-demo"}))
+    } else if let (Some(context_path), Some(change_path)) =
+        (&args.authority_context, &args.policy_change)
+    {
+        let context = load_authority_context(context_path).map_err(invalid)?;
+        let change = serde_json::from_slice(&fs::read(change_path)?).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "invalid native policy change")
+        })?;
+        if !verify_secret_grant_approval(&scope, &change, &context).map_err(invalid)? {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "native secret grant approval is untrusted, unauthorized, or does not match the requested scope"));
+        }
+        Some(json!({"mode":"native", "policyChange":change}))
+    } else {
+        None
+    };
+    let approved = approval.is_some();
+    let status = if approved { "allow" } else { "needs_grant" };
+    let grant = json!({
+        "schemaVersion":PROTOCOL_VERSION, "kind":"Grant", "id":grant_id,
+        "action":scope.action, "resource":{"type":"secret", "ref":scope.secret},
+        "environment":scope.environment,
+        "access":{
+            "agents":scope.agents.iter().map(|id| json!({"kind":"AgentPolicy", "id":id})).collect::<Vec<_>>(),
+            "workflows":scope.workflows.iter().map(|id| json!({"kind":"Workflow", "id":id})).collect::<Vec<_>>(),
+            "runners":scope.runners.iter().map(|id| json!({"kind":"Runner", "id":id})).collect::<Vec<_>>()
         },
-        args.action
-    );
-    Ok((out, human))
+        "scope":scope, "approval":approval,
+        "reason":args.reason, "createdAt":repo::now_rfc3339(), "decision":status,
+        "metadata":{"mocked":args.local_demo, "backend":if args.local_demo {"local-demo"} else {"native-authority"}}
+    });
+    let persisted = approved && repo::is_initialized();
+    if persisted {
+        repo::write_registry_entry(repo::GRANTS_DIR, &grant_id, &grant)?;
+    }
+    Ok((
+        json!({"command":"grant create", "mocked":args.local_demo, "status":status, "persisted":persisted, "object":grant}),
+        format!(
+            "Grant {grant_id} {} ({}: {status})",
+            if persisted {
+                "persisted"
+            } else {
+                "not persisted: requires approval and initialized workspace"
+            },
+            args.action
+        ),
+    ))
 }
 
 fn grant_list_output() -> io::Result<CommandOutput> {
@@ -3463,6 +3687,60 @@ fn head_snapshot_id(head: &repo::Head) -> io::Result<Option<ObjectId>> {
     Ok(Some(id))
 }
 
+/// Preview objects never enter the durable store or change its object schema.
+struct StatusPreview<'a> {
+    durable: &'a FileObjectStore,
+    scratch: FileObjectStore,
+    directory: tempfile::TempDir,
+}
+
+impl<'a> StatusPreview<'a> {
+    fn new(durable: &'a FileObjectStore) -> io::Result<Self> {
+        let temporary = repo::sorrel_dir().join("tmp");
+        if !fs::symlink_metadata(&temporary)?.file_type().is_dir() {
+            return Err(io::Error::other(
+                "workspace temporary path must be a directory, not a symlink",
+            ));
+        }
+        let directory = tempfile::Builder::new()
+            .prefix("status-")
+            .tempdir_in(temporary)?;
+        let scratch = to_io(FileObjectStore::new(directory.path()))?;
+        Ok(Self {
+            durable,
+            scratch,
+            directory,
+        })
+    }
+
+    fn close(self) -> io::Result<()> {
+        self.directory.close()
+    }
+}
+
+impl ObjectStore for StatusPreview<'_> {
+    fn read(&self, id: &ObjectId) -> ObjectStoreResult<Vec<u8>> {
+        match self.durable.read(id) {
+            Err(ObjectStoreError::NotFound(_)) => self.scratch.read(id),
+            result => result,
+        }
+    }
+
+    fn write(&self, bytes: &[u8]) -> ObjectStoreResult<ObjectId> {
+        let id = ObjectId::for_bytes(bytes);
+        if self.durable.has(&id)? {
+            self.durable.read(&id)?;
+            Ok(id)
+        } else {
+            self.scratch.write(bytes)
+        }
+    }
+
+    fn has(&self, id: &ObjectId) -> ObjectStoreResult<bool> {
+        Ok(self.durable.has(id)? || self.scratch.has(id)?)
+    }
+}
+
 /// Materializes the current working tree (excluding `.sorrel/`) into the object
 /// store and returns the resulting snapshot id (hex) plus its `ObjectId`.
 ///
@@ -3470,7 +3748,7 @@ fn head_snapshot_id(head: &repo::Head) -> io::Result<Option<ObjectId>> {
 /// blob in the store) are not re-hashed; the cache is updated in place and the
 /// caller is responsible for persisting it after a successful command.
 fn materialize_worktree(
-    store: &FileObjectStore,
+    store: &impl ObjectStore,
     repo_id: &str,
     message: Option<String>,
     parents: &[ObjectId],

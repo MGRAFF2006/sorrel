@@ -173,7 +173,7 @@ used by this README live under [`assets/`](assets/).
 
 ## Toolchains
 
-- Rust **1.85+** with clippy + rustfmt
+- Rust **1.92+** with clippy + rustfmt
 - Node **22+** for Hub / hub-web; **20+** for protocol / vault / slices
 
 ```sh

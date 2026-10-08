@@ -7,6 +7,7 @@
 
 import { HttpError, readJsonBody, sendJson, sendMethodNotAllowed } from '../http.js';
 import { StoreNotFoundError } from '../store.js';
+import { assertCoreAccess, assertCollectionRead, assertCollectionWrite, filterCollection, projectScope } from '../policy-guard.js';
 import { createProposal } from '../proposal-mutations.js';
 
 /**
@@ -31,7 +32,7 @@ export async function handleCollaborationRoute(request, response, context) {
     if (request.method !== 'GET') {
       return sendMethodNotAllowed(response, ['GET']);
     }
-    return proposalSummary(response, context);
+    return await proposalSummary(response, context);
   }
 
   throw new HttpError(404, 'collaboration route not found', 'not_found');
@@ -39,7 +40,7 @@ export async function handleCollaborationRoute(request, response, context) {
 
 async function laneSubmit(request, response, context) {
   const { store, session } = context;
-  const body = await readJsonBody(request);
+  const body = await readJsonBody(request, context.limits.requestBodyBytes);
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw new HttpError(400, 'request body must be a JSON object', 'invalid_request_body');
@@ -68,6 +69,12 @@ async function laneSubmit(request, response, context) {
     throw new HttpError(400, 'title is required', 'invalid_request_body');
   }
 
+  const normalized = { ...body, projectId: projectId.trim(), syncRepoId };
+  normalized.repositoryId = body.syncRepoId !== undefined || store.getRepository(body.repositoryId)
+    ? body.repositoryId : undefined;
+  await assertCollectionWrite(context, 'proposals', normalized);
+  await assertCoreAccess(context, 'proposal.read', projectScope(context, normalized.projectId));
+
   // Prefer reusing an open/draft proposal for the same lane tip.
   const existing = store
     .listProposals({
@@ -83,6 +90,7 @@ async function laneSubmit(request, response, context) {
     );
 
   if (existing) {
+    await assertCollectionRead(context, 'proposals', existing);
     sendJson(response, 200, {
       data: existing,
       reused: true,
@@ -95,13 +103,12 @@ async function laneSubmit(request, response, context) {
   try {
     proposal = createProposal({
       projectId: projectId.trim(),
-      repositoryId: body.repositoryId,
+      repositoryId: normalized.repositoryId,
       syncRepoId,
       title: title.trim(),
       description: body.description,
       authorPrincipal:
         session?.principal ?? body.authorPrincipal ?? { type: 'user', id: 'local' },
-      authorRef: body.authorRef,
       sourceLane: sourceLane.trim(),
       targetLane: body.targetLane ?? 'lane_main',
       sourceSnapshot: sourceSnapshot.trim(),
@@ -138,10 +145,11 @@ async function laneSubmit(request, response, context) {
   );
 }
 
-function proposalSummary(response, { store, url }) {
+async function proposalSummary(response, context) {
+  const { store, url } = context;
   const projectId = url.searchParams.get('projectId') ?? undefined;
   const syncRepoId = url.searchParams.get('syncRepoId') ?? undefined;
-  const proposals = store.listProposals({ projectId, syncRepoId });
+  const proposals = await filterCollection(context, 'proposals', store.listProposals({ projectId, syncRepoId }));
 
   const byStatus = {};
   for (const proposal of proposals) {

@@ -20,7 +20,7 @@ than mounting this DOM UI.
   under `/projects/:id`; unimplemented modules stay out of navigation.
 - Motion for route/panel enter only — **never** on diff scroll (diff island later)
 - Platform seams via `platform.ts` (`web` | `desktop` | `mobile`)
-- Live metadata via Convex when configured; Hub API fallback otherwise
+- Product metadata and counters use the authenticated Hub API; Convex is a server-only mirror
 - Dev identity via acting-principal presets (`session.ts`); `GET /session` for Hub auth mode
 
 ## Core boundary (do not violate)

@@ -28,9 +28,9 @@ test('resolveTrustedGrants defaults to no local bootstrap grants', () => {
 
 test('resolveTrustedGrants enables local bootstrap grants only with explicit 1', () => {
   const grants = resolveTrustedGrants({ SORREL_HUB_BOOTSTRAP_GRANTS: '1' });
-  assert.equal(Object.keys(grants).length, 2);
-  assert.equal(grants[BOOTSTRAP_OBJECT_WRITE_GRANT_ID].action, 'repo.object.write');
-  assert.equal(grants[BOOTSTRAP_REF_WRITE_GRANT_ID].action, 'repo.ref.write');
+  assert.equal(Object.keys(grants).length, 3);
+  assert.deepEqual(grants[BOOTSTRAP_OBJECT_WRITE_GRANT_ID].capabilities, ['repo.object.write']);
+  assert.deepEqual(grants[BOOTSTRAP_REF_WRITE_GRANT_ID].capabilities, ['repo.ref.write']);
 });
 
 test('resolveTrustedGrants does not enable bootstrap for other values', () => {
@@ -43,7 +43,7 @@ test('resolveTrustedGrants does not enable bootstrap for other values', () => {
 });
 
 test('bootstrap grants allow CLI-shaped push for user:local', async () => {
-  const app = createApp({ trustedGrantsById: createLocalBootstrapGrants() });
+  const app = createApp({ env: { SORREL_HUB_LOCAL_DEMO: '1' }, trustedGrantsById: createLocalBootstrapGrants() });
   const server = http.createServer(app.handleRequest);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
@@ -53,11 +53,11 @@ test('bootstrap grants allow CLI-shaped push for user:local', async () => {
     const blobBytes = Buffer.from('bootstrap hello', 'utf8');
     const blob = { id: objectId(blobBytes), bytes: blobBytes };
     const treeBytes = Buffer.from(
-      JSON.stringify({ kind: 'Tree', entries: [{ name: 'hello.txt', object: blob.id }] }),
+      JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Tree', entries: [{ name: 'hello.txt', object: blob.id }] }),
     );
     const tree = { id: objectId(treeBytes), bytes: treeBytes };
     const snapshotBytes = Buffer.from(
-      JSON.stringify({ kind: 'Snapshot', tree: tree.id, parents: [] }),
+      JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: tree.id, parents: [] }),
     );
     const snapshot = { id: objectId(snapshotBytes), bytes: snapshotBytes };
 
@@ -106,6 +106,7 @@ test('server.js defaults to localhost and accepts a push with bootstrap opt-in',
       ...process.env,
       PORT: '0',
       SORREL_HUB_BOOTSTRAP_GRANTS: '1',
+      SORREL_HUB_LOCAL_DEMO: '1',
       SORREL_HUB_DATA_DIR: join(dataRoot, 'sync'),
       SORREL_HUB_METADATA_DIR: join(dataRoot, 'metadata'),
     },
@@ -126,11 +127,11 @@ test('server.js defaults to localhost and accepts a push with bootstrap opt-in',
     const blobBytes = Buffer.from('server bootstrap', 'utf8');
     const blobId = objectId(blobBytes);
     const treeBytes = Buffer.from(
-      JSON.stringify({ kind: 'Tree', entries: [{ name: 'note.txt', object: blobId }] }),
+      JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Tree', entries: [{ name: 'note.txt', object: blobId }] }),
     );
     const treeId = objectId(treeBytes);
     const snapshotBytes = Buffer.from(
-      JSON.stringify({ kind: 'Snapshot', tree: treeId, parents: [] }),
+      JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: treeId, parents: [] }),
     );
     const snapshotId = objectId(snapshotBytes);
 
@@ -172,6 +173,7 @@ test('SORREL_HUB_TRUSTED_GRANTS_FILE merges additional grants', async () => {
   try {
     const grants = resolveTrustedGrants({
       SORREL_HUB_BOOTSTRAP_GRANTS: '1',
+      SORREL_HUB_LOCAL_DEMO: '1',
       SORREL_HUB_TRUSTED_GRANTS_FILE: file,
     });
     assert.ok(grants[BOOTSTRAP_OBJECT_WRITE_GRANT_ID]);
