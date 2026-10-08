@@ -1,5 +1,5 @@
 use crate::{
-    stat_cache::{StatCache, StatCacheEntry},
+    stat_cache::{ChangeFingerprint, StatCache, StatCacheEntry},
     ObjectId, ObjectIdParseError, ObjectStore, ObjectStoreError,
 };
 use cap_fs_ext::DirExt;
@@ -704,20 +704,29 @@ fn write_file_blob(
     cache: &mut StatCache,
     protocol_path: &str,
     child_path: &Path,
-    file_size: u64,
-    mtime_secs: u64,
-    mtime_nanos: u32,
+    metadata: &fs::Metadata,
 ) -> SnapshotResult<Blob> {
+    let fingerprint = ChangeFingerprint::from_metadata(metadata);
     let content = fs::read(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
     let blob = write_blob(store, &content)?;
-    cache.insert(
+    let after = fs::metadata(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
+    let (mtime_secs, mtime_nanos) = file_mtime(metadata, child_path)?;
+    // A writer or replacement during the read must not seed a reusable entry.
+    let verified = fingerprint.filter(|fingerprint| {
+        Some(fingerprint) == ChangeFingerprint::from_metadata(&after).as_ref()
+            && metadata.len() == after.len()
+            && file_mtime(&after, child_path).ok() == Some((mtime_secs, mtime_nanos))
+            && content.len() as u64 == metadata.len()
+    });
+    cache.insert_verified(
         protocol_path.to_owned(),
         StatCacheEntry {
-            size: file_size,
+            size: metadata.len(),
             mtime_secs,
             mtime_nanos,
             object_id: blob.id,
         },
+        verified,
     );
     Ok(blob)
 }
@@ -816,30 +825,15 @@ pub(crate) fn write_tree_from_dir(
                     if entry.size == file_size
                         && entry.mtime_secs == mtime_secs
                         && entry.mtime_nanos == mtime_nanos
+                        && cache.matches_fingerprint(&protocol_path, &metadata)
                         && store.has(&entry.object_id)?
                     {
                         read_blob(store, &entry.object_id)?
                     } else {
-                        write_file_blob(
-                            store,
-                            cache,
-                            &protocol_path,
-                            &child_path,
-                            file_size,
-                            mtime_secs,
-                            mtime_nanos,
-                        )?
+                        write_file_blob(store, cache, &protocol_path, &child_path, &metadata)?
                     }
                 } else {
-                    write_file_blob(
-                        store,
-                        cache,
-                        &protocol_path,
-                        &child_path,
-                        file_size,
-                        mtime_secs,
-                        mtime_nanos,
-                    )?
+                    write_file_blob(store, cache, &protocol_path, &child_path, &metadata)?
                 }
             } else {
                 let content = fs::read(&child_path)
@@ -955,6 +949,52 @@ fn restore_parent(directory: &Dir, path: &Path) -> io::Result<Dir> {
     Ok(parent)
 }
 
+fn open_restore_temporary_file(
+    parent: &Dir,
+    name: &str,
+    permissions: &mut Option<cap_std::fs::Permissions>,
+) -> io::Result<cap_std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt;
+        if permissions.is_none() {
+            // Sample umask on a separate empty inode. A reader holding this probe's
+            // descriptor must never see the contents of the private replacement.
+            options.mode(0o666);
+            let probe = parent.open_with(name, &options)?;
+            let metadata = probe.metadata();
+            drop(probe);
+            parent.remove_file(name)?;
+            *permissions = Some(metadata?.permissions());
+        }
+        options.mode(0o600);
+    }
+    let file = parent.open_with(name, &options)?;
+    let result = (|| {
+        if permissions.is_none() {
+            *permissions = Some(file.metadata()?.permissions());
+        }
+        #[cfg(unix)]
+        {
+            use cap_std::fs::PermissionsExt;
+            file.set_permissions(cap_std::fs::Permissions::from_mode(0o600))?;
+        }
+        Ok::<_, io::Error>(())
+    })();
+    if let Err(error) = result {
+        drop(file);
+        parent.remove_file(name).map_err(|cleanup| {
+            io::Error::other(format!(
+                "{error}; temporary restore file cleanup failed: {cleanup}"
+            ))
+        })?;
+        return Err(error);
+    }
+    Ok(file)
+}
+
 fn write_restored_file(
     parent: &Dir,
     name: &OsStr,
@@ -962,7 +1002,7 @@ fn write_restored_file(
     bytes: &[u8],
     mode: Option<EntryMode>,
 ) -> SnapshotResult<()> {
-    let permissions = match parent.symlink_metadata(name) {
+    let mut permissions = match parent.symlink_metadata(name) {
         Ok(metadata) if !metadata.is_file() => {
             return Err(SnapshotError::UnsupportedFileType {
                 path: path.to_path_buf(),
@@ -984,7 +1024,7 @@ fn write_restored_file(
     let (temporary, mut file) = loop {
         let sequence = RESTORE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let name = format!(".sorrel-restore-{}.{}.tmp", std::process::id(), sequence);
-        match parent.open_with(&name, OpenOptions::new().write(true).create_new(true)) {
+        match open_restore_temporary_file(parent, &name, &mut permissions) {
             Ok(file) => break (name, file),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(source) => return Err(SnapshotError::io(path, source)),
@@ -1727,17 +1767,20 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         const CHILD: &str = "SORREL_RESTORE_UMASK_CHILD";
         if std::env::var_os(CHILD).is_none() {
-            let output = std::process::Command::new("sh")
-                .args(["-c", "umask 077; exec \"$1\" --exact snapshot::tests::restoration_of_new_files_respects_umask --test-threads=1", "sorrel-umask-test"])
-                .arg(std::env::current_exe().unwrap())
-                .env(CHILD, "1")
-                .output().unwrap();
-            assert!(
-                output.status.success(),
-                "{}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
+            for mask in ["022", "077"] {
+                let output = std::process::Command::new("sh")
+                    .args(["-c", "umask \"$2\"; exec \"$1\" --exact snapshot::tests::restoration_of_new_files_respects_umask --test-threads=1", "sorrel-umask-test"])
+                    .arg(std::env::current_exe().unwrap())
+                    .arg(mask)
+                    .env(CHILD, mask)
+                    .output().unwrap();
+                assert!(
+                    output.status.success(),
+                    "{mask}: {}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
             return;
         }
         let source = tempfile::tempdir().unwrap();
@@ -1751,7 +1794,12 @@ mod tests {
             materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test")).unwrap();
         let target = tempfile::tempdir().unwrap();
         restore_snapshot_to_directory(&store, &snapshot.id, target.path()).unwrap();
-        for (name, mode) in [("normal", 0o600), ("executable", 0o700)] {
+        let expected = if std::env::var(CHILD).unwrap() == "022" {
+            [("normal", 0o644), ("executable", 0o755)]
+        } else {
+            [("normal", 0o600), ("executable", 0o700)]
+        };
+        for (name, mode) in expected {
             assert_eq!(
                 fs::metadata(target.path().join(name))
                     .unwrap()
@@ -1759,6 +1807,58 @@ mod tests {
                     .mode()
                     & 0o777,
                 mode
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restoration_temporary_file_is_private_while_writing() {
+        use cap_std::fs::PermissionsExt;
+        const CHILD: &str = "SORREL_RESTORE_PRIVATE_TEMP_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new("sh")
+                .args(["-c", "umask 022; exec \"$1\" --exact snapshot::tests::restoration_temporary_file_is_private_while_writing --test-threads=1", "sorrel-private-temp-test"])
+                .arg(std::env::current_exe().unwrap())
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let target = tempfile::tempdir().unwrap();
+        let parent = Dir::open_ambient_dir(target.path(), cap_std::ambient_authority()).unwrap();
+        for existing in [true, false] {
+            let name = if existing {
+                ".sorrel-restore-private.tmp"
+            } else {
+                ".sorrel-restore-new.tmp"
+            };
+            let mut permissions = existing.then(|| cap_std::fs::Permissions::from_mode(0o600));
+            let mut file = open_restore_temporary_file(&parent, name, &mut permissions).unwrap();
+            assert_eq!(
+                permissions.unwrap().mode() & 0o777,
+                if existing { 0o600 } else { 0o644 }
+            );
+            assert_eq!(file.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+            for bytes in [
+                b"private first chunk".as_slice(),
+                b"private second chunk".as_slice(),
+            ] {
+                file.write_all(bytes).unwrap();
+                assert_eq!(
+                    parent.symlink_metadata(name).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+            }
+            assert_eq!(
+                parent.read(name).unwrap(),
+                b"private first chunkprivate second chunk"
             );
         }
     }

@@ -16,7 +16,8 @@
   "scripts": {
     "check": "npm test",
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "pretest": "cargo build --manifest-path ../Cargo.toml --locked -p sorrel-core --bin sorrel-core-policy"
   },
   "devDependencies": {
     "convex": "^1.43.0"

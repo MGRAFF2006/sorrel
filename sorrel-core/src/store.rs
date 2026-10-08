@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     fs,
     io::{self, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
@@ -54,6 +54,18 @@ pub enum ObjectStoreError {
         expected: ObjectId,
         /// Object ID computed from the bytes that were read.
         actual: ObjectId,
+    },
+
+    /// Bytes are visible, but a filesystem barrier failed; retry before publishing refs.
+    #[error("object {id} is published but durability is uncertain at {}: {source}", path.display())]
+    DurabilityUncertain {
+        /// Published content address.
+        id: ObjectId,
+        /// Published object path.
+        path: PathBuf,
+        /// Failed barrier.
+        #[source]
+        source: io::Error,
     },
 }
 
@@ -144,7 +156,60 @@ impl FileObjectStore {
             .map_err(|source| ObjectStoreError::io(&objects_dir, source))?;
         fs::create_dir_all(&tmp_dir).map_err(|source| ObjectStoreError::io(&tmp_dir, source))?;
 
+        crate::durability::flush_directory_chain(&objects_dir, &root)
+            .map_err(|source| ObjectStoreError::io(&objects_dir, source))?;
+        crate::durability::flush_directory_chain(&tmp_dir, &root)
+            .map_err(|source| ObjectStoreError::io(&tmp_dir, source))?;
+        crate::durability::flush_root_ancestors(&root)
+            .map_err(|source| ObjectStoreError::io(&root, source))?;
         Ok(Self { root })
+    }
+
+    /// Opens an existing store without creating or recovering filesystem state.
+    /// This validates the objects directory; subsequent reads still verify content digests.
+    pub fn open_existing(root: impl Into<PathBuf>) -> ObjectStoreResult<Self> {
+        let root = root.into();
+        let objects = root.join("objects");
+        let info =
+            fs::metadata(&objects).map_err(|source| ObjectStoreError::io(&objects, source))?;
+        if !info.is_dir() {
+            return Err(ObjectStoreError::io(
+                &objects,
+                io::Error::new(
+                    io::ErrorKind::NotADirectory,
+                    "object storage is not a directory",
+                ),
+            ));
+        }
+        Ok(Self { root })
+    }
+
+    /// Verifies and retries file/directory barriers for an existing object.
+    /// Ref publishers should flush every object in the validated closure.
+    pub fn flush_existing(&self, id: &ObjectId) -> ObjectStoreResult<()> {
+        self.flush_existing_with(id, &crate::durability::flush_directory_chain)
+    }
+
+    fn flush_existing_with(
+        &self,
+        id: &ObjectId,
+        flush: &dyn Fn(&Path, &Path) -> io::Result<()>,
+    ) -> ObjectStoreResult<()> {
+        self.read(id)?;
+        let path = self.object_path(id);
+        let result = (|| {
+            #[cfg(unix)]
+            let file = fs::File::open(&path)?;
+            #[cfg(not(unix))]
+            let file = fs::OpenOptions::new().write(true).open(&path)?;
+            file.sync_all()?;
+            flush(&self.shard_dir(id), &self.root)
+        })();
+        result.map_err(|source| ObjectStoreError::DurabilityUncertain {
+            id: *id,
+            path,
+            source,
+        })
     }
 
     fn objects_dir(&self) -> PathBuf {
@@ -184,6 +249,60 @@ impl FileObjectStore {
     }
 }
 
+impl FileObjectStore {
+    fn write_with_flush(
+        &self,
+        bytes: &[u8],
+        flush: &dyn Fn(&Path, &Path) -> io::Result<()>,
+    ) -> ObjectStoreResult<ObjectId> {
+        let id = ObjectId::for_bytes(bytes);
+        let path = self.object_path(&id);
+        match self.read(&id) {
+            Ok(_) => {
+                self.flush_existing_with(&id, flush)?;
+                return Ok(id);
+            }
+            Err(ObjectStoreError::NotFound(_)) => {}
+            Err(error) => return Err(error),
+        }
+
+        let shard_dir = self.shard_dir(&id);
+        fs::create_dir_all(&shard_dir)
+            .map_err(|source| ObjectStoreError::io(&shard_dir, source))?;
+
+        let (tmp_path, mut tmp_file) = self.create_temp(&id)?;
+        let result = (|| {
+            tmp_file
+                .write_all(bytes)
+                .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
+            tmp_file
+                .sync_all()
+                .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
+            drop(tmp_file);
+            match fs::rename(&tmp_path, &path) {
+                Ok(()) => {
+                    flush(&shard_dir, &self.root)
+                        .and_then(|()| flush(&self.tmp_dir(), &self.root))
+                        .map_err(|source| ObjectStoreError::DurabilityUncertain {
+                            id,
+                            path: path.clone(),
+                            source,
+                        })?;
+                    Ok(id)
+                }
+                // Another writer may have published the same content on Windows.
+                Err(_) if path.is_file() => {
+                    self.flush_existing_with(&id, flush)?;
+                    Ok(id)
+                }
+                Err(error) => Err(ObjectStoreError::io(&path, error)),
+            }
+        })();
+        let _ = fs::remove_file(&tmp_path);
+        result
+    }
+}
+
 impl ObjectStore for FileObjectStore {
     fn read(&self, id: &ObjectId) -> ObjectStoreResult<Vec<u8>> {
         let path = self.object_path(id);
@@ -207,37 +326,7 @@ impl ObjectStore for FileObjectStore {
     }
 
     fn write(&self, bytes: &[u8]) -> ObjectStoreResult<ObjectId> {
-        let id = ObjectId::for_bytes(bytes);
-        let path = self.object_path(&id);
-        if path.exists() {
-            return Ok(id);
-        }
-
-        let shard_dir = self.shard_dir(&id);
-        fs::create_dir_all(&shard_dir)
-            .map_err(|source| ObjectStoreError::io(&shard_dir, source))?;
-
-        let (tmp_path, mut tmp_file) = self.create_temp(&id)?;
-        let result = (|| {
-            tmp_file
-                .write_all(bytes)
-                .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
-            tmp_file
-                .sync_all()
-                .map_err(|source| ObjectStoreError::io(&tmp_path, source))?;
-            drop(tmp_file);
-            match fs::rename(&tmp_path, &path) {
-                Ok(()) => Ok(id),
-                // Another writer may have published the same content on Windows.
-                Err(_) if path.is_file() => {
-                    self.read(&id)?;
-                    Ok(id)
-                }
-                Err(error) => Err(ObjectStoreError::io(&path, error)),
-            }
-        })();
-        let _ = fs::remove_file(&tmp_path);
-        result
+        self.write_with_flush(bytes, &crate::durability::flush_directory_chain)
     }
 
     fn has(&self, id: &ObjectId) -> ObjectStoreResult<bool> {
@@ -253,6 +342,32 @@ impl ObjectStore for FileObjectStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rewriting_an_existing_corrupt_object_reports_corruption() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(directory.path()).unwrap();
+        let id = store.write(b"good content").unwrap();
+        fs::write(store.object_path(&id), b"corrupt content").unwrap();
+        assert!(
+            matches!(store.write(b"good content"), Err(ObjectStoreError::ContentMismatch { expected, .. }) if expected == id)
+        );
+        assert_eq!(
+            fs::read(store.object_path(&id)).unwrap(),
+            b"corrupt content"
+        );
+    }
+
+    #[test]
+    fn existing_object_directory_is_not_a_successful_write() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(directory.path()).unwrap();
+        let id = ObjectId::for_bytes(b"good content");
+        fs::create_dir_all(store.object_path(&id)).unwrap();
+        assert!(store.write(b"good content").is_err());
+        assert!(store.object_path(&id).is_dir());
+    }
+
     use std::path::Path;
 
     fn assert_content_addressed_store(store: &impl ObjectStore) {
@@ -367,6 +482,72 @@ mod tests {
             store.read(&id).unwrap_err(),
             ObjectStoreError::ContentMismatch { expected, actual }
                 if expected == id && actual == ObjectId::for_bytes(b"corrupt")
+        ));
+    }
+
+    #[test]
+    fn published_object_barrier_failure_is_typed_and_dedup_retries_it() {
+        let root = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(root.path().join("new/ancestors/store")).unwrap();
+        let bytes = b"published but not confirmed";
+        let id = ObjectId::for_bytes(bytes);
+        let calls = std::cell::Cell::new(0);
+        let fail = |_: &Path, _: &Path| {
+            calls.set(calls.get() + 1);
+            Err(io::Error::other("injected directory barrier failure"))
+        };
+        for _ in 0..2 {
+            assert!(
+                matches!(store.write_with_flush(bytes, &fail), Err(ObjectStoreError::DurabilityUncertain { id: actual, .. }) if actual == id)
+            );
+            assert_eq!(store.read(&id).unwrap(), bytes);
+        }
+        assert_eq!(calls.get(), 2);
+        assert_eq!(store.write(bytes).unwrap(), id);
+        store.flush_existing(&id).unwrap();
+        assert_eq!(count_files(&store.objects_dir()), 1);
+        assert_eq!(fs::read_dir(store.tmp_dir()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn existing_object_barriers_do_not_require_ephemeral_tmp_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(root.path()).unwrap();
+        let id = store.write(b"existing").unwrap();
+        fs::remove_dir(store.tmp_dir()).unwrap();
+        let existing = FileObjectStore::open_existing(root.path()).unwrap();
+        existing.flush_existing(&id).unwrap();
+        assert_eq!(existing.write(b"existing").unwrap(), id);
+        assert!(!existing.tmp_dir().exists());
+    }
+
+    #[test]
+    fn failure_before_object_publication_never_creates_a_final_object() {
+        let root = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(root.path()).unwrap();
+        fs::remove_dir(store.tmp_dir()).unwrap();
+        fs::write(store.tmp_dir(), b"blocked staging directory").unwrap();
+        let id = ObjectId::for_bytes(b"not published");
+        assert!(matches!(
+            store.write(b"not published"),
+            Err(ObjectStoreError::Io { .. })
+        ));
+        assert!(!store.has(&id).unwrap());
+    }
+
+    #[test]
+    fn dedup_and_reference_barriers_verify_existing_bytes() {
+        let root = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(root.path()).unwrap();
+        let id = store.write(b"original").unwrap();
+        fs::write(store.object_path(&id), b"corrupt").unwrap();
+        assert!(matches!(
+            store.write(b"original"),
+            Err(ObjectStoreError::ContentMismatch { .. })
+        ));
+        assert!(matches!(
+            store.flush_existing(&id),
+            Err(ObjectStoreError::ContentMismatch { .. })
         ));
     }
 

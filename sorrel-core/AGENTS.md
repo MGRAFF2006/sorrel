@@ -16,7 +16,7 @@ policy surface now.
 
 ## Stack and conventions
 
-- Rust, edition 2021, **rust-version 1.85+** (edition2024-era toolchain).
+- Rust, edition 2021, **rust-version 1.92+**.
 - `unsafe_code = "forbid"`.
 - Keep the public API additive; several workspace crates depend on it through
   path dependencies.
@@ -46,7 +46,7 @@ modifications, and 300 ms for walking 500 changes. These budgets catch
 order-of-magnitude regressions rather than assert throughput; tune them in
 `benches/engine.rs` as the engine matures.
 
-If the toolchain is older than 1.85:
+If the toolchain is older than 1.92:
 `rustup toolchain install stable --profile minimal -c clippy -c rustfmt && rustup default stable`.
 
 Do not modify `tests/conformance/`, `tests/policy_conformance.rs`, or

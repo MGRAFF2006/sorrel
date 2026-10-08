@@ -65,6 +65,88 @@ fn init_is_idempotent_and_does_not_clobber() {
 }
 
 #[test]
+fn workspace_manifest_rejects_unsupported_or_missing_schema_versions() {
+    let versions = [
+        Some(json!("sorrel.protocol.v1")),
+        Some(json!("private-version-marker")),
+        Some(json!(null)),
+        Some(json!(42)),
+        None,
+    ];
+    let commands: &[&[&str]] = &[
+        &["status", "--json"],
+        &["init", "--json"],
+        &["change", "create", "-m", "blocked", "--json"],
+        &["grant", "list", "--json"],
+        &["workflow", "validate", "--json"],
+        &["secret", "run", "--", "command-that-must-not-run"],
+    ];
+    for version in versions {
+        let dir = TempDir::new().unwrap();
+        command_json(dir.path(), &["init", "--json"]);
+        let path = dir.path().join(".sorrel/manifest.json");
+        let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        match version {
+            Some(version) => {
+                manifest["schemaVersion"] = version;
+            }
+            None => {
+                manifest.as_object_mut().unwrap().remove("schemaVersion");
+            }
+        }
+        let bytes = serde_json::to_vec_pretty(&manifest).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        let head = std::fs::read(dir.path().join(".sorrel/HEAD")).unwrap();
+        std::fs::write(dir.path().join("tracked.txt"), b"must not snapshot").unwrap();
+        for args in commands {
+            let output = Command::cargo_bin("sorrel")
+                .unwrap()
+                .current_dir(dir.path())
+                .args(*args)
+                .output()
+                .unwrap();
+            assert!(
+                !output.status.success(),
+                "{args:?} must reject incompatible manifest"
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("unsupported workspace schema version"),
+                "{args:?}: {stderr}"
+            );
+            assert!(!stderr.contains("private-version-marker"));
+            assert!(output.stdout.is_empty());
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            assert_eq!(
+                std::fs::read(dir.path().join(".sorrel/HEAD")).unwrap(),
+                head
+            );
+            assert!(!dir.path().join(".sorrel/stat-cache.json").exists());
+        }
+    }
+}
+
+#[test]
+fn workspace_manifest_preserves_supported_optional_fields() {
+    let dir = TempDir::new().unwrap();
+    command_json(dir.path(), &["init", "--json"]);
+    let path = dir.path().join(".sorrel/manifest.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    manifest["extension"] = json!({"enabled": true});
+    let bytes = serde_json::to_vec_pretty(&manifest).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    assert_eq!(
+        command_json(dir.path(), &["init", "--json"])["status"],
+        "already_initialized"
+    );
+    assert_eq!(
+        command_json(dir.path(), &["status", "--json"])["status"],
+        "clean"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}
+
+#[test]
 fn status_reports_real_persisted_state_for_initialized_workspace() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     let init = command_json(temp_dir.path(), &["init", "--json"]);
@@ -76,6 +158,8 @@ fn status_reports_real_persisted_state_for_initialized_workspace() {
     assert_eq!(value["initialized"], true);
     assert_eq!(value["status"], "clean");
     assert_eq!(value["worktree"]["dirty"], false);
+    assert_eq!(value["worktree"]["conflicts"], 0);
+    assert_eq!(value["worktree"]["mergeInProgress"], false);
     assert_eq!(value["currentLane"]["id"], "lane_main");
     // status must reflect the SAME repo + HEAD that init persisted.
     assert_eq!(value["repoId"], init["repoId"]);
@@ -98,12 +182,12 @@ fn status_detects_dirty_working_tree() {
 }
 
 #[test]
-fn status_writes_stat_cache_and_reuses_it_on_unchanged_resnapshot() {
+fn status_saves_only_durable_stat_cache_entries() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     command_json(temp_dir.path(), &["init", "--json"]);
     std::fs::write(temp_dir.path().join("tracked.txt"), b"cached bytes\n").expect("write file");
 
-    // First status materializes the working tree and must persist the cache.
+    // A preview must save the cache without retaining temporary blob references.
     let first = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(first["status"], "dirty");
     let cache_path = temp_dir.path().join(".sorrel/stat-cache.json");
@@ -112,17 +196,18 @@ fn status_writes_stat_cache_and_reuses_it_on_unchanged_resnapshot() {
         "status must persist .sorrel/stat-cache.json"
     );
 
-    // The cache records the tracked file with the v0 schema version.
+    // The new file is not committed, so its preview-only blob must not be cached.
     let cache: Value = serde_json::from_slice(&std::fs::read(&cache_path).expect("read cache"))
         .expect("cache json");
     assert_eq!(cache["schemaVersion"], PROTOCOL_VERSION);
     assert!(
-        cache["entries"].get("tracked.txt").is_some(),
-        "cache should contain the tracked file entry"
+        cache["entries"].get("tracked.txt").is_none(),
+        "cache must not reference a deleted preview blob"
     );
 
     // Re-running status with an unchanged working tree must still succeed and
-    // report the same dirty result (cache hit path exercised).
+    // report the same dirty result. Newly written files may conservatively miss
+    // until verified after their ctime second.
     let second = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(second["status"], "dirty");
     assert_eq!(
@@ -143,6 +228,76 @@ fn status_writes_stat_cache_and_reuses_it_on_unchanged_resnapshot() {
     assert!(cache_path.is_file(), "change create must persist the cache");
     let after = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(after["status"], "clean");
+    let cache: Value = serde_json::from_slice(&std::fs::read(&cache_path).unwrap()).unwrap();
+    assert!(cache["entries"].get("tracked.txt").is_some());
+}
+
+#[test]
+fn stat_cache_detects_preserved_mtime_edits_and_replacements() {
+    use std::fs::{File, FileTimes};
+
+    for replace in [false, true] {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let path = temp_dir.path().join("tracked.txt");
+        std::fs::write(&path, b"old\n").expect("initial file");
+        command_json(temp_dir.path(), &["init", "--json"]);
+        // Verify an aged file so this exercises reusable Unix fingerprints,
+        // rather than only the conservative current-second miss.
+        #[cfg(unix)]
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        command_json(
+            temp_dir.path(),
+            &["change", "create", "-m", "initial bytes", "--json"],
+        );
+        let mtime = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(
+            command_json(temp_dir.path(), &["status", "--json"])["status"],
+            "clean"
+        );
+
+        let cache_path = temp_dir.path().join(".sorrel/stat-cache.json");
+        let initial_cache = std::fs::read(&cache_path).unwrap();
+
+        let changed_path = if replace {
+            temp_dir.path().join("replacement.tmp")
+        } else {
+            path.clone()
+        };
+        std::fs::write(&changed_path, b"new\n").expect("same-size edit");
+        File::open(&changed_path)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(mtime))
+            .unwrap();
+        if replace {
+            std::fs::rename(&changed_path, &path).expect("replace tracked file");
+        }
+        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), mtime);
+        let status = command_json(temp_dir.path(), &["status", "--json"]);
+        assert_eq!(status["status"], "dirty", "replacement={replace}");
+        assert_eq!(
+            status["worktree"]["changes"]["modified"],
+            json!(["tracked.txt"])
+        );
+        // Independently prove change create rejects the stale cached bytes,
+        // without depending on status having refreshed the entry first.
+        std::fs::write(&cache_path, initial_cache).unwrap();
+        let recorded = command_json(
+            temp_dir.path(),
+            &["change", "create", "-m", "preserved mtime edit", "--json"],
+        );
+        let snapshot_id = recorded["object"]["resultingSnapshot"]["id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let store = FileObjectStore::new(temp_dir.path().join(".sorrel")).unwrap();
+        let files = sorrel_core::read_snapshot_files(&store, &snapshot_id).unwrap();
+        assert_eq!(files[Path::new("tracked.txt")], b"new\n");
+        assert_eq!(
+            command_json(temp_dir.path(), &["status", "--json"])["status"],
+            "clean"
+        );
+    }
 }
 
 #[test]
@@ -267,6 +422,49 @@ fn diff_reports_line_level_hunks_for_modified_text() {
     assert!(lines
         .iter()
         .any(|line| line["kind"] == "added" && line["text"] == "line4"));
+}
+
+#[test]
+fn diff_reports_final_newline_and_crlf_changes() {
+    for (old, new, removed_ending, added_ending, marker) in [
+        ("a\n", "a", None, Some("none"), "No newline at end of file"),
+        ("a", "a\n", Some("none"), None, "No newline at end of file"),
+        ("a\r\n", "a\n", Some("crlf"), None, "CRLF line ending"),
+        ("a\n", "a\r\n", None, Some("crlf"), "CRLF line ending"),
+    ] {
+        let temp = TempDir::new().unwrap();
+        std::fs::write(temp.path().join("a.txt"), old).unwrap();
+        command_json(temp.path(), &["init", "--json"]);
+        command_json(temp.path(), &["change", "create", "-m", "base", "--json"]);
+        std::fs::write(temp.path().join("a.txt"), new).unwrap();
+        let diff = command_json(temp.path(), &["diff", "--json"]);
+        let file = &diff["files"][0];
+        assert_eq!(file["kind"], "modified");
+        assert_eq!(file["binary"], false);
+        let lines = file["hunks"][0]["lines"].as_array().unwrap();
+        let removed = lines.iter().find(|line| line["kind"] == "removed").unwrap();
+        let added = lines.iter().find(|line| line["kind"] == "added").unwrap();
+        assert_eq!(removed["text"], "a");
+        assert_eq!(added["text"], "a");
+        assert_eq!(
+            removed.get("lineEnding").and_then(Value::as_str),
+            removed_ending
+        );
+        assert_eq!(
+            added.get("lineEnding").and_then(Value::as_str),
+            added_ending
+        );
+        let human = Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(temp.path())
+            .arg("diff")
+            .output()
+            .unwrap();
+        assert!(human.status.success());
+        let human = String::from_utf8(human.stdout).unwrap();
+        assert!(human.contains(marker));
+        assert!(human.contains("@@ -1,1 +1,1 @@"));
+    }
 }
 
 #[test]
@@ -949,6 +1147,18 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
 
     let status = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(status["status"], "dirty");
+    assert_eq!(status["worktree"]["conflicts"], 1);
+    assert_eq!(status["worktree"]["mergeInProgress"], true);
+    let human_status = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(temp_dir.path())
+        .arg("status")
+        .output()
+        .unwrap();
+    assert!(human_status.status.success());
+    let text = String::from_utf8(human_status.stdout).unwrap();
+    assert!(text.contains("merge in progress") && text.contains("1 pending conflict"));
+
     assert_eq!(status["headSnapshot"]["id"], main_snapshot);
 
     let aborted = command_json(temp_dir.path(), &["merge", "--abort", "--json"]);
@@ -972,6 +1182,9 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
     assert!(!temp_dir.path().join("clean-add.txt").exists());
     let status = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(status["status"], "clean");
+    assert_eq!(status["worktree"]["conflicts"], 0);
+    assert_eq!(status["worktree"]["mergeInProgress"], false);
+
     assert_eq!(status["headSnapshot"]["id"], main_snapshot);
 }
 
@@ -1053,6 +1266,10 @@ fn merge_continue_after_manual_resolution() {
     assert!(String::from_utf8_lossy(&blocked.stderr).contains("unresolved conflict markers"));
 
     std::fs::write(temp_dir.path().join("a.txt"), b"resolved\n").expect("resolve");
+    let pending = command_json(temp_dir.path(), &["status", "--json"]);
+    assert_eq!(pending["worktree"]["conflicts"], 1);
+    assert_eq!(pending["worktree"]["mergeInProgress"], true);
+
     let continued = command_json(temp_dir.path(), &["merge", "--continue", "--json"]);
     assert_eq!(continued["command"], "merge");
     assert_eq!(continued["status"], "merged");
@@ -1074,6 +1291,72 @@ fn merge_continue_after_manual_resolution() {
     assert!(!temp_dir.path().join("clean-delete.txt").exists());
     let status = command_json(temp_dir.path(), &["status", "--json"]);
     assert_eq!(status["status"], "clean");
+    assert_eq!(status["worktree"]["conflicts"], 0);
+    assert_eq!(status["worktree"]["mergeInProgress"], false);
+}
+
+#[test]
+fn status_reports_binary_conflicts_without_text_markers() {
+    let dir = TempDir::new().unwrap();
+    command_json(dir.path(), &["init", "--json"]);
+    let path = dir.path().join("binary.dat");
+    std::fs::write(&path, b"base\xff").unwrap();
+    command_json(dir.path(), &["change", "create", "-m", "base", "--json"]);
+    let lane = command_json(
+        dir.path(),
+        &["lane", "create", "--name", "binary-feature", "--json"],
+    );
+    let lane_id = lane["object"]["id"].as_str().unwrap();
+    std::fs::write(&path, b"ours\xff").unwrap();
+    command_json(dir.path(), &["change", "create", "-m", "ours", "--json"]);
+    command_json(dir.path(), &["lane", "switch", lane_id, "--json"]);
+    std::fs::write(&path, b"theirs\xff").unwrap();
+    command_json(dir.path(), &["change", "create", "-m", "theirs", "--json"]);
+    command_json(dir.path(), &["lane", "switch", "lane_main", "--json"]);
+    let merge = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["merge", lane_id, "--json"])
+        .output()
+        .unwrap();
+    assert!(!merge.status.success());
+    assert_eq!(std::fs::read(&path).unwrap(), b"ours\xff");
+    let status = command_json(dir.path(), &["status", "--json"]);
+    assert_eq!(status["status"], "clean", "working bytes still match ours");
+    assert_eq!(status["worktree"]["conflicts"], 1);
+    assert_eq!(status["worktree"]["mergeInProgress"], true);
+    command_json(dir.path(), &["merge", "--abort", "--json"]);
+    let cleared = command_json(dir.path(), &["status", "--json"]);
+    assert_eq!(cleared["worktree"]["conflicts"], 0);
+    assert_eq!(cleared["worktree"]["mergeInProgress"], false);
+}
+
+#[test]
+fn status_fails_for_unreadable_merge_result_state() {
+    for state in [
+        json!({}),
+        json!({"mergeResult": "invalid"}),
+        json!({"mergeResult": "a".repeat(64)}),
+    ] {
+        let dir = TempDir::new().unwrap();
+        command_json(dir.path(), &["init", "--json"]);
+        std::fs::write(
+            dir.path().join(".sorrel/MERGE_STATE"),
+            serde_json::to_vec(&state).unwrap(),
+        )
+        .unwrap();
+        let status = Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(dir.path())
+            .args(["status", "--json"])
+            .output()
+            .unwrap();
+        assert!(
+            !status.status.success(),
+            "corrupt merge state cannot report no conflicts"
+        );
+        assert!(status.stdout.is_empty());
+    }
 }
 
 #[test]
@@ -1562,18 +1845,21 @@ fn grant_create_evaluates_and_persists_real_grant() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     command_json(temp_dir.path(), &["init", "--json"]);
 
-    let value = command_json(temp_dir.path(), &["grant", "create", "--json"]);
+    let value = command_json(
+        temp_dir.path(),
+        &["grant", "create", "--local-demo", "--json"],
+    );
     assert_eq!(value["command"], "grant create");
-    assert_eq!(value["mocked"], false);
+    assert_eq!(value["mocked"], true);
     assert_eq!(value["persisted"], true);
-    // The grant carries the real Core decision (allow/deny/needs_grant).
+    // The explicitly mocked grant carries the real Core decision (allow/deny/needs_grant).
     let status = value["status"].as_str().expect("status is a string");
     assert!(
         matches!(status, "allow" | "deny" | "needs_grant"),
         "unexpected decision: {status}"
     );
     assert_eq!(value["object"]["kind"], "Grant");
-    assert_eq!(value["object"]["metadata"]["mocked"], false);
+    assert_eq!(value["object"]["metadata"]["mocked"], true);
     let grant_id = value["object"]["id"].as_str().expect("grant id");
     assert!(grant_id.starts_with("grant_"));
     assert!(temp_dir
@@ -1591,7 +1877,10 @@ fn grant_list_reads_persisted_grants() {
     let empty = command_json(temp_dir.path(), &["grant", "list", "--json"]);
     assert_eq!(empty["count"], 0);
 
-    command_json(temp_dir.path(), &["grant", "create", "--json"]);
+    command_json(
+        temp_dir.path(),
+        &["grant", "create", "--local-demo", "--json"],
+    );
     let value = command_json(temp_dir.path(), &["grant", "list", "--json"]);
     assert_eq!(value["command"], "grant list");
     assert_eq!(value["mocked"], false);
@@ -1647,6 +1936,90 @@ fn secret_refs_lists_declared_handles() {
     // No SecretRefs are declared by default; values never appear in the CLI.
     assert_eq!(value["count"], 0);
     assert!(value["objects"].as_array().expect("array").is_empty());
+}
+
+#[test]
+fn secret_check_json_reports_mixed_providers_and_profiles_without_values() {
+    let directory = TempDir::new().unwrap();
+    let root = directory.path();
+    command_json(root, &["init", "--json"]);
+    std::fs::write(root.join(".gitignore"), ".first\n.test-config/\n").unwrap();
+    std::fs::write(
+        root.join(".first"),
+        "SORREL_TEST_RESOLUTION_ALPHA=synthetic-dotenv\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("sorrel.secrets.yml"),
+        r#"
+secretRefs:
+  - id: secret_alpha
+    name: SORREL_TEST_RESOLUTION_ALPHA
+    provider: dotenv:.first
+    environment: dev
+    required: true
+  - id: secret_beta
+    name: SORREL_TEST_RESOLUTION_BETA
+    provider: env
+    environment: prod
+    required: true
+"#,
+    )
+    .unwrap();
+    for (id, environment) in [("secret_alpha", "dev"), ("secret_beta", "prod")] {
+        command_json(
+            root,
+            &[
+                "grant",
+                "create",
+                "--local-demo",
+                "--action",
+                "secret.read",
+                "--secret",
+                id,
+                "--environment",
+                environment,
+                "--json",
+            ],
+        );
+    }
+    let config = root.join(".test-config");
+    std::fs::create_dir_all(config.join("secretspec")).unwrap();
+    std::fs::write(
+        config.join("secretspec/config.toml"),
+        "[audit]\nenabled = false\n",
+    )
+    .unwrap();
+    let output = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .env("XDG_CONFIG_HOME", config)
+        .env("SORREL_LOCAL_DEMO", "1")
+        .env("SORREL_TEST_RESOLUTION_BETA", "synthetic-env")
+        .env("SECRETSPEC_SCOPE", "unselected-scope")
+        .args(["secret", "check", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(!text.contains("synthetic-dotenv"));
+    assert!(!text.contains("synthetic-env"));
+    let value: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(value["command"], "secret check");
+    assert_eq!(value["provider"], "mixed");
+    assert_eq!(value["report"]["provider"], "mixed");
+    assert_eq!(value["report"]["profile"], "mixed");
+    let secrets = value["report"]["secrets"].as_array().unwrap();
+    assert_eq!(secrets.len(), 2);
+    assert!(secrets.iter().all(|secret| secret["status"] == "resolved"));
+    assert!(secrets
+        .iter()
+        .all(|secret| secret["source_provider"].is_string()));
+    assert!(secrets.iter().all(|secret| secret.get("value").is_none()));
 }
 
 fn assert_json(args: &[&str], expected: Value) {

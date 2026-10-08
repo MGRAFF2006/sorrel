@@ -1,5 +1,5 @@
 import { HttpError } from './http.js';
-import { parseJsonObject, refObjectId } from './sync-closure.js';
+import { parseJsonObject, refObjectId, requireTypedObject } from './sync-closure.js';
 import { SyncObjectNotFoundError } from './sync-store.js';
 
 const BLOB_PREFIX = Buffer.from('sorrel.blob.v0\n', 'utf8');
@@ -209,14 +209,7 @@ function normalizeBrowsePath(path) {
 
 function requireObjectKind(store, repoId, objectId, expectedKind) {
   const parsed = parseJsonObject(getObject(store, repoId, objectId));
-  if (typeof parsed?.kind !== 'string' || parsed.kind.toLowerCase() !== expectedKind) {
-    throw new HttpError(
-      422,
-      `object ${objectId} is not a ${expectedKind}`,
-      'invalid_sync_object',
-    );
-  }
-  return parsed;
+  return requireTypedObject(parsed, objectId, expectedKind);
 }
 
 function getObject(store, repoId, objectId) {

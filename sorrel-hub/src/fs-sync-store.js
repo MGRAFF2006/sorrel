@@ -6,9 +6,23 @@ import { objectId, verifyObjectId } from './blake3.js';
 import {
   SyncObjectIdMismatchError,
   SyncObjectNotFoundError,
+  SyncRefCorruptError,
 } from './sync-store.js';
 
 const OBJECT_ID_PATTERN = /^[0-9a-f]{64}$/;
+
+export class FilesystemNameTooLongError extends Error {
+  constructor() {
+    super('encoded filesystem component exceeds the supported 255-byte limit');
+    this.name = 'FilesystemNameTooLongError';
+    this.code = 'filesystem_name_too_long';
+  }
+}
+
+export function filesystemName(name) {
+  if (Buffer.byteLength(name, 'utf8') > 255) throw new FilesystemNameTooLongError();
+  return name;
+}
 
 /**
  * Encode an arbitrary identifier (repo id, ref name) into a filesystem-safe
@@ -89,11 +103,11 @@ export class FsRepoSyncStore {
       throw new TypeError('rootDir must be a non-empty string');
     }
     this.rootDir = path.resolve(rootDir);
-    fs.mkdirSync(this.rootDir, { recursive: true });
+    initializeStoreDirectory(this.rootDir);
   }
 
   #repoDir(repoId) {
-    return path.join(this.rootDir, encodePathSegment(repoId));
+    return path.join(this.rootDir, filesystemName(encodePathSegment(repoId)));
   }
 
   #objectPath(repoId, id) {
@@ -101,7 +115,7 @@ export class FsRepoSyncStore {
   }
 
   #refPath(repoId, name) {
-    return path.join(this.#repoDir(repoId), 'refs', encodePathSegment(name));
+    return path.join(this.#repoDir(repoId), 'refs', filesystemName(encodePathSegment(name)));
   }
 
   has(repoId, id) {
@@ -142,7 +156,9 @@ export class FsRepoSyncStore {
 
     const target = this.#objectPath(repoId, id);
     if (!fs.existsSync(target) || !verifyObjectId(id, fs.readFileSync(target))) {
-      atomicWrite(target, bytes);
+      atomicWrite(target, bytes, this.rootDir);
+    } else {
+      syncStoredFile(target, this.rootDir);
     }
     return id;
   }
@@ -182,7 +198,7 @@ export class FsRepoSyncStore {
 
     const refs = [];
     for (const file of files.sort()) {
-      const parsed = readRefFile(path.join(refsDir, file));
+      const parsed = readRefFile(path.join(refsDir, file), decodePathSegment(file));
       if (parsed) {
         refs.push(parsed);
       }
@@ -191,13 +207,15 @@ export class FsRepoSyncStore {
   }
 
   getRef(repoId, name) {
-    const parsed = readRefFile(this.#refPath(repoId, name));
+    const parsed = readRefFile(this.#refPath(repoId, name), name);
     return parsed ? parsed.snapshot : undefined;
   }
 
-  setRef(repoId, name, snapshotId) {
+  setRef(repoId, name, snapshotId, objectIds = []) {
+    // HTTP passes its already validated closure, including terminal blobs.
+    for (const id of objectIds) syncStoredFile(this.#objectPath(repoId, normalizeObjectId(id)), this.rootDir);
     const payload = JSON.stringify({ name, snapshot: snapshotId });
-    atomicWrite(this.#refPath(repoId, name), Buffer.from(`${payload}\n`, 'utf8'));
+    atomicWrite(this.#refPath(repoId, name), Buffer.from(`${payload}\n`, 'utf8'), this.rootDir);
     return snapshotId;
   }
 }
@@ -210,7 +228,7 @@ function normalizeObjectId(id) {
   return normalized;
 }
 
-function readRefFile(filePath) {
+function readRefFile(filePath, expectedName) {
   let raw;
   try {
     raw = fs.readFileSync(filePath, 'utf8');
@@ -221,20 +239,20 @@ function readRefFile(filePath) {
     throw error;
   }
 
+  let value;
   try {
-    const value = JSON.parse(raw);
-    if (
-      value &&
-      typeof value === 'object' &&
-      typeof value.name === 'string' &&
-      typeof value.snapshot === 'string'
-    ) {
-      return { name: value.name, snapshot: value.snapshot };
-    }
+    value = JSON.parse(raw);
   } catch {
-    // fall through: a torn/corrupt ref file reads as absent rather than crashing
+    throw new SyncRefCorruptError();
   }
-  return undefined;
+  if (
+    !value || typeof value !== 'object' || Array.isArray(value) ||
+    value.name !== expectedName ||
+    typeof value.snapshot !== 'string' || !/^[0-9a-f]{64}$/i.test(value.snapshot)
+  ) {
+    throw new SyncRefCorruptError();
+  }
+  return { name: value.name, snapshot: value.snapshot };
 }
 
 /**
@@ -242,22 +260,84 @@ function readRefFile(filePath) {
  *
  * @param {string} target
  * @param {Buffer | string} bytes
+ * @param {string} [rootDir] Directory boundary whose entries must be flushed.
  */
-export function atomicWrite(target, bytes) {
+export function atomicWrite(target, bytes, rootDir = path.dirname(target)) {
+  filesystemName(path.basename(target));
   const dir = path.dirname(target);
+  const tmp = path.join(dir, filesystemName(`.tmp-${process.pid}-${randomBytes(6).toString('hex')}`));
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = path.join(dir, `.tmp-${process.pid}-${randomBytes(6).toString('hex')}`);
+  let created = false;
+  let published = false;
   try {
-    fs.writeFileSync(tmp, bytes);
-    fs.renameSync(tmp, target);
-  } catch (error) {
+    const fd = fs.openSync(tmp, 'wx');
+    created = true;
     try {
-      fs.rmSync(tmp, { force: true });
-    } catch {
-      // best effort cleanup
+      fs.writeFileSync(fd, bytes);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
     }
+    fs.renameSync(tmp, target);
+    published = true;
+    syncDirectoryChain(dir, rootDir);
+  } catch (error) {
+    if (created && !published) {
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {
+        // best effort cleanup of our unpublished temporary
+      }
+    }
+    if (published) throw new PublishedWriteDurabilityError(error);
     throw error;
   }
+}
+
+/** A rename completed, but durability could not be established. */
+export class PublishedWriteDurabilityError extends Error {
+  constructor(cause) {
+    super('published write durability could not be established', { cause });
+    this.name = 'PublishedWriteDurabilityError';
+  }
+}
+
+/** Reconcile root creation from earlier failed writes, including after restart. */
+export function initializeStoreDirectory(rootDir) {
+  const root = path.resolve(rootDir);
+  fs.mkdirSync(root, { recursive: true });
+  syncDirectoryChain(root, path.parse(root).root);
+}
+
+function syncDirectoryChain(directory, rootDir) {
+  if (process.platform === 'win32') return;
+  const root = path.resolve(rootDir);
+  let current = path.resolve(directory);
+  const relative = path.relative(root, current);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new TypeError('write directory must be inside the store root');
+  }
+  for (;;) {
+    const fd = fs.openSync(current, 'r');
+    try {
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    if (current === root) break;
+    current = path.dirname(current);
+  }
+}
+
+function syncStoredFile(target, rootDir) {
+  if (process.platform === 'win32') return;
+  const fd = fs.openSync(target, 'r');
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  syncDirectoryChain(path.dirname(target), rootDir);
 }
 
 /**

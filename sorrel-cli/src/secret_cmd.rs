@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use crate::secretspec_bridge::{
     authorize_secret, check_handles, load_secret_handles, resolve_handles, run_with_secrets,
-    secret_policy_context, set_secret_value, sync_secretspec_toml, BridgeError, SecretHandle,
+    secret_policy_context_for, set_secret_value, sync_secretspec_toml, BridgeError, SecretHandle,
     DEFAULT_PROVIDER,
 };
 use crate::{repo, CommandOutput};
@@ -34,7 +34,7 @@ pub enum SecretCommand {
 
 #[derive(Debug, Args)]
 pub struct SecretProviderArgs {
-    /// SecretSpec provider name or URI (default: dotenv:.env).
+    /// SecretSpec provider override (default: each handle's provider).
     #[arg(long)]
     pub provider: Option<String>,
 }
@@ -104,7 +104,6 @@ pub enum SecretRunResult {
 pub fn execute_run(args: SecretRunArgs, json: bool) -> io::Result<SecretRunResult> {
     let cwd = env::current_dir()?;
     let handles = load_secret_handles(&cwd).map_err(bridge_io)?;
-    let context = secret_policy_context().map_err(bridge_io)?;
 
     let selected: Vec<String> = if args.secrets.is_empty() {
         handles.iter().map(|handle| handle.id.clone()).collect()
@@ -119,6 +118,12 @@ pub fn execute_run(args: SecretRunArgs, json: bool) -> io::Result<SecretRunResul
                 format!("SecretRef `{id}` not found"),
             )
         })?;
+        let context = secret_policy_context_for(
+            Some(&handle.environment),
+            None,
+            Some("runner_local_process"),
+        )
+        .map_err(bridge_io)?;
         authorize_secret(
             &context,
             "secret.read",
@@ -135,7 +140,7 @@ pub fn execute_run(args: SecretRunArgs, json: bool) -> io::Result<SecretRunResul
         .map_err(bridge_io)?;
     }
 
-    let provider = args.provider.as_deref().or(Some(DEFAULT_PROVIDER));
+    let provider = args.provider.as_deref();
     let resolved = resolve_handles(&cwd, &handles, &selected, provider).map_err(bridge_io)?;
 
     // Strip a leading `--` if clap left it in trailing args.
@@ -242,8 +247,13 @@ fn sync_output() -> io::Result<CommandOutput> {
 fn check_output(args: SecretProviderArgs) -> io::Result<CommandOutput> {
     let cwd = env::current_dir()?;
     let handles = load_secret_handles(&cwd).map_err(bridge_io)?;
-    let context = secret_policy_context().map_err(bridge_io)?;
     for handle in &handles {
+        let context = secret_policy_context_for(
+            Some(&handle.environment),
+            None,
+            Some("runner_local_process"),
+        )
+        .map_err(bridge_io)?;
         authorize_secret(
             &context,
             "secret.read",
@@ -259,12 +269,12 @@ fn check_output(args: SecretProviderArgs) -> io::Result<CommandOutput> {
         json: json!({
             "command": "secret check",
             "mocked": false,
-            "provider": args.provider.as_deref().unwrap_or(DEFAULT_PROVIDER),
+            "provider": report.provider,
             "report": report_json
         }),
         human: format!(
             "Secret check via {} ({} declared handle(s))",
-            args.provider.as_deref().unwrap_or(DEFAULT_PROVIDER),
+            report.provider,
             handles.len()
         ),
     })
@@ -279,7 +289,12 @@ fn get_output(args: SecretGetArgs) -> io::Result<CommandOutput> {
             format!("SecretRef `{}` not found", args.secret),
         )
     })?;
-    let context = secret_policy_context().map_err(bridge_io)?;
+    let context = secret_policy_context_for(
+        Some(&handle.environment),
+        None,
+        Some("runner_local_process"),
+    )
+    .map_err(bridge_io)?;
     authorize_secret(
         &context,
         "secret.read",
@@ -346,7 +361,12 @@ fn set_output(args: SecretSetArgs) -> io::Result<CommandOutput> {
             format!("SecretRef `{}` not found", args.secret),
         )
     })?;
-    let context = secret_policy_context().map_err(bridge_io)?;
+    let context = secret_policy_context_for(
+        Some(&handle.environment),
+        None,
+        Some("runner_local_process"),
+    )
+    .map_err(bridge_io)?;
     authorize_secret(
         &context,
         "secret.inject",

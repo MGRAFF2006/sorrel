@@ -87,3 +87,13 @@ test("binding keys cannot collide across secrets and environments containing col
   assert.equal(backend.resolve({ secret: "secret_a:b", environment: "c" }).value, "fixture-one");
   assert.equal(backend.resolve({ secret: "secret_a", environment: "b:c" }).value, "fixture-two");
 });
+
+
+test("known short secret values are always masked even with a minimum-length policy", () => {
+  for (const value of ["x", "abcd", "abcde", "abcdef"]) {
+    assert.equal(redactText(`before ${value} after`, [value], { minSecretLength: 100 }), "before *** after");
+  }
+  assert.equal(redactText("x", ["x"], { visiblePrefix: 10, visibleSuffix: 10 }), "***");
+  assert.equal(redactText("abcd", ["abcd"], { visiblePrefix: 2, visibleSuffix: 2 }), "ab***d");
+  assert.equal(redactText("unchanged", [""]), "unchanged");
+});
