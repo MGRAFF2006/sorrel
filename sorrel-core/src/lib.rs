@@ -63,11 +63,12 @@ pub use policy::{
 pub use snapshot::{
     materialize_snapshot, materialize_snapshot_excluding,
     materialize_snapshot_excluding_with_stat_cache, materialize_snapshot_with_stat_cache,
-    read_blob, read_snapshot, read_snapshot_files, read_tree, restore_snapshot_to_directory,
-    write_blob, write_snapshot, write_tree, write_tree_from_directory,
-    write_tree_from_directory_excluding, write_tree_from_directory_excluding_with_stat_cache,
-    write_tree_from_directory_with_stat_cache, Blob, EntryMode, EntryType, ObjectKind, ObjectRef,
-    Principal, Snapshot, SnapshotError, SnapshotOptions, SnapshotResult, Tree, TreeEntry,
+    read_blob, read_snapshot, read_snapshot_files, read_tree, remove_snapshot_file_from_directory,
+    restore_snapshot_to_directory, write_blob, write_snapshot, write_snapshot_file_to_directory,
+    write_tree, write_tree_from_directory, write_tree_from_directory_excluding,
+    write_tree_from_directory_excluding_with_stat_cache, write_tree_from_directory_with_stat_cache,
+    Blob, EntryMode, EntryType, ObjectKind, ObjectRef, Principal, Snapshot, SnapshotError,
+    SnapshotOptions, SnapshotResult, Tree, TreeEntry,
 };
 pub use stat_cache::{StatCache, StatCacheEntry, StatCacheError, StatCacheResult};
 pub use store::{

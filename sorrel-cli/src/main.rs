@@ -15,11 +15,12 @@ use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_export_with_force, git_import,
     is_descendant, materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree,
     parse_object_id_hex, read_conflict, read_merge_result, read_snapshot, read_snapshot_files,
-    read_stack, read_tree, restore_snapshot_to_directory, snapshot_diff, write_snapshot,
-    write_tree, ChangeOptions, ConflictType, EntryMode, FileObjectStore, GitExportOptions,
-    GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions, ObjectId,
-    ObjectKind, ObjectRef, ObjectStore, ObjectStoreError, ObjectStoreResult, PathChangeKind,
-    Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
+    read_stack, read_tree, remove_snapshot_file_from_directory, restore_snapshot_to_directory,
+    snapshot_diff, write_snapshot, write_snapshot_file_to_directory, write_tree, ChangeOptions,
+    ConflictType, EntryMode, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
+    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
+    ObjectStoreError, ObjectStoreResult, PathChangeKind, Principal, SnapshotOptions, StackOptions,
+    StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -2954,12 +2955,11 @@ fn write_conflict_markers(
 
 /// Writes `bytes` to a repo-relative working-tree path, creating parents.
 fn write_worktree_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
-        }
-    }
-    fs::write(path, bytes)
+    to_io(write_snapshot_file_to_directory(
+        Path::new("."),
+        path,
+        bytes,
+    ))
 }
 
 /// Returns true when the working tree differs from `base_snapshot`.
@@ -2985,33 +2985,11 @@ fn restore_worktree_to_snapshot(
 
     for path in current_files.keys() {
         if !target_files.contains_key(path) {
-            match fs::remove_file(path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
-            }
-            remove_empty_parent_dirs(path)?;
+            to_io(remove_snapshot_file_from_directory(Path::new("."), path))?;
         }
     }
 
     to_io(restore_snapshot_to_directory(store, target, Path::new(".")))?;
-    Ok(())
-}
-
-/// Removes empty parent directories of `path` up to (but not including) `.`.
-fn remove_empty_parent_dirs(path: &Path) -> io::Result<()> {
-    let mut current = path.parent();
-    while let Some(dir) = current {
-        if dir.as_os_str().is_empty() || dir == Path::new(".") {
-            break;
-        }
-        match fs::remove_dir(dir) {
-            Ok(()) => current = dir.parent(),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => break,
-            // Directory not empty or not removable — stop walking up.
-            Err(_) => break,
-        }
-    }
     Ok(())
 }
 
