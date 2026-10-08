@@ -93,7 +93,10 @@ held directory handles even if a parent is concurrently renamed. The Windows
 backend has path-based rename/removal operations; concurrent directory swaps
 there remain an unresolved confinement risk. These operations do not provide
 transactional checkout rollback; an I/O failure can still leave a partial
-working tree.
+working tree. Snapshot restoration preserves existing read/write permission
+bits, adjusts executability for readable classes, and respects the process
+umask for newly created files. Replacement content does not inherit set-id
+bits. Ownership and ACL preservation are not provided.
 
 ## Changes and diff
 
