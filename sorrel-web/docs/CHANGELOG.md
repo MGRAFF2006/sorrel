@@ -11,6 +11,11 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep slice generation inside the project root when following symlinks, and
+  accept valid project paths whose names begin with `..`.
+
 ### Added
 
 - Add explicit Hub repository linking and bounded comparison of recorded review

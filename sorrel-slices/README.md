@@ -135,3 +135,8 @@ provided project root.
 - No registry lookups and no package installation analysis.
 - Dynamic imports are listed as unresolved with reason `dynamic_import`.
 - Only local relative imports are followed.
+- Symlinks are followed only when their targets remain inside the project's
+  real root. Outside-root imports are recorded as `outside_project_root`;
+  outside-root entrypoints and package metadata fail with a `SliceError`.
+  Symlinked project roots and links to files within the project remain supported,
+  and manifest paths retain their original relative names.

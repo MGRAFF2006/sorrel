@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Reject entrypoints and package metadata that resolve through symlinks outside
+  the project root, and report such imports as `outside_project_root` without
+  reading their contents. Preserve links within the project and symlinked roots.
+- Accept valid project paths whose names begin with `..`.
 - Ignore import-like examples inside strings, template text, and regex literals
   while retaining dependency calls in template expressions and division operands.
 
