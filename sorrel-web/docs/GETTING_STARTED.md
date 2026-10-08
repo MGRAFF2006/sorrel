@@ -53,7 +53,7 @@ Hub before launching the app:
 
 ```sh
 cd /path/to/sorrel/sorrel-hub
-SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start
+SORREL_HUB_LOCAL_DEMO=1 SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start
 ```
 
 Installer signing/notarization is not yet configured for this developer
@@ -87,18 +87,25 @@ sha256sum --check sorrel-server-assets.sha256
 
 SORREL_VERSION=<VERSION> \
 SORREL_HUB_AUTH=dev \
+SORREL_HUB_LOCAL_DEMO=1 \
+SORREL_HUB_BOOTSTRAP_GRANTS=1 \
 SORREL_HUB_ALLOW_INSECURE_DEV_AUTH=1 \
 docker compose -f sorrel-server.compose.yml up -d
 ```
 
 This development-auth example is intentionally bound to `127.0.0.1` by the
-Compose file. It persists Hub state in the `hub-data` volume and leaves broad
-bootstrap grants disabled. Set `SORREL_HUB_BOOTSTRAP_GRANTS=1` only for an
-isolated CLI sync demo.
+Compose file. It persists Hub state in the `hub-data` volume and explicitly
+provisions broad local demo grants. Use these flags only for an isolated demo.
+Without demo mode, private API reads and writes require a verified session and
+matching operator-configured native Core grants. See the
+[Hub capability matrix](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-hub/README.md#private-route-capabilities).
 
 For bearer-authenticated API hosting, set `SORREL_HUB_AUTH=oidc` with
 `SORREL_OIDC_ISSUER` and `SORREL_OIDC_AUDIENCE`, or configure the documented
-WorkOS variables. Put a TLS reverse proxy in front and set
+WorkOS variables. Configure `SORREL_HUB_TRUSTED_GRANTS_FILE` and optionally
+`SORREL_HUB_TRUSTED_POLICIES_FILE` with native Core records; in Compose these
+paths refer to files mounted inside the API container. Use a read-only Compose
+override mount for operator configuration. Put a TLS reverse proxy in front and set
 `SORREL_BIND_ADDRESS` only after the network boundary is in place. The alpha
 browser UI does not yet implement an IdP login flow, sealed WorkOS sessions are
 not shipped, and no alpha Hub should be treated as a production security
@@ -178,7 +185,7 @@ secret backend are not part of this alpha.
 
 ## Build from source or run the development Hub
 
-Source builds and the development Hub require Git, Rust stable 1.85+ with
+Source builds and the development Hub require Git, Rust 1.92+ with
 `clippy` and `rustfmt`, and Node.js 22+. Docker or Podman is optional for the
 container preview.
 
@@ -236,7 +243,7 @@ compose `web` service is an optional local mirror; it does not replace Cloudflar
 ```sh
 # terminal 1 — API (explicit insecure local bootstrap for the demo)
 cd sorrel-hub
-SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start  # http://127.0.0.1:3000
+SORREL_HUB_LOCAL_DEMO=1 SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start  # http://127.0.0.1:3000
 
 # terminal 2 — UI (proxies /api → Hub)
 cd sorrel-hub-web
@@ -250,6 +257,8 @@ Useful Hub env vars:
 - `SORREL_HUB_METADATA_DIR` — product metadata (default `./data/metadata`)
 - `HOST` — listen address (default `127.0.0.1`; use `0.0.0.0` only in an
   isolated container/network)
+- `SORREL_HUB_LOCAL_DEMO=1` — explicitly enable anonymous local/acting-header
+  identities in development mode; Core grants are still required
 - `SORREL_HUB_BOOTSTRAP_GRANTS=1` — explicitly enable broad local demo grants
   (disabled by default)
 - `SORREL_HUB_AUTH` — `dev` (default), `workos`, or `oidc`; production login
@@ -265,12 +274,15 @@ optional Convex metadata mirror, configure the documented Convex environment
 variables and layer the profile over the normal stack:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.convex.yml up --build
+docker compose --profile convex -f docker-compose.yml -f docker-compose.convex.yml up --build
 ```
 
-`CONVEX_URL` is the Hub's internal endpoint; `CONVEX_PUBLIC_URL` is the
-browser-visible endpoint injected into the web build. This profile is an
-integration spike, not a production deployment recipe.
+`CONVEX_URL` is the Hub's internal endpoint. Configure a server-only
+`CONVEX_SELF_HOSTED_ADMIN_KEY` and deploy the internal functions as described in
+[`sorrel-hub/convex/README.md`](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-hub/convex/README.md). Without the key,
+the mirror stays disabled. Product clients and counters use the authenticated
+Hub API; no browser Convex URL is required. This profile is an integration
+spike, not a production deployment recipe.
 
 ## CLI ↔ Hub sync
 

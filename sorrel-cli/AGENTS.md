@@ -22,7 +22,7 @@ merge). Registry helpers are in `src/repo.rs`.
 
 ## Stack and conventions
 
-- Rust, edition 2021, **rust-version 1.85+**.
+- Rust, edition 2021, **rust-version 1.92+**.
 - `unsafe_code = "forbid"`.
 - `sorrel-core` is the workspace package at `../sorrel-core`, referenced with a
   Cargo path dependency. Change Core first when a CLI feature needs a new
@@ -50,10 +50,12 @@ merge). Registry helpers are in `src/repo.rs`.
 
 Working-tree snapshots use the engine's
 `materialize_workspace_snapshot`. The CLI loads
-`.sorrel/stat-cache.json` (size+mtime → blob id) before snapshotting and saves
-it atomically (temp file + rename) after `status` and `change create` succeed;
-unchanged files skip re-hashing. `diff` snapshots read-only and does not persist
-the cache. Cache helpers (`load_stat_cache`/`save_stat_cache`/`stat_cache_path`)
+`.sorrel/stat-cache.json` (size+mtime+Unix identity/ctime → blob id) before
+snapshotting and saves it atomically (temp file + rename) after `status` and
+`change create` succeed;
+unchanged files with a usable fingerprint skip re-hashing; old entries and
+unsupported platforms safely reread. `diff` snapshots read-only and does not
+persist the cache. Cache helpers (`load_stat_cache`/`save_stat_cache`/`stat_cache_path`)
 live in `src/repo.rs`; a corrupt cache is treated as empty (pure optimization).
 
 ## Common checks

@@ -1,9 +1,9 @@
 //! Minimal, dependency-free line-level diff for the prototype `diff` command.
 //!
 //! Computes a longest-common-subsequence (LCS) over lines and emits unified
-//! diff hunks. This is intentionally simple (quadratic in the number of lines)
-//! and adequate for typical source files in the prototype; a faster Myers
-//! implementation can replace it later without changing the output shape.
+//! diff hunks. Reconstruction uses linear auxiliary space, preserving the
+//! original equal-first/delete-on-tie path. CPU time remains quadratic in the
+//! number of lines; a faster algorithm can replace it without changing output.
 
 /// A single line in a hunk, tagged by its origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,13 +16,40 @@ pub enum LineKind {
     Removed,
 }
 
+/// The original terminator of a source line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineEnding {
+    Lf,
+    CrLf,
+    /// An unterminated final line.
+    None,
+}
+
 /// A line entry within a hunk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HunkLine {
     /// Whether the line is context, added, or removed.
     pub kind: LineKind,
-    /// The line content (without trailing newline).
+    /// The line content without its LF or CRLF terminator.
     pub text: String,
+    pub line_ending: LineEnding,
+}
+
+impl HunkLine {
+    fn from_raw(kind: LineKind, raw: &str) -> Self {
+        let (text, line_ending) = if let Some(text) = raw.strip_suffix("\r\n") {
+            (text, LineEnding::CrLf)
+        } else if let Some(text) = raw.strip_suffix('\n') {
+            (text, LineEnding::Lf)
+        } else {
+            (raw, LineEnding::None)
+        };
+        Self {
+            kind,
+            text: text.to_owned(),
+            line_ending,
+        }
+    }
 }
 
 /// A contiguous group of changes with surrounding context.
@@ -49,55 +76,74 @@ enum Edit {
 }
 
 fn split_lines(text: &str) -> Vec<String> {
-    if text.is_empty() {
-        return Vec::new();
-    }
-    // `lines()` drops a trailing newline's empty final element, which is the
-    // behavior we want for diffing whole files.
-    text.lines().map(str::to_owned).collect()
+    // Compare complete source segments so terminator-only edits remain changes.
+    text.split_inclusive('\n').map(str::to_owned).collect()
 }
 
 /// Builds an LCS-based edit script between `old` and `new` line vectors.
 fn edit_script(old: &[String], new: &[String]) -> Vec<Edit> {
-    let n = old.len();
-    let m = new.len();
-
-    // lcs[i][j] = length of LCS of old[i..] and new[j..].
-    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
-    for i in (0..n).rev() {
-        for j in (0..m).rev() {
-            lcs[i][j] = if old[i] == new[j] {
-                lcs[i + 1][j + 1] + 1
-            } else {
-                lcs[i + 1][j].max(lcs[i][j + 1])
-            };
-        }
-    }
-
     let mut edits = Vec::new();
-    let (mut i, mut j) = (0usize, 0usize);
-    while i < n && j < m {
-        if old[i] == new[j] {
-            edits.push(Edit::Equal(old[i].clone()));
-            i += 1;
-            j += 1;
-        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
-            edits.push(Edit::Delete(old[i].clone()));
-            i += 1;
-        } else {
-            edits.push(Edit::Insert(new[j].clone()));
-            j += 1;
+    append_edits(old, new, &mut edits);
+    edits
+}
+
+fn append_edits(old: &[String], new: &[String], edits: &mut Vec<Edit>) {
+    match (old, new) {
+        ([], _) => edits.extend(new.iter().cloned().map(Edit::Insert)),
+        (_, []) => edits.extend(old.iter().cloned().map(Edit::Delete)),
+        ([line], _) => {
+            if let Some(index) = new.iter().position(|candidate| candidate == line) {
+                edits.extend(new[..index].iter().cloned().map(Edit::Insert));
+                edits.push(Edit::Equal(line.clone()));
+                edits.extend(new[index + 1..].iter().cloned().map(Edit::Insert));
+            } else {
+                edits.push(Edit::Delete(line.clone()));
+                edits.extend(new.iter().cloned().map(Edit::Insert));
+            }
+        }
+        _ => {
+            let middle = old.len() / 2;
+            let crossing = canonical_crossing(old, new, middle);
+            // The helper's scratch rows are dropped before either recursive call.
+            append_edits(&old[..middle], &new[..crossing], edits);
+            append_edits(&old[middle..], &new[crossing..], edits);
         }
     }
-    while i < n {
-        edits.push(Edit::Delete(old[i].clone()));
-        i += 1;
+}
+
+/// Finds where the original equal-first/delete-on-tie path first reaches
+/// `middle`. Ordinary LCS split-score ties cannot preserve that exact path.
+fn canonical_crossing(old: &[String], new: &[String], middle: usize) -> usize {
+    let m = new.len();
+    let mut below = vec![0usize; m + 1];
+    let mut row = vec![0usize; m + 1];
+    let mut below_crossing: Vec<usize> = (0..=m).collect();
+    let mut row_crossing = vec![m; m + 1];
+    for i in (0..old.len()).rev() {
+        for j in (0..m).rev() {
+            let equal = old[i] == new[j];
+            let delete = below[j] >= row[j + 1];
+            row[j] = if equal {
+                below[j + 1] + 1
+            } else {
+                below[j].max(row[j + 1])
+            };
+            if i < middle {
+                row_crossing[j] = if equal {
+                    below_crossing[j + 1]
+                } else if delete {
+                    below_crossing[j]
+                } else {
+                    row_crossing[j + 1]
+                };
+            }
+        }
+        std::mem::swap(&mut below, &mut row);
+        if i < middle {
+            std::mem::swap(&mut below_crossing, &mut row_crossing);
+        }
     }
-    while j < m {
-        edits.push(Edit::Insert(new[j].clone()));
-        j += 1;
-    }
-    edits
+    below_crossing[0]
 }
 
 /// Computes unified-diff hunks between two text blobs with `context` lines of
@@ -154,25 +200,16 @@ pub fn hunks(old_text: &str, new_text: &str, context: usize) -> Vec<Hunk> {
         for edit in &edits[from..to] {
             match edit {
                 Edit::Equal(text) => {
-                    lines.push(HunkLine {
-                        kind: LineKind::Context,
-                        text: text.clone(),
-                    });
+                    lines.push(HunkLine::from_raw(LineKind::Context, text));
                     old_len += 1;
                     new_len += 1;
                 }
                 Edit::Delete(text) => {
-                    lines.push(HunkLine {
-                        kind: LineKind::Removed,
-                        text: text.clone(),
-                    });
+                    lines.push(HunkLine::from_raw(LineKind::Removed, text));
                     old_len += 1;
                 }
                 Edit::Insert(text) => {
-                    lines.push(HunkLine {
-                        kind: LineKind::Added,
-                        text: text.clone(),
-                    });
+                    lines.push(HunkLine::from_raw(LineKind::Added, text));
                     new_len += 1;
                 }
             }
@@ -208,6 +245,11 @@ pub fn render_unified(hunks: &[Hunk]) -> String {
             out.push(prefix);
             out.push_str(&line.text);
             out.push('\n');
+            if line.line_ending == LineEnding::None {
+                out.push_str("\\ No newline at end of file\n");
+            } else if line.line_ending == LineEnding::CrLf && line.kind != LineKind::Context {
+                out.push_str("\\ CRLF line ending\n");
+            }
         }
     }
     out
@@ -216,6 +258,142 @@ pub fn render_unified(hunks: &[Hunk]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The previous full-matrix implementation is the compatibility oracle.
+    fn quadratic_reference(old: &[String], new: &[String]) -> Vec<Edit> {
+        let n = old.len();
+        let m = new.len();
+
+        // lcs[i][j] = length of LCS of old[i..] and new[j..].
+        let mut lcs = vec![vec![0usize; m + 1]; n + 1];
+        for i in (0..n).rev() {
+            for j in (0..m).rev() {
+                lcs[i][j] = if old[i] == new[j] {
+                    lcs[i + 1][j + 1] + 1
+                } else {
+                    lcs[i + 1][j].max(lcs[i][j + 1])
+                };
+            }
+        }
+
+        let mut edits = Vec::new();
+        let (mut i, mut j) = (0usize, 0usize);
+        while i < n && j < m {
+            if old[i] == new[j] {
+                edits.push(Edit::Equal(old[i].clone()));
+                i += 1;
+                j += 1;
+            } else if lcs[i + 1][j] >= lcs[i][j + 1] {
+                edits.push(Edit::Delete(old[i].clone()));
+                i += 1;
+            } else {
+                edits.push(Edit::Insert(new[j].clone()));
+                j += 1;
+            }
+        }
+        while i < n {
+            edits.push(Edit::Delete(old[i].clone()));
+            i += 1;
+        }
+        while j < m {
+            edits.push(Edit::Insert(new[j].clone()));
+            j += 1;
+        }
+        edits
+    }
+
+    fn sequences(alphabet: &[&str], max_len: usize) -> Vec<Vec<String>> {
+        let mut all = vec![Vec::new()];
+        for len in 1..=max_len {
+            for mut encoded in 0..alphabet.len().pow(u32::try_from(len).unwrap()) {
+                all.push(
+                    (0..len)
+                        .map(|_| {
+                            let index = encoded % alphabet.len();
+                            encoded /= alphabet.len();
+                            alphabet[index].to_owned()
+                        })
+                        .collect(),
+                );
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn linear_reconstruction_matches_original_ties_and_line_endings() {
+        for (alphabet, max_len) in [
+            (&["a\n", "b\n"][..], 6),
+            (&["a\n", "a\r\n", "a", "b\n"][..], 3),
+        ] {
+            let cases = sequences(alphabet, max_len);
+            for old in &cases {
+                for new in &cases {
+                    assert_eq!(
+                        edit_script(old, new),
+                        quadratic_reference(old, new),
+                        "old={old:?}, new={new:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn repeated_line_ties_preserve_hunk_positions_and_order() {
+        assert_eq!(
+            render_unified(&hunks("a\nb\n", "b\na\n", 0)),
+            "@@ -1,1 +1,0 @@\n-a\n@@ -3,0 +2,1 @@\n+a\n"
+        );
+        assert_eq!(
+            render_unified(&hunks("a\na\n", "a\n", 3)),
+            "@@ -1,2 +1,1 @@\n a\n-a\n"
+        );
+    }
+
+    #[test]
+    fn byte_distinct_line_endings_produce_hunks() {
+        for (old, new) in [
+            ("a\n", "a"),
+            ("a", "a\n"),
+            ("a\r\n", "a\n"),
+            ("a\n", "a\r\n"),
+            ("a\r\n", "a"),
+            ("a\nb", "a\nb\n"),
+            ("a\r\nb\r\n", "a\r\nb\n"),
+        ] {
+            assert!(!hunks(old, new, 3).is_empty(), "old={old:?}, new={new:?}");
+        }
+    }
+
+    #[test]
+    fn render_and_metadata_identify_missing_newline_and_crlf() {
+        let result = hunks("a\r\n", "a", 3);
+        assert_eq!(result[0].old_len, 1);
+        assert_eq!(result[0].new_len, 1);
+        assert_eq!(result[0].lines[0].text, "a");
+        assert_eq!(result[0].lines[0].line_ending, LineEnding::CrLf);
+        assert_eq!(result[0].lines[1].line_ending, LineEnding::None);
+        assert_eq!(
+            render_unified(&result),
+            "@@ -1,1 +1,1 @@\n-a\n\\ CRLF line ending\n+a\n\\ No newline at end of file\n"
+        );
+    }
+
+    #[test]
+    fn splitting_preserves_empty_lines_and_bare_carriage_returns() {
+        assert!(hunks("", "", 3).is_empty());
+        assert!(hunks("a\r\n\r\n", "a\r\n\r\n", 3).is_empty());
+        let blank = hunks("", "\n", 3);
+        assert_eq!(blank[0].new_len, 1);
+        assert_eq!(blank[0].lines[0].text, "");
+        assert_eq!(blank[0].lines[0].line_ending, LineEnding::Lf);
+        let bare = hunks("a\r", "a\r\n", 3);
+        assert_eq!(bare[0].lines[0].text, "a\r");
+        assert_eq!(bare[0].lines[0].line_ending, LineEnding::None);
+        assert_eq!(bare[0].lines[1].text, "a");
+        assert_eq!(bare[0].lines[1].line_ending, LineEnding::CrLf);
+    }
 
     #[test]
     fn identical_text_has_no_hunks() {

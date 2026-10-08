@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,74 @@ import { createSliceManifest, parseImports } from "../src/slice.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const basicFixture = path.join(__dirname, "fixtures", "basic");
+
+test("parseImports decodes escaped JavaScript module specifiers without executing source", () => {
+  const imports = parseImports(String.raw`
+    import value from "./dep\u002ejs";
+    export { value } from './quo\'ted.js';
+    require("./\x64ep.js");
+    import("./face\u{1f600}.js");
+    require("./back\\slash.js");
+    require("./continued\
+name.js");
+    require('./legacy\144ep.js');
+  `);
+  assert.deepEqual(imports, [
+    { kind: "static", syntax: "import", specifier: "./dep.js" },
+    { kind: "static", syntax: "export", specifier: "./quo'ted.js" },
+    { kind: "static", syntax: "require", specifier: "./dep.js" },
+    { kind: "dynamic", syntax: "import", specifier: "./face😀.js" },
+    { kind: "static", syntax: "require", specifier: "./back\\slash.js" },
+    { kind: "static", syntax: "require", specifier: "./continuedname.js" },
+    { kind: "static", syntax: "require", specifier: "./legacydep.js" }
+  ]);
+});
+
+test("escaped imports include actual dependency files in the slice closure", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sorrel-escaped-import-"));
+  try {
+    fs.writeFileSync(path.join(root, "index.js"), String.raw`import "./dep\u002ejs";`);
+    fs.writeFileSync(path.join(root, "dep.js"), "export const value = 1;\n");
+    const manifest = createSliceManifest({ projectRoot: root, entrypoint: "index.js" });
+    assert.deepEqual(manifest.includedFiles, ["dep.js", "index.js"]);
+    assert.deepEqual(manifest.unresolvedImports, []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("module strings preserve control/identity escapes and CRLF continuation, skipping malformed literals", () => {
+  assert.deepEqual(parseImports('require("./a\\\r\nb.js");'), [
+    { kind: "static", syntax: "require", specifier: "./ab.js" }
+  ]);
+  assert.deepEqual(parseImports(String.raw`require("./\b\f\n\r\t\v\0\z\8\9");`), [
+    { kind: "static", syntax: "require", specifier: "./\b\f\n\r\t\v\0z89" }
+  ]);
+  for (const literal of [String.raw`"./\xZ1"`, String.raw`"./\u12"`, String.raw`"./\u{110000}"`]) {
+    assert.deepEqual(parseImports("require(" + literal + '); require("./real");'), [
+      { kind: "static", syntax: "require", specifier: "./real" }
+    ]);
+  }
+  assert.deepEqual(parseImports('require("./unclosed'), []);
+});
+
+test("parseImports distinguishes module calls from property and identifier lookalikes", () => {
+  const source = `
+    object.require("./property");
+    object?.require("./optional");
+    object. /* comment */ require("./commented-property");
+    object.import("./import-property");
+    $require("./prefixed-name");
+    custom$require("./long-prefixed-name");
+    require("./real");
+    import("./lazy");
+  `;
+  assert.doesNotThrow(() => new Function(source));
+  assert.deepEqual(parseImports(source), [
+    { kind: "static", syntax: "require", specifier: "./real" },
+    { kind: "dynamic", syntax: "import", specifier: "./lazy" }
+  ]);
+});
 
 test("creates deterministic dependency closure manifests", () => {
   const manifest = createSliceManifest({
@@ -195,7 +264,7 @@ function temporaryProject(t) {
 test("preserves literal POSIX backslashes without reading normalized outside paths", { skip: path.sep !== "/" }, (t) => {
   const { projectRoot, outside } = temporaryProject(t);
   const fileName = "..\\outside\\secret.ts";
-  fs.writeFileSync(path.join(projectRoot, "index.ts"), `import "./${fileName}";\n`);
+  fs.writeFileSync(path.join(projectRoot, "index.ts"), `import ${JSON.stringify("./" + fileName)};\n`);
   fs.writeFileSync(path.join(projectRoot, fileName), "export const harmless = true;\n");
   fs.writeFileSync(path.join(outside, "secret.ts"), 'import "sensitive-external-package-name";\n');
 
@@ -214,7 +283,7 @@ test("preserves literal POSIX backslashes in metadata directories", { skip: path
   const directoryName = "..\\outside";
   const directory = path.join(projectRoot, directoryName);
   fs.mkdirSync(directory);
-  fs.writeFileSync(path.join(projectRoot, "index.ts"), `import "./${directoryName}/index.ts";\n`);
+  fs.writeFileSync(path.join(projectRoot, "index.ts"), `import ${JSON.stringify("./" + directoryName + "/index.ts")};\n`);
   fs.writeFileSync(path.join(directory, "index.ts"), "export const harmless = true;\n");
   fs.writeFileSync(path.join(directory, "package.json"), '{"name":"inside-project"}');
   fs.writeFileSync(path.join(directory, "tsconfig.json"), "{}");

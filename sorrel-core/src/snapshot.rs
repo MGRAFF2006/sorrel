@@ -1,5 +1,5 @@
 use crate::{
-    stat_cache::{StatCache, StatCacheEntry},
+    stat_cache::{ChangeFingerprint, StatCache, StatCacheEntry},
     ObjectId, ObjectIdParseError, ObjectStore, ObjectStoreError,
 };
 use serde::{Deserialize, Serialize};
@@ -602,15 +602,16 @@ pub fn read_snapshot_files(
 ///
 /// Existing files are overwritten when their paths are present in the snapshot.
 /// Files that are not present in the snapshot are left untouched.
+/// Top-level `.sorrel` and `.git` paths are rejected before any files are written.
 pub fn restore_snapshot_to_directory(
     store: &impl ObjectStore,
     snapshot_id: &ObjectId,
     target: impl AsRef<Path>,
 ) -> SnapshotResult<()> {
     let target = target.as_ref();
-    fs::create_dir_all(target).map_err(|source| SnapshotError::io(target, source))?;
-
     let snapshot = read_snapshot(store, snapshot_id)?;
+    validate_restore_tree(store, &snapshot.root_tree.id, target)?;
+    fs::create_dir_all(target).map_err(|source| SnapshotError::io(target, source))?;
     restore_tree(store, &snapshot.root_tree.id, target)
 }
 
@@ -619,20 +620,29 @@ fn write_file_blob(
     cache: &mut StatCache,
     protocol_path: &str,
     child_path: &Path,
-    file_size: u64,
-    mtime_secs: u64,
-    mtime_nanos: u32,
+    metadata: &fs::Metadata,
 ) -> SnapshotResult<Blob> {
+    let fingerprint = ChangeFingerprint::from_metadata(metadata);
     let content = fs::read(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
     let blob = write_blob(store, &content)?;
-    cache.insert(
+    let after = fs::metadata(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
+    let (mtime_secs, mtime_nanos) = file_mtime(metadata, child_path)?;
+    // A writer or replacement during the read must not seed a reusable entry.
+    let verified = fingerprint.filter(|fingerprint| {
+        Some(fingerprint) == ChangeFingerprint::from_metadata(&after).as_ref()
+            && metadata.len() == after.len()
+            && file_mtime(&after, child_path).ok() == Some((mtime_secs, mtime_nanos))
+            && content.len() as u64 == metadata.len()
+    });
+    cache.insert_verified(
         protocol_path.to_owned(),
         StatCacheEntry {
-            size: file_size,
+            size: metadata.len(),
             mtime_secs,
             mtime_nanos,
             object_id: blob.id,
         },
+        verified,
     );
     Ok(blob)
 }
@@ -731,30 +741,15 @@ pub(crate) fn write_tree_from_dir(
                     if entry.size == file_size
                         && entry.mtime_secs == mtime_secs
                         && entry.mtime_nanos == mtime_nanos
+                        && cache.matches_fingerprint(&protocol_path, &metadata)
                         && store.has(&entry.object_id)?
                     {
                         read_blob(store, &entry.object_id)?
                     } else {
-                        write_file_blob(
-                            store,
-                            cache,
-                            &protocol_path,
-                            &child_path,
-                            file_size,
-                            mtime_secs,
-                            mtime_nanos,
-                        )?
+                        write_file_blob(store, cache, &protocol_path, &child_path, &metadata)?
                     }
                 } else {
-                    write_file_blob(
-                        store,
-                        cache,
-                        &protocol_path,
-                        &child_path,
-                        file_size,
-                        mtime_secs,
-                        mtime_nanos,
-                    )?
+                    write_file_blob(store, cache, &protocol_path, &child_path, &metadata)?
                 }
             } else {
                 let content = fs::read(&child_path)
@@ -795,6 +790,20 @@ fn collect_tree_files(
         }
     }
 
+    Ok(())
+}
+
+fn validate_restore_tree(
+    store: &impl ObjectStore,
+    tree_id: &ObjectId,
+    target: &Path,
+) -> SnapshotResult<()> {
+    for entry in read_tree(store, tree_id)?.entries {
+        safe_target_path(target, &entry.path)?;
+        if entry.entry_type == EntryType::Directory {
+            validate_restore_tree(store, &entry.object.id, target)?;
+        }
+    }
     Ok(())
 }
 
@@ -868,6 +877,20 @@ fn validate_relative_path(path: &Path) -> SnapshotResult<()> {
 
 fn safe_target_path(target: &Path, relative_path: &Path) -> SnapshotResult<PathBuf> {
     validate_relative_path(relative_path)?;
+    let reserved = relative_path.components().next().is_some_and(|component| {
+        let Component::Normal(name) = component else {
+            return true;
+        };
+        // Windows ignores trailing dots/spaces and uses case-insensitive names.
+        let name = name.to_string_lossy();
+        let name = name.trim_end_matches(['.', ' ']);
+        name.eq_ignore_ascii_case(".sorrel") || name.eq_ignore_ascii_case(".git")
+    });
+    if relative_path.as_os_str().is_empty() || reserved {
+        return Err(SnapshotError::InvalidPath {
+            path: relative_path.to_path_buf(),
+        });
+    }
     Ok(target.join(relative_path))
 }
 
@@ -1290,6 +1313,72 @@ mod tests {
         assert_eq!(
             fs::read(restore_dir.path().join("src/lib.rs")).unwrap(),
             b"pub fn core() {}\n"
+        );
+    }
+
+    #[test]
+    fn restore_rejects_metadata_paths_before_writing_any_files() {
+        for path in [
+            ".sorrel/HEAD",
+            ".git/config",
+            ".git/hooks/pre-commit",
+            ".GiT/config",
+            ".SORREL/HEAD",
+            ".git./config",
+            ".sorrel /HEAD",
+            "",
+        ] {
+            let store = InMemoryObjectStore::new();
+            let blob = write_blob(&store, b"replacement").unwrap();
+            let entry = |path: &str| TreeEntry {
+                name: path.to_owned(),
+                path: PathBuf::from(path),
+                entry_type: EntryType::File,
+                object: ObjectRef::new(ObjectKind::Blob, blob.id),
+                mode: EntryMode::Normal,
+                size: None,
+                content_hash: None,
+            };
+            let tree = write_tree(&store, vec![entry("0-safe.txt"), entry(path)]).unwrap();
+            let snapshot =
+                write_snapshot(&store, tree.id, SnapshotOptions::new("repo_test")).unwrap();
+            let target = tempfile::tempdir().unwrap();
+            fs::create_dir_all(target.path().join(".sorrel")).unwrap();
+            fs::create_dir_all(target.path().join(".git")).unwrap();
+            write_file(target.path().join(".sorrel/HEAD"), b"original-head");
+            write_file(target.path().join(".git/config"), b"original-config");
+            assert!(
+                restore_snapshot_to_directory(&store, &snapshot.id, target.path()).is_err(),
+                "{path}"
+            );
+            assert!(!target.path().join("0-safe.txt").exists(), "{path}");
+            assert_eq!(
+                fs::read(target.path().join(".sorrel/HEAD")).unwrap(),
+                b"original-head"
+            );
+            assert_eq!(
+                fs::read(target.path().join(".git/config")).unwrap(),
+                b"original-config"
+            );
+        }
+    }
+
+    #[test]
+    fn restore_keeps_nested_metadata_named_directories() {
+        let source = tempfile::tempdir().unwrap();
+        fs::create_dir_all(source.path().join("src/.sorrel")).unwrap();
+        write_file(
+            source.path().join("src/.sorrel/example"),
+            b"ordinary-content",
+        );
+        let store = InMemoryObjectStore::new();
+        let snapshot =
+            materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test")).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        restore_snapshot_to_directory(&store, &snapshot.id, target.path()).unwrap();
+        assert_eq!(
+            fs::read(target.path().join("src/.sorrel/example")).unwrap(),
+            b"ordinary-content"
         );
     }
 

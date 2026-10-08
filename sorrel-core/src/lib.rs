@@ -4,6 +4,7 @@ pub mod authority;
 pub mod change;
 pub mod conflict;
 pub mod dag;
+pub mod durability;
 pub mod git_export;
 pub mod git_import;
 pub mod history;
@@ -36,7 +37,8 @@ pub use conflict::{
 };
 pub use dag::{DagError, DagResult};
 pub use git_export::{
-    git_export, ExportResult, ExportedCommit, GitExportError, GitExportOptions, GitExportResult,
+    git_export, git_export_with_force, ExportResult, ExportedCommit, GitExportError,
+    GitExportOptions, GitExportResult,
 };
 pub use git_import::{
     git_import, GitImportError, GitImportOptions, GitImportResult, ImportResult, ImportedCommit,
@@ -76,4 +78,6 @@ pub use transport::{
     TransportError, TransportResult,
 };
 
-pub use workspace::materialize_workspace_snapshot;
+pub use workspace::{
+    explain_workspace_path, materialize_workspace_snapshot, WorkspacePathExplanation,
+};

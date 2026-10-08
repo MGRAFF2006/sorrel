@@ -40,13 +40,21 @@ npm run dev          # Vite on :5180, proxies /api → HUB_API_URL
 npm run build && npm start   # serve dist/ + proxy
 ```
 
+Vite development and preview servers bind to `127.0.0.1` and use Vite's built-in
+localhost/IP host restrictions by default. To access them over a trusted private
+network, explicitly set both the bind address and named hosts, for example
+`HOST=0.0.0.0 SORREL_HUB_ALLOWED_HOSTS=desktop npm run dev`. A comma-separated
+host list is supported. `SORREL_HUB_ALLOWED_HOSTS=all` (or `true`) explicitly
+disables host-header checking; use that only on a trusted network. These
+settings do not change the production static server.
+
 Coordinated releases also publish the unprivileged Linux amd64/arm64 image as
 `ghcr.io/mgraff2006/sorrel-hub-web:<VERSION>`. Use the release-attached
 `sorrel-server.compose.yml` to run it with the matching Hub API image; the
 complete flow and alpha security boundary are documented in
 [`docs/GETTING_STARTED.md`](../docs/GETTING_STARTED.md#host-a-release-server).
 
-Optional live Convex URL: `VITE_CONVEX_URL=http://127.0.0.1:3210`.
+Proposal counters use the authenticated Hub API; browsers do not connect to Convex.
 
 ## Tests
 

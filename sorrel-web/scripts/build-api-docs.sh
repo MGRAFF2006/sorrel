@@ -2,8 +2,8 @@
 # Build the generated API reference served under /api/.
 #
 # rustdoc output is generated from doc comments in the source — it is never
-# committed. CI runs this before deploying the site; locally you can run it
-# from a checkout where the engine repo is available.
+# committed. Run this locally from a checkout where the engine is available;
+# the static production deployment does not build or publish this output.
 #
 # Usage:
 #   scripts/build-api-docs.sh [path-to-sorrel-core]
@@ -20,13 +20,15 @@ if [[ ! -f "$core_dir/Cargo.toml" ]]; then
   exit 1
 fi
 
+target_dir="${CARGO_TARGET_DIR:-$site_dir/../target}"
+
 echo "Building rustdoc for sorrel-core ($core_dir)..."
-cargo doc --no-deps --manifest-path "$core_dir/Cargo.toml"
+cargo doc --no-deps --manifest-path "$core_dir/Cargo.toml" --target-dir "$target_dir"
 
 out="$site_dir/api/sorrel-core"
 rm -rf "$out"
 mkdir -p "$out"
-cp -R "$core_dir/target/doc/." "$out/"
+cp -R "$target_dir/doc/." "$out/"
 
 echo "API docs ready: $out"
 echo "Entry point: api/sorrel-core/sorrel_core/index.html"
