@@ -147,8 +147,28 @@ $SORREL pull
 # Pulled origin/HEAD to <snapshot> (N object(s))
 ```
 
-Pull downloads any objects missing locally, then updates `.sorrel/HEAD` to the
-remote snapshot without deleting unrelated local-only objects.
+Pull refuses an in-progress merge or uncommitted working-tree changes. It
+downloads and validates the complete remote snapshot closure, requires a
+fast-forward of local HEAD, restores the working tree, and only then updates
+HEAD and the active lane head. A freshly initialized workspace with a
+parentless empty snapshot can accept its first remote history.
+Existing ignored or untracked paths that a new remote file would overwrite are
+also rejected before checkout; move those paths aside and retry. Incoming
+snapshot paths, including reserved `.git` and `.sorrel` destinations, are
+validated before any obsolete tracked files are removed.
+
+Divergent, unrelated, or rewound history is rejected; pull does not force-reset
+local work. Invalid or incomplete downloads leave HEAD and the working tree
+unchanged. Filesystem failures during checkout can still leave a partially
+updated working tree with the previous HEAD. Metadata publication after
+checkout uses the existing recoverable transaction; an interrupted publication
+may finish when the next command acquires the workspace lock. Preserve the
+workspace and resolve any reported I/O failure before retrying; checkout does
+not roll back files already written.
+
+The Rust `sorrel_cli::sync::pull` helper downloads and validates only. Its caller
+must restore the working tree successfully before publishing the returned
+snapshot with the repository metadata helpers.
 
 ## Example session
 

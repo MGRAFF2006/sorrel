@@ -83,7 +83,9 @@ Two variants matter in practice:
 identical content yields identical snapshot IDs; set `created_at`/`author`
 explicitly for wall-clock attribution. Read back with `read_snapshot_files`
 (into memory) or `restore_snapshot_to_directory` (overwrites files present in
-the snapshot, leaves other files untouched).
+the snapshot, leaves other files untouched). Hosts that remove obsolete tracked
+files first must call `validate_snapshot_restore_to_directory` before cleanup
+to reject invalid or reserved destination paths without changing the worktree.
 
 ## Changes and diff
 

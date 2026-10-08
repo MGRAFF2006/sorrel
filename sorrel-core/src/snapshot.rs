@@ -598,6 +598,17 @@ pub fn read_snapshot_files(
     Ok(files)
 }
 
+/// Validates restoration paths without creating, writing, or removing destination files.
+/// Filesystem failures during restoration can still occur after this preflight.
+pub fn validate_snapshot_restore_to_directory(
+    store: &impl ObjectStore,
+    snapshot_id: &ObjectId,
+    target: impl AsRef<Path>,
+) -> SnapshotResult<()> {
+    let snapshot = read_snapshot(store, snapshot_id)?;
+    validate_restore_tree(store, &snapshot.root_tree.id, target.as_ref())
+}
+
 /// Restores a snapshot into a target directory.
 ///
 /// Existing files are overwritten when their paths are present in the snapshot.

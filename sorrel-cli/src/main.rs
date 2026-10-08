@@ -15,11 +15,12 @@ use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_export_with_force, git_import,
     is_descendant, materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree,
     parse_object_id_hex, read_conflict, read_merge_result, read_snapshot, read_snapshot_files,
-    read_stack, read_tree, restore_snapshot_to_directory, snapshot_diff, write_snapshot,
-    write_tree, ChangeOptions, ConflictType, EntryMode, FileObjectStore, GitExportOptions,
-    GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions, ObjectId,
-    ObjectKind, ObjectRef, ObjectStore, ObjectStoreError, ObjectStoreResult, PathChangeKind,
-    Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
+    read_stack, read_tree, restore_snapshot_to_directory, snapshot_diff,
+    validate_snapshot_restore_to_directory, write_snapshot, write_tree, ChangeOptions,
+    ConflictType, EntryMode, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
+    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
+    ObjectStoreError, ObjectStoreResult, PathChangeKind, Principal, SnapshotOptions, StackOptions,
+    StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -2982,6 +2983,12 @@ fn restore_worktree_to_snapshot(
 ) -> io::Result<()> {
     let current_files = to_io(read_snapshot_files(store, current))?;
     let target_files = to_io(read_snapshot_files(store, target))?;
+    // Reject invalid destinations before removing any obsolete tracked files.
+    to_io(validate_snapshot_restore_to_directory(
+        store,
+        target,
+        Path::new("."),
+    ))?;
 
     for path in current_files.keys() {
         if !target_files.contains_key(path) {
@@ -3511,12 +3518,62 @@ fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
     let before = repo::load_head()?.ok_or_else(|| io::Error::other("missing HEAD pointer"))?;
     let before_snapshot = parse_object_id_hex(&before.snapshot)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
+    if repo::merge_in_progress() {
+        return Err(io::Error::other(
+            "a merge is in progress; finish or abort it before pulling",
+        ));
+    }
+    let manifest = repo::load_manifest()?.ok_or_else(|| io::Error::other("missing manifest"))?;
+    let repo_id = manifest["repoId"]
+        .as_str()
+        .ok_or_else(|| io::Error::other("missing repoId"))?;
+    if worktree_is_dirty(&store, repo_id, &before_snapshot)? {
+        return Err(io::Error::other(
+            "working tree has uncommitted changes; record or discard them before pulling",
+        ));
+    }
     let result = sync::pull(&store, &remote, &remote_name, &args.r#ref, None)?;
     let after_snapshot = parse_object_id_hex(&result.snapshot)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
     if before_snapshot != after_snapshot {
+        let tracked = to_io(read_snapshot_files(&store, &before_snapshot))?;
+        let incoming = to_io(read_snapshot_files(&store, &after_snapshot))?;
+        let removed: std::collections::BTreeSet<PathBuf> = tracked
+            .keys()
+            .filter(|path| !incoming.contains_key(*path))
+            .cloned()
+            .collect();
+        for path in incoming.keys() {
+            if !tracked.contains_key(path) {
+                // A tracked file becoming a directory is removed before checkout.
+                if path
+                    .ancestors()
+                    .skip(1)
+                    .any(|parent| removed.contains(parent))
+                {
+                    continue;
+                }
+                match fs::symlink_metadata(path) {
+                    Ok(metadata)
+                        if metadata.is_dir() && pull_directory_will_be_removed(path, &removed)? => {
+                    }
+                    Ok(_) => {
+                        return Err(io::Error::other(format!(
+                            "pull would overwrite an untracked path: {}; move it before pulling",
+                            path.display()
+                        )))
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
         restore_worktree_to_snapshot(&store, &before_snapshot, &after_snapshot)?;
     }
+    repo::write_head(&repo::Head {
+        lane: before.lane,
+        snapshot: result.snapshot.clone(),
+    })?;
 
     Ok(CommandOutput {
         json: json!({
@@ -3536,6 +3593,28 @@ fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
             result.downloaded
         ),
     })
+}
+
+fn pull_directory_will_be_removed(
+    path: &Path,
+    removed: &std::collections::BTreeSet<PathBuf>,
+) -> io::Result<bool> {
+    let entries = fs::read_dir(path)?.collect::<io::Result<Vec<_>>>()?;
+    // Empty untracked directories will not be removed by tracked-file cleanup.
+    if entries.is_empty() {
+        return Ok(false);
+    }
+    for entry in entries {
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            if !pull_directory_will_be_removed(&path, removed)? {
+                return Ok(false);
+            }
+        } else if !removed.contains(&path) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn local_slice(args: &SliceCreateArgs, language: &str) -> Value {
