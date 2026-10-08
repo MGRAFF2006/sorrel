@@ -16,16 +16,21 @@
 # is an optional local mirror and does not replace that deploy.
 #
 # This compose stack is an isolated developer preview. It explicitly enables
-# the Hub's broad local bootstrap grants; never expose it as a production Hub.
+# the Hub's broad local bootstrap grants; host ports are loopback-only.
+# Use an explicit Compose override for trusted remote preview access; never expose
+# this development-auth stack as a production Hub.
 
 services:
   hub:
-    build: ./sorrel-hub
+    build:
+      context: .
+      dockerfile: sorrel-hub/Dockerfile
     ports:
-      - "${SORREL_HUB_PORT:-3000}:3000"
+      - "127.0.0.1:${SORREL_HUB_PORT:-3000}:3000"
     environment:
       HOST: "0.0.0.0"
       PORT: "3000"
+      SORREL_HUB_LOCAL_DEMO: "1"
       SORREL_HUB_BOOTSTRAP_GRANTS: "1"
       # Isolated compose demo only — never use this override on a public network.
       SORREL_HUB_ALLOW_INSECURE_DEV_AUTH: "1"
@@ -46,7 +51,7 @@ services:
       context: .
       dockerfile: sorrel-hub-web/Dockerfile
     ports:
-      - "${SORREL_HUB_WEB_PORT:-5180}:5180"
+      - "127.0.0.1:${SORREL_HUB_WEB_PORT:-5180}:5180"
     environment:
       HOST: "0.0.0.0"
       PORT: "5180"
@@ -58,7 +63,7 @@ services:
   web:
     build: ./sorrel-web
     ports:
-      - "${SORREL_WEB_PORT:-4173}:80"
+      - "127.0.0.1:${SORREL_WEB_PORT:-4173}:80"
 
 volumes:
   hub-data:

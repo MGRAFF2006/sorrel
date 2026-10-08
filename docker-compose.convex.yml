@@ -2,7 +2,7 @@ services:
   hub:
     environment:
       CONVEX_URL: http://convex-backend:3210
-      CONVEX_PUBLIC_URL: "${CONVEX_PUBLIC_URL:-http://127.0.0.1:3210}"
+      CONVEX_SELF_HOSTED_ADMIN_KEY: "${CONVEX_SELF_HOSTED_ADMIN_KEY:-}"
       SORREL_HUB_CONVEX: "1"
     depends_on:
       convex-backend:
@@ -15,8 +15,8 @@ services:
     stop_signal: SIGINT
     profiles: ["convex"]
     ports:
-      - "${CONVEX_PORT:-3210}:3210"
-      - "${CONVEX_SITE_PROXY_PORT:-3211}:3211"
+      - "127.0.0.1:${CONVEX_PORT:-3210}:3210"
+      - "127.0.0.1:${CONVEX_SITE_PROXY_PORT:-3211}:3211"
     volumes:
       - convex-data:/convex/data
     environment:
@@ -36,7 +36,7 @@ services:
     stop_signal: SIGINT
     profiles: ["convex"]
     ports:
-      - "${CONVEX_DASHBOARD_PORT:-6791}:6791"
+      - "127.0.0.1:${CONVEX_DASHBOARD_PORT:-6791}:6791"
     environment:
       - NEXT_PUBLIC_DEPLOYMENT_URL=${NEXT_PUBLIC_DEPLOYMENT_URL:-http://127.0.0.1:${CONVEX_PORT:-3210}}
     depends_on:

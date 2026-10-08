@@ -1,5 +1,5 @@
 use crate::{
-    stat_cache::{StatCache, StatCacheEntry},
+    stat_cache::{ChangeFingerprint, StatCache, StatCacheEntry},
     ObjectId, ObjectIdParseError, ObjectStore, ObjectStoreError,
 };
 use cap_fs_ext::DirExt;
@@ -704,20 +704,29 @@ fn write_file_blob(
     cache: &mut StatCache,
     protocol_path: &str,
     child_path: &Path,
-    file_size: u64,
-    mtime_secs: u64,
-    mtime_nanos: u32,
+    metadata: &fs::Metadata,
 ) -> SnapshotResult<Blob> {
+    let fingerprint = ChangeFingerprint::from_metadata(metadata);
     let content = fs::read(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
     let blob = write_blob(store, &content)?;
-    cache.insert(
+    let after = fs::metadata(child_path).map_err(|source| SnapshotError::io(child_path, source))?;
+    let (mtime_secs, mtime_nanos) = file_mtime(metadata, child_path)?;
+    // A writer or replacement during the read must not seed a reusable entry.
+    let verified = fingerprint.filter(|fingerprint| {
+        Some(fingerprint) == ChangeFingerprint::from_metadata(&after).as_ref()
+            && metadata.len() == after.len()
+            && file_mtime(&after, child_path).ok() == Some((mtime_secs, mtime_nanos))
+            && content.len() as u64 == metadata.len()
+    });
+    cache.insert_verified(
         protocol_path.to_owned(),
         StatCacheEntry {
-            size: file_size,
+            size: metadata.len(),
             mtime_secs,
             mtime_nanos,
             object_id: blob.id,
         },
+        verified,
     );
     Ok(blob)
 }
@@ -816,30 +825,15 @@ pub(crate) fn write_tree_from_dir(
                     if entry.size == file_size
                         && entry.mtime_secs == mtime_secs
                         && entry.mtime_nanos == mtime_nanos
+                        && cache.matches_fingerprint(&protocol_path, &metadata)
                         && store.has(&entry.object_id)?
                     {
                         read_blob(store, &entry.object_id)?
                     } else {
-                        write_file_blob(
-                            store,
-                            cache,
-                            &protocol_path,
-                            &child_path,
-                            file_size,
-                            mtime_secs,
-                            mtime_nanos,
-                        )?
+                        write_file_blob(store, cache, &protocol_path, &child_path, &metadata)?
                     }
                 } else {
-                    write_file_blob(
-                        store,
-                        cache,
-                        &protocol_path,
-                        &child_path,
-                        file_size,
-                        mtime_secs,
-                        mtime_nanos,
-                    )?
+                    write_file_blob(store, cache, &protocol_path, &child_path, &metadata)?
                 }
             } else {
                 let content = fs::read(&child_path)
@@ -955,6 +949,18 @@ fn restore_parent(directory: &Dir, path: &Path) -> io::Result<Dir> {
     Ok(parent)
 }
 
+fn open_restore_temporary_file(parent: &Dir, name: &str) -> io::Result<cap_std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt;
+        // Replacement contents must stay private until final permissions are applied.
+        options.mode(0o600);
+    }
+    parent.open_with(name, &options)
+}
+
 fn write_restored_file(
     parent: &Dir,
     name: &OsStr,
@@ -984,7 +990,7 @@ fn write_restored_file(
     let (temporary, mut file) = loop {
         let sequence = RESTORE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let name = format!(".sorrel-restore-{}.{}.tmp", std::process::id(), sequence);
-        match parent.open_with(&name, OpenOptions::new().write(true).create_new(true)) {
+        match open_restore_temporary_file(parent, &name) {
             Ok(file) => break (name, file),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(source) => return Err(SnapshotError::io(path, source)),
@@ -1645,6 +1651,44 @@ mod tests {
                 b"metadata"
             );
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restoration_temporary_file_is_private_while_writing() {
+        use cap_std::fs::PermissionsExt;
+        const CHILD: &str = "SORREL_RESTORE_PRIVATE_TEMP_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new("sh")
+                .args(["-c", "umask 022; exec \"$1\" --exact snapshot::tests::restoration_temporary_file_is_private_while_writing --test-threads=1", "sorrel-private-temp-test"])
+                .arg(std::env::current_exe().unwrap())
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let target = tempfile::tempdir().unwrap();
+        let parent = Dir::open_ambient_dir(target.path(), cap_std::ambient_authority()).unwrap();
+        let mut file = open_restore_temporary_file(&parent, ".sorrel-restore-test.tmp").unwrap();
+        assert_eq!(file.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        for bytes in [
+            b"private first chunk".as_slice(),
+            b"private second chunk".as_slice(),
+        ] {
+            file.write_all(bytes).unwrap();
+            let metadata = parent.symlink_metadata(".sorrel-restore-test.tmp").unwrap();
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        }
+        assert_eq!(
+            parent.read(".sorrel-restore-test.tmp").unwrap(),
+            b"private first chunkprivate second chunk"
+        );
     }
 
     #[test]

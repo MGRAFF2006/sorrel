@@ -36,7 +36,6 @@ export type MountOptions = {
   /** Defaults to web platform. */
   platform?: Platform;
   platformKind?: PlatformKind;
-  convexUrl?: string;
   base?: string;
   /** Defaults to the browser host's same-origin `/api` proxy. */
   apiBase?: string;
@@ -56,7 +55,7 @@ export function mountHubApp(element: HTMLElement, options: MountOptions = {}): (
 
   return render(
     () => (
-      <HubApp platform={platform} convexUrl={options.convexUrl} base={options.base} />
+      <HubApp platform={platform} base={options.base} />
     ),
     element,
   );

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 
-import { createApp } from '../src/app.js';
+import { createDemoApp as createApp } from '../test-support/demo-app.js';
 
 async function withServer(callback) {
   const app = createApp();
@@ -14,7 +14,7 @@ async function withServer(callback) {
   const baseUrl = `http://${address.address}:${address.port}`;
 
   try {
-    return await callback(baseUrl);
+    return await callback(baseUrl, app);
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -38,15 +38,24 @@ const maintainerGrant = {
   source: 'core',
   principal: { type: 'user', id: 'user_maintainer' },
   action: 'policy.grant',
+  effect: 'allow',
   resource: { kind: 'org', id: 'org_policy' },
 };
 
 async function withPolicyServer(callback) {
+  const trustedPoliciesById = Object.fromEntries(['policy_project_access', 'policy_repo_access', 'policy_repo_ci']
+    .map((id) => [id, { schemaVersion: 'sorrel.protocol.v0', kind: 'Policy', id, resource: { kind: 'org', id: 'org_policy' }, rules: [] }]));
   const app = createApp({
+    trustedPoliciesById,
     trustedGrantsById: {
       [maintainerGrant.id]: maintainerGrant,
+      grant_project_maintainer: { ...maintainerGrant, id: 'grant_project_maintainer', resource: { kind: 'project', id: 'proj_policy' } },
+      grant_agent_project_read: { ...maintainerGrant, id: 'grant_agent_project_read', action: 'project.read', principal: { type: 'agent', id: 'agent_unauthorized' }, resource: { kind: 'project', id: 'proj_policy' } },
+      grant_project_maintainer_read: { ...maintainerGrant, id: 'grant_project_maintainer_read', action: 'project.read', resource: { kind: 'project', id: 'proj_policy' } },
+      grant_repo_maintainer_read: { ...maintainerGrant, id: 'grant_repo_maintainer_read', action: 'repo.read', resource: { kind: 'repo', id: '*' } },
     },
   });
+  app.store.createProject({ id: 'proj_policy', organizationId: 'org_policy', name: 'Policy fixture' });
   const server = http.createServer(app.handleRequest);
 
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -55,7 +64,7 @@ async function withPolicyServer(callback) {
   const baseUrl = `http://${address.address}:${address.port}`;
 
   try {
-    return await callback(baseUrl);
+    return await callback(baseUrl, app);
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -180,11 +189,7 @@ test('POST /projects records Core policy references', async () => {
     const created = await createResponse.json();
 
     assert.equal(createResponse.status, 201);
-    assert.deepEqual(created.data.createdByPrincipal, {
-      type: 'user',
-      id: 'user_alice',
-      displayName: 'Alice',
-    });
+    assert.deepEqual(created.data.createdByPrincipal, { type: 'user', id: 'local' });
     assert.deepEqual(created.data.policyRefs, policyRefs);
     assert.deepEqual(created.data.grantRefs, coreRefs.grantRefs);
     assert.deepEqual(created.data.policyDecisionRefs, coreRefs.policyDecisionRefs);
@@ -200,6 +205,10 @@ test('POST /projects records Core policy references', async () => {
 
 test('POST /admin/proposals records policy references without merge queue behavior', async () => {
   await withServer(async (baseUrl) => {
+    await postJson(`${baseUrl}/projects`, { id: 'proj_policy', organizationId: 'org_policy', name: 'Policy fixture' });
+    const repository = await postJson(`${baseUrl}/admin/repositories`, { id: 'repo_policy', projectId: 'proj_policy', organizationId: 'org_policy', provider: 'sorrel', owner: 'local', name: 'Fixture' });
+    assert.equal(repository.status, 201);
+
     const policyRefs = [{ kind: 'Policy', id: 'policy_proposal_review' }];
 
     const response = await postJson(`${baseUrl}/admin/proposals`, {
@@ -216,7 +225,7 @@ test('POST /admin/proposals records policy references without merge queue behavi
 
     assert.equal(response.status, 201);
     assert.match(response.headers.get('location'), /^\/admin\/proposals\/prop_/);
-    assert.equal(created.data.authorRef, 'user:user_reviewer');
+    assert.equal(created.data.authorRef, 'user:local');
     assert.deepEqual(created.data.policyRefs, policyRefs);
     assert.deepEqual(created.data.policyDecisionRefs, [
       { id: 'decision_proposal_open', source: 'core' },
@@ -226,6 +235,9 @@ test('POST /admin/proposals records policy references without merge queue behavi
 
 test('POST /admin/workflow-runs records policy references without hosted compute', async () => {
   await withServer(async (baseUrl) => {
+    await postJson(`${baseUrl}/projects`, { id: 'proj_policy', organizationId: 'org_policy', name: 'Policy fixture' });
+    await postJson(`${baseUrl}/admin/proposals`, { id: 'prop_policy', projectId: 'proj_policy', title: 'Fixture' });
+
     const policyRefs = [{ kind: 'AgentPolicy', id: 'agent_policy_workflow_ci' }];
 
     const response = await postJson(`${baseUrl}/admin/workflow-runs`, {
@@ -243,10 +255,7 @@ test('POST /admin/workflow-runs records policy references without hosted compute
 
     assert.equal(response.status, 201);
     assert.match(response.headers.get('location'), /^\/admin\/workflow-runs\/run_/);
-    assert.deepEqual(created.data.requestedByPrincipal, {
-      type: 'agent',
-      id: 'agent_review_bot',
-    });
+    assert.deepEqual(created.data.requestedByPrincipal, { type: 'user', id: 'local' });
     assert.deepEqual(created.data.runnerPrincipal, {
       type: 'runner',
       id: 'runner_local',
@@ -284,10 +293,11 @@ test('POST /admin/policies rejects Hub-local authorization rules', async () => {
 });
 
 test('POST /admin/repositories exposes Core policy references', async () => {
-  await withPolicyServer(async (baseUrl) => {
+  await withPolicyServer(async (baseUrl, app) => {
+    app.store.getProject('proj_policy') ?? app.store.createProject({ id: 'proj_policy', organizationId: 'org_policy', name: 'Policy' });
     const policyRef = { kind: 'Policy', id: 'policy_repo_access' };
     const authorityRootRef = { kind: 'AuthorityRoot', id: 'authority_org_policy' };
-    const policyRefs = [{ kind: 'AgentPolicy', id: 'agent_policy_repo_ci' }];
+    const policyRefs = [{ kind: 'Policy', id: 'policy_repo_ci' }];
     const grantRefs = [{ id: maintainerGrant.id, source: 'core' }];
 
     const response = await postJson(
@@ -347,12 +357,13 @@ test('POST /admin/repositories denies unauthorized agents for policy.grant', asy
 
     assert.equal(response.status, 403);
     assert.equal(body.error.code, 'policy_denied');
-    assert.equal(body.error.decision.outcome, 'deny');
+    assert.equal(body.error.decision.decision, 'needs_grant');
   });
 });
 
 test('POST /admin/repositories allows maintainers via hydrated Core grants', async () => {
-  await withPolicyServer(async (baseUrl) => {
+  await withPolicyServer(async (baseUrl, app) => {
+    app.store.getProject('proj_policy') ?? app.store.createProject({ id: 'proj_policy', organizationId: 'org_policy', name: 'Policy' });
     const response = await postJson(
       `${baseUrl}/admin/repositories`,
       {

@@ -9,7 +9,7 @@ Portable workflow execution for Sorrel: the `JobBundle` model, a
 
 ## Stack and conventions
 
-- Rust, edition 2024, **rust-version 1.85+**.
+- Rust, edition 2024, **rust-version 1.92+**.
 - `unsafe_code = "forbid"`.
 - No `sorrel-core` dependency: the former CLI-facing `cli_runner` compat surface
   now lives in `sorrel-cli`. This crate exposes only its native protocol model.
