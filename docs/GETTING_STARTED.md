@@ -1,27 +1,30 @@
 # Getting started
 
-Last updated: 2026-09-01
+Last updated: 2026-10-14
 
 How to install Sorrel, record a first local change, host a release server, build
 from source, and start the development Hub stack.
 
+The published `v0.1.0-alpha.2` remains a developer preview. The new hosted
+login and data-safety fixes described below require a source build. Evaluate
+older binaries in disposable checkouts.
+
 ## Install the CLI
 
-Sorrel releases that include installer assets provide prebuilt binaries for
-Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows x64/ARM64. Older alpha
-releases remain source-only. Choose an installer-bearing tag on the
-[Releases page](https://github.com/MGRAFF2006/sorrel/releases), then replace
-`<TAG>` below with it.
+The verified `v0.1.0-alpha.2` assets provide Linux x64/ARM64, macOS Intel/Apple
+Silicon, and Windows x64 binaries. That release has no Windows ARM64 archive
+or desktop installers. Check the [actual release assets](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2);
+an intended build matrix does not establish download availability.
 
 ```sh
 # Linux and macOS
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-cli-installer.sh | sh
+  https://github.com/MGRAFF2006/sorrel/releases/download/v0.1.0-alpha.2/sorrel-cli-installer.sh | sh
 ```
 
 ```powershell
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/MGRAFF2006/sorrel/releases/download/v0.1.0-alpha.2/sorrel-cli-installer.ps1 | iex"
 ```
 
 The installers select the correct archive, verify its SHA-256 checksum, install
@@ -40,10 +43,9 @@ sorrel --help
 
 ## Install the desktop companion
 
-The same installer-bearing releases include Sorrel Hub desktop bundles for
-Windows x64/ARM64, macOS Intel/Apple Silicon, and Linux x64/ARM64. Download the
-`.msi`/setup executable, `.dmg`, `.AppImage`, or distribution package matching
-your machine from the release assets.
+Desktop source hosts exist for Windows, macOS, and Linux. The published alpha
+does not contain their installers. Check a future release's actual bundles
+before following native installation instructions.
 
 The current desktop app is a native companion for a Hub running on
 `http://127.0.0.1:3000`; it does not replace the local `sorrel` CLI. Start the
@@ -152,7 +154,13 @@ sorrel status
 
 Creates `.sorrel/` if needed, imports commits reachable from `HEAD` as Sorrel
 snapshots/changes, writes `.sorrel/git-map.json`, and restores the working tree
-to the tip. Use `sorrel git export` for one-way export or `sorrel git sync` to
+to the tip. Current source rejects a first colocated import whose files differ
+from the selected committed tree unless `--force` explicitly permits discarding
+those edits. Selected history containing `.env` provider paths, or provider
+files configured in the current source checkout, is rejected before copying
+blobs. This does not detect arbitrary credentials committed under other names;
+audit history before uploading. Symlinks and submodules are unsupported.
+Use `sorrel git export` for one-way export or `sorrel git sync` to
 incrementally keep colocated Git and Sorrel histories aligned. Divergence is
 parked on a normal `git/<branch>` lane for explicit merge resolution.
 
@@ -200,6 +208,121 @@ Sorrel is a single monorepo. No submodules or private dependency tokens are
 required.
 
 ## Hub API + Hub UI
+
+### Hosted pilot from current source
+
+Use one API instance with a persistent volume for the first invite-only pilot.
+The source includes WorkOS browser login and an HTTPS Compose overlay; the
+published alpha images do not include these changes.
+
+Register a WorkOS AuthKit application with exact callback
+`https://YOUR-HUB-HOST/api/auth/callback` and sign-out URI
+`https://YOUR-HUB-HOST/`. Configure invitations/login methods in WorkOS. Point
+the chosen hostname at the deployment host; Caddy requires ports 80/443 to serve
+HTTPS and obtain certificates. Keep the API/web ports on loopback.
+
+```sh
+cp deploy/.env.example deploy/.env
+chmod 600 deploy/.env
+mkdir -p deploy/config
+```
+
+Edit the ignored `.env` with the hostname, matching HTTPS origin, WorkOS API
+key/client id, and a random cookie password of at least 32 characters. Keep
+credentials in Bitwarden and this private file, never in tracked examples or
+issue text. Prepare the source-built images:
+
+```sh
+dc() {
+  docker compose --env-file deploy/.env \
+    -f deploy/sorrel-server.compose.yml -f deploy/sorrel-hosted.compose.yml "$@"
+}
+dc config --quiet
+dc build
+```
+
+For an existing Cloudflare Tunnel, add `deploy/sorrel-tunnel.compose.yml` as the
+last Compose file in `dc`. This requires Compose 2.24.4+ for volume overrides.
+Set `SORREL_TUNNEL_NETWORK` to the tunnel container's existing Docker network
+and `SORREL_HUB_DATA_PATH` to a persistent host directory. The overlay disables
+Caddy unless the `direct-tls` profile is explicitly selected, attaches only the
+web host to the tunnel network and bounds container logs. Add an ingress rule
+for the chosen hostname with service `http://sorrel-hub-web:5180`, before the
+tunnel's final catch-all. Create its DNS route only after local validation.
+Keep Cloudflare caching disabled for `/api/*`, including authentication routes.
+See [Cloudflare ingress configuration](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/)
+and [DNS routing](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/routing-to-tunnel/dns/).
+
+The selected operator pilot is `sorrel.humunkulud.com` on `homelab-services`,
+using its existing tunnel. Put data under the services SSD's appdata root,
+include it and private configuration in consistent backups, and verify a
+restore before invitations. Keep the public HTTPS origin for WorkOS cookies
+and callback configuration even though the tunnel-to-web connection uses HTTP.
+
+With Hub stopped, provision an invited WorkOS subject and concrete workspace.
+Use the user's WorkOS `user_…` id, not an email address. Omit `--write` to preview
+the records first. Repeat for another subject to share the same workspace;
+choose different organization/project/repository ids for another team.
+
+```sh
+dc run --rm --no-deps --user root \
+  -v "$PWD/deploy/config:/operator-config" hub sh -c '
+    node scripts/provision-pilot.mjs --subject user_REPLACE \
+      --organization org_pilot --project proj_pilot --repository repo_pilot \
+      --name "Pilot project" --metadata-dir /app/data/metadata \
+      --grants-file /operator-config/grants.json --write &&
+    chown -R node:node /app/data /operator-config
+  '
+dc up -d
+```
+
+Provisioning is an operator action. It writes ordinary Core grants for exact
+scopes and supplies no policy-administration privilege. WorkOS organization
+membership does not grant Sorrel access automatically. Hub mounts operator
+configuration read-only; restart it after later provisioning changes.
+
+The browser offers Sign in, then projects shared through Core grants. Cookies
+are HttpOnly, Secure, host-only and SameSite=Lax; login uses browser-bound state
+and PKCE. AuthKit seals/verifies sessions and refreshes expired access tokens.
+Cookie-authenticated writes require the configured origin. Signing out clears
+the local cookie even when the identity provider is unavailable; in that case
+the UI distinguishes local sign-out from incomplete identity-provider sign-out.
+
+CLI/mobile bearer auth remains available. Automatic CLI login is not yet
+implemented: an operator must supply an appropriately scoped AuthKit access
+token via `SORREL_HUB_TOKEN`. Never paste credentials into chat or command
+arguments. The web host's `/api` URL is also the CLI remote URL.
+
+The overlay builds local `sorrel-hub:pilot` and `sorrel-hub-web:pilot` images from
+the checkout. Record its Git revision with deployment/backups. Pending login
+transactions belong to one API instance; restarting it requires a new login
+attempt. General migrations, quotas and multi-instance coordination are pending.
+Hub “Mark as merged” records a human confirmation; it does not merge files.
+
+Complete the live identity, two-team isolation, CLI upload, restart and
+backup/restore checks in [RELEASE.md](RELEASE.md) before external invitations.
+
+`deploy/backup-pilot.sh` pauses Hub writes, backs up data and the deployment
+checkout (including private configuration) to an existing encrypted Restic
+repository, then resumes the containers even after a failed backup. It discovers
+the running Hub's `/app/data` mount, covering both the direct-TLS named volume
+and the tunnel bind mount. Run it on the Docker host with access to that local
+directory. Set `RESTIC_REPOSITORY` and `RESTIC_PASSWORD_FILE`; for the tunnel
+overlay also set `SORREL_PILOT_TUNNEL=1`. If `SORREL_HUB_DATA_PATH` is supplied,
+it must resolve to the actual mount or backup fails before stopping services.
+A shared `SORREL_BACKUP_LOCK`
+coordinates with other backups. It refuses to start an intentionally stopped
+Hub. Backups retain all pilot snapshots; choose retention after measuring growth.
+
+The optional `deploy/sorrel-backup.service` and `.timer` run at 00:30
+Europe/Berlin. Install them through the host's normal systemd configuration;
+`/etc/sorrel/pilot-backup.env` supplies the variables above and `SORREL_CHECKOUT`.
+Keep it private and store the repository password in the existing password file.
+Restore a tagged snapshot into a separate private directory with Restic's
+`--verify` option, compare metadata, grants and configuration, and start an
+isolated instance against the restored data before trusting recovery. Do not
+restore over a live workspace. Off-host backups remain a separate launch check.
+Do not run `down --volumes` on data you intend to retain.
 
 ### One-command local dashboard (recommended for testing)
 

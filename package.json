@@ -9,7 +9,7 @@
     "dev": "node scripts/dev-dashboard.mjs",
     "dashboard": "node scripts/dev-dashboard.mjs",
     "check": "npm run check:quick && npm run check:rust && npm run test:modules && npm test",
-    "check:quick": "npm run validate:release && npm run test:release && npm run validate:conformance && npm run validate:docs && npm run test:changelogs",
+    "check:quick": "npm run validate:release && npm run test:release && npm run validate:conformance && npm run validate:docs && npm run test:changelogs && npm run test:pilot-backup",
     "check:rust": "cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check",
     "test": "node tests/e2e/happy-path.mjs",
     "test:e2e": "node tests/e2e/happy-path.mjs",
@@ -22,7 +22,8 @@
     "sync:docs": "node scripts/sync-docs.mjs",
     "release:notes": "node scripts/release-notes.mjs",
     "release:changelogs": "node scripts/prepare-changelogs.mjs",
-    "test:changelogs": "node --test scripts/prepare-changelogs.test.mjs"
+    "test:changelogs": "node --test scripts/prepare-changelogs.test.mjs",
+    "test:pilot-backup": "node --test scripts/backup-pilot.test.mjs"
   },
   "engines": {
     "node": ">=22"

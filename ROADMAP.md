@@ -1,96 +1,102 @@
 # Sorrel Roadmap
 
-Last updated: 2026-09-01
+Last updated: 2026-10-14
 
-Forward-only plan for the Sorrel monorepo. Shipped progress belongs in
-[GitHub Releases](https://github.com/MGRAFF2006/sorrel/releases) and
-[`CHANGELOG.md`](CHANGELOG.md); current behavior is in
-[`docs/STATUS.md`](docs/STATUS.md); current architecture is in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+The launch target is a hosted collaboration product for teams working with
+coding agents: **recoverable work, isolated execution, and consequential review**.
+Current behavior belongs in [docs/STATUS.md](docs/STATUS.md); releases and
+changelogs record shipped work. These are future milestones, not shipped claims.
 
-## Sequenced plan
+## 1. Validate an invite-only hosted pilot
 
-### 0. `v0.1.0-alpha.1` stabilization — DONE
+Finish credentialed WorkOS AuthKit validation at a real HTTPS origin: login,
+callback, expiry, refresh, logout, invitation and revoked access. Configure exact
+Core organization/project/repository grants. Test two teams through the browser
+proxy, including private metadata, counters, objects, reviews and CLI uploads.
+Exercise restart and backup restoration on the intended host. Verify actual
+release assets; an intended build matrix does not establish download availability.
 
-Released the first coordinated module set with aligned versions, explicit
-localhost/dev-only security boundaries, release/legal metadata, and a truthful
-repository-wide CI gate. Monorepo absorption, SecretSpec-backed CLI injection,
-devenv-aware execution, and structured local run logs are included.
+Acceptance: an invited teammate signs in, finds the shared project, connects a
+disposable checkout, uploads a lane and reviews recorded changes without editing
+policy JSON. Managed CLI login must replace manual bearer-token provisioning.
+Desktop remote-Hub selection and secure credentials follow the verified session
+path. The old alpha artifacts do not contain new source changes.
 
-### 1. Hub persistence — FS-backed object/ref store (`sorrel-hub`) — DONE
+## 2. Make daily agent work recoverable and isolated
 
-FS-backed sync store and product metadata; default-on for the server.
+1. Operation history, named checkpoints and undo for lane/ref mutations. Preserve
+   prior state for switches, merges, imports and pulls, including failed operations.
+2. Separate working directories per lane sharing immutable objects. Define
+   ownership and locking; independent heads alone do not isolate filesystem edits.
+3. Selective changes by path, then hunks. Leave unrelated unfinished work untouched.
+4. Claim release, heartbeat, expiry and overlap warnings. Coordination remains
+   advisory; stale claims must not look like a sandbox or permission boundary.
 
-### 2. Merge/conflict model (`sorrel-core`, then `sorrel-cli`) — DONE
+Acceptance: two agents work separately, submit focused changes and recover from
+an abandoned or incorrect operation without losing each other's files. Add
+mutation previews, doctor/integrity checks and storage accounting using the same
+contracts. Retain recovery records through migrations and future garbage collection.
 
-`merge_base` / `merge3` / Conflict / MergeResult / `merge_snapshots`, plus CLI
-`sorrel merge` (fast-forward + three-way, markers, `--abort`, `--continue`).
-Stored Conflict / MergeResult objects now match the protocol schema (repoId,
-base/ours/theirs refs, resolution slot, bare-hex merge-result ids).
+## 3. Make reviews consequential
 
-### 3. Git bridge (`sorrel-core` + `sorrel-cli`) — DONE
+Implement **Integrate proposal** through Core together with approvals and checks
+bound to exact source and target snapshots. Compare the expected target head
+atomically; changed snapshots or stale approvals/checks prevent integration.
+Report conflicts before advancing refs and record a recovery checkpoint.
 
-**`sorrel git import`, `sorrel git export`, and colocated `sorrel git sync`
-shipped** (`.sorrel/git-map.json` SHA mapping). Sync incrementally fast-forwards
-whichever side moved; true divergence is imported onto a `git/<branch>` lane
-for the normal Sorrel merge flow, then exported on the next sync.
+Acceptance: one permitted action advances the intended repository, retries are
+safe, and a stale review cannot integrate different code. Until this exists,
+“Mark as merged” remains a manual review record.
 
-### 4. Lanes as real workflows (`sorrel-cli` + `sorrel-core`) — MOSTLY DONE
+## 4. Give agents a small, useful integration surface
 
-Per-lane heads, `lane list` / `switch`, merge integration, **`lane submit`** →
-Hub proposal via `/collaboration/lane-submit`. Remaining: stacked changes UX.
+Start a narrow MCP adapter over tested CLI/Core contracts: status, diff, lane
+operations, submission, checks and run results. Add handoff bundles pinned to a
+base snapshot, with task context, paths, open questions and verification results.
+Explain policy denials with effective scope, expiry and the next approval step;
+explanations never grant access.
 
-### 5. Hub collaboration surface (`sorrel-hub` + `sorrel-hub-ui` + `sorrel-hub-web`) — IN PROGRESS
+Then add stacked-change append/amend/restack/submit and show affected dependent
+reviews. Materialize inspectable context slices pinned to snapshots, reporting
+unresolved imports and exclusions before bidirectional slice sync. Tie workflow
+results to tested snapshots; add log following, authorized streaming and cancellation.
 
-FS metadata, guided repository connection, bounded file/snapshot inspection,
-recoverable dialogs, and the proposal/review write path are shipped. Shared
-Solid UI (`sorrel-hub-ui`) + thin web host, `GET /capabilities`, AuthAdapter
-(WorkOS/OIDC JWKS / dev), `GET /session`, and Convex metadata spike
-(`proposals.countOpen`) are the Phase-1 foundation. Remaining: WorkOS sealed
-sessions + IdP login UI, full Convex metadata migration, virtualized diffs,
-authenticated remote-Hub configuration for the desktop shell.
+## 5. Expand into a dependable team product
 
-### 6. Secrets + SecretSpec → devenv-backed runs → log UX — MOSTLY DONE
+Add self-service team/workspace provisioning through previously authorized Core
+authority, invitations, scoped agent credentials, revocation and an operator audit
+trail. Add pagination, tenant quotas, abuse controls and versioned migrations with
+preflight backups. Test disaster recovery. Garbage collection needs a preview
+and retention for checkpoints, active reviews and in-flight work.
 
-The alpha ships upstream SecretSpec resolution/injection under Core grants,
-devenv detection with local fallback, and structured redacted logs under
-`.sorrel/runs/<id>/`. Remaining work: fuller workflow-to-devenv task mapping,
-log following and Hub streaming, an optional hosted/BYO provider binding, and
-convergence of the remaining `cli_policy` command/authority compatibility API.
-Workflow parsing/execution now use shared runners and native Core evaluation.
+Sign native distribution after remote sessions and recovery settle. Stabilize an
+embedding API when concrete MCP/SDK/native integrations demonstrate the needed
+boundary. Keep Convex migration, hosted compute and marketplace work behind
+observed pilot demand.
 
-### 7. Stable embedding surface (`sorrel-core`)
+## Market validation and launch
 
-Versioned library API + C ABI / N-API / WASM / IPC daemon — the contract for
-SDKs and apps.
+[Git worktrees](https://git-scm.com/docs/git-worktree),
+[Jujutsu](https://docs.jj-vcs.dev/latest/git-compatibility/) and
+[GitButler](https://docs.gitbutler.com/ai-agents/parallel-agents) already address
+Git-compatible parallel workflows (sources checked 2026-10-14). Sorrel must
+show a complete delegation → verification → review → integration → recovery loop.
+A new object model and the phrase “agent-native” do not establish demand.
 
-### 8. Mature the agent control plane + SDKs
+Recruit 3–5 agent-tool teams as design partners. Trial their disposable repositories;
+record first successful upload/review, time to that outcome, where help was needed
+and return use the next week. Interview users who stop as well as those who succeed.
+Keep private source, tokens and prompts out of marketing analytics.
 
-Minimal `sorrel-agents`, `sorrel-sdk-js`, and `sorrel-sdk-rust` surfaces shipped
-in the alpha. Stabilize and extend them after lanes and embedding settle.
+After the pilot gates pass, publish a real workflow recording, honest release
+announcement and reproducible setup. Invite feedback through existing GitHub issue
+forms. Share the demo in relevant developer/agent-tool communities under their
+current posting rules. Broad Show HN/Product Hunt promotion follows a usable
+integration/recovery story. Keep ad spend at zero until users complete onboarding
+and return without hands-on operator help.
 
-### 9. Apps — desktop then mobile — IN PROGRESS
+## Performance
 
-The shared Hub UI now has a Tauri desktop host for Windows, macOS, and Linux.
-It connects to a local Hub, while a thin native mobile companion covers
-projects, reviews/comments, and repository refs on iOS/iPadOS/Android. Next:
-signed desktop installers, authenticated remote-Hub selection, and local
-workspace/VCS integration after item 7's stable embedding contract.
-
-## Not yet
-
-Marketplace, full merge queue, hosted compute, production auth, sophisticated
-conflict-resolution UI. Nix is never mandatory — devenv is preferred, local
-fallback remains.
-
-## Performance bar
-
-- Keep warm `status` on a 10k-file repo under ~100ms and `log` of 1k changes
-  under ~50ms (benches in core).
-- Next: packfiles + indexes, chunked large blobs, lazy fetch on sync.
-
-## Monorepo
-
-Implementation lives in-tree under `sorrel-*`. Open one PR against root `main`.
-Run package checks plus root E2E before merging
-(`cargo test --workspace` / `npm test`, plus clippy/fmt for Rust).
+Measure pilot repositories before making speed claims. Preserve existing benchmark
+baselines and warm status/history budgets; investigate packing, indexes, large
+blobs and lazy fetch when observed workloads identify the limiting operation.
