@@ -132,6 +132,34 @@ pub fn git_import(
     let repo = open_repository(&options.git_path)?;
     let tip = resolve_commit(&repo, &options.git_ref)?;
 
+    let tip_sha = tip.id().to_string();
+    let mut oids = collect_commits(&repo, tip, options.limit, &options.known_commits)?;
+    let selection = repo
+        .workdir()
+        .map(|root| crate::workspace::WorkspaceSelection::load(store, root, None))
+        .transpose()?;
+    // Check all selected history before copying blobs. Use each commit's own
+    // provider configuration, including for bare repositories and old refs.
+    for oid in &oids {
+        let tree = repo.find_commit(*oid)?.tree()?;
+        let mut committed =
+            crate::workspace::WorkspaceSelection::empty(repo.workdir().unwrap_or(repo.path()));
+        for name in ["secretspec.toml", "sorrel.secrets.yml"] {
+            if let Some(entry) = tree.get_name(name) {
+                let blob = repo.find_blob(entry.id())?;
+                committed.add_provider_config(Path::new(name), blob.content())?;
+            }
+        }
+        validate_import_tree(
+            &repo,
+            &tree,
+            Path::new(""),
+            selection.as_ref(),
+            &committed,
+            &mut std::collections::BTreeSet::new(),
+        )?;
+    }
+
     let empty_tree = write_tree(store, Vec::new())?;
     let mut empty_opts = SnapshotOptions::new(options.repo_id.clone());
     empty_opts.message = Some("empty base for git import".to_owned());
@@ -139,8 +167,6 @@ pub fn git_import(
     empty_opts.author = Principal::system();
     let empty_base = write_snapshot(store, empty_tree.id, empty_opts)?;
 
-    let tip_sha = tip.id().to_string();
-    let mut oids = collect_commits(&repo, tip, options.limit, &options.known_commits)?;
     // Topological walk from tip yields newest-first; reverse to oldest-first.
     oids.reverse();
 
@@ -217,6 +243,49 @@ pub fn git_import(
         git_to_snapshot,
         empty_base_snapshot: empty_base.id,
     })
+}
+
+fn validate_import_tree(
+    repo: &git2::Repository,
+    tree: &git2::Tree<'_>,
+    prefix: &Path,
+    selection: Option<&crate::workspace::WorkspaceSelection>,
+    committed: &crate::workspace::WorkspaceSelection,
+    checked: &mut std::collections::BTreeSet<(git2::Oid, PathBuf)>,
+) -> GitImportResult<()> {
+    if !checked.insert((tree.id(), prefix.to_owned())) {
+        return Ok(());
+    }
+    for entry in tree.iter() {
+        let name = entry.name().map_err(|_| GitImportError::UnsupportedEntry {
+            path: prefix.display().to_string(),
+            detail: "non-UTF-8 path".to_owned(),
+        })?;
+        let path = prefix.join(name);
+        let metadata_name = name.trim_end_matches(['.', ' ']);
+        let metadata = prefix.as_os_str().is_empty()
+            && (metadata_name.eq_ignore_ascii_case(".git")
+                || metadata_name.eq_ignore_ascii_case(".sorrel"));
+        if metadata
+            || crate::workspace::is_protected_environment_path(&path)
+            || selection.is_some_and(|selection| selection.is_protected(&path))
+            || committed.is_protected(&path)
+        {
+            return Err(GitImportError::UnsupportedEntry { path: path.display().to_string(),
+                detail: "metadata or protected secret-provider path in Git history; audit and remove it from history before importing".to_owned() });
+        }
+        if entry.kind() == Some(git2::ObjectType::Tree) {
+            validate_import_tree(
+                repo,
+                &repo.find_tree(entry.id())?,
+                &path,
+                selection,
+                committed,
+                checked,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn open_repository(path: &Path) -> GitImportResult<git2::Repository> {
@@ -566,5 +635,78 @@ mod tests {
         options.git_ref = "refs/heads/does-not-exist".to_owned();
         let err = git_import(&store, options).expect_err("should fail");
         assert!(matches!(err, GitImportError::RefNotFound { .. }));
+    }
+
+    #[test]
+    fn rejects_secret_provider_history_before_copying_any_blobs() {
+        for provider in [false, true] {
+            let git_dir = make_linear_repo();
+            let root = git_dir.path();
+            let protected = if provider { "credentials" } else { ".env" };
+            let secret = b"fixture private bytes, not a real credential\n";
+            if provider {
+                std::fs::write(root.join("secretspec.toml"), "[project]\nname = 'test'\n[profiles.default]\nprovider = 'dotenv:credentials'\n").unwrap();
+            }
+            std::fs::write(root.join(protected), secret).unwrap();
+            git(root, &["add", "-f", protected]);
+            git(root, &["commit", "-m", "private provider"]);
+            std::fs::remove_file(root.join(protected)).unwrap();
+            git(root, &["add", "-u"]);
+            git(root, &["commit", "-m", "remove provider from tip"]);
+            let store = InMemoryObjectStore::new();
+            assert!(git_import(&store, GitImportOptions::new(root, "repo_private")).is_err());
+            let mut encoded = b"sorrel.blob.v0\n".to_vec();
+            encoded.extend_from_slice(secret);
+            assert!(!store.has(&ObjectId::for_bytes(&encoded)).unwrap());
+        }
+    }
+    #[test]
+    fn selected_git_trees_define_protected_providers_even_without_a_checkout() {
+        for bare in [false, true] {
+            for yaml in [false, true] {
+                let source = make_linear_repo();
+                let root = source.path();
+                let name = if yaml {
+                    "sorrel.secrets.yml"
+                } else {
+                    "secretspec.toml"
+                };
+                let config = if yaml {
+                    "localDev:\n  import:\n    envFiles:\n      - path: credentials\n"
+                } else {
+                    "[profiles.default]\nprovider = 'dotenv:credentials'\n"
+                };
+                let private = b"synthetic private provider bytes\n";
+                std::fs::write(root.join(name), config).unwrap();
+                std::fs::write(root.join("credentials"), private).unwrap();
+                git(root, &["add", name, "credentials"]);
+                git(root, &["commit", "-m", "historical provider"]);
+                git(root, &["tag", "private-ref"]);
+                git(root, &["rm", name, "credentials"]);
+                git(root, &["commit", "-m", "remove provider config and bytes"]);
+                let destination = tempfile::tempdir().unwrap();
+                let path = if bare {
+                    git(
+                        root,
+                        &["clone", "--bare", ".", destination.path().to_str().unwrap()],
+                    );
+                    destination.path()
+                } else {
+                    root
+                };
+                for reference in ["HEAD", "private-ref"] {
+                    let store = InMemoryObjectStore::new();
+                    let mut options = GitImportOptions::new(path, "repo_private_history");
+                    options.git_ref = reference.to_owned();
+                    assert!(
+                        git_import(&store, options).is_err(),
+                        "{bare} {yaml} {reference}"
+                    );
+                    let mut encoded = b"sorrel.blob.v0\n".to_vec();
+                    encoded.extend_from_slice(private);
+                    assert!(!store.has(&ObjectId::for_bytes(&encoded)).unwrap());
+                }
+            }
+        }
     }
 }

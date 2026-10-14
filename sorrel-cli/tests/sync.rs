@@ -129,6 +129,7 @@ fn push_then_pull_round_trip_preserves_snapshot_id() {
     repo::add_remote("origin", &remote.url, &remote.repo_id).expect("add remote pull");
 
     let pull_store = FileObjectStore::new(repo::object_store_root()).expect("pull store");
+    let before_pull = repo::load_head().unwrap().unwrap();
     let pull_result =
         sync::pull(&pull_store, &remote, "origin", "HEAD", None).expect("pull succeeds");
 
@@ -136,7 +137,7 @@ fn push_then_pull_round_trip_preserves_snapshot_id() {
     assert!(pull_result.downloaded > 0);
 
     let pulled_head = repo::load_head().expect("head").expect("head exists");
-    assert_eq!(pulled_head.snapshot, head.snapshot);
+    assert_eq!(pulled_head, before_pull, "transport must not publish HEAD");
 }
 
 #[test]
@@ -222,6 +223,53 @@ fn cli_push_pull_restores_working_tree_via_live_hub() {
 
     let content = std::fs::read_to_string(pull_path.join("hello.txt")).expect("pulled file");
     assert_eq!(content, "from-push\n");
+
+    let head_path = pull_path.join(".sorrel/HEAD");
+    let head = std::fs::read(&head_path).unwrap();
+    std::fs::write(pull_path.join("hello.txt"), b"uncommitted\n").unwrap();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .args(["pull", "origin"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read(&head_path).unwrap(), head);
+    assert_eq!(
+        std::fs::read(pull_path.join("hello.txt")).unwrap(),
+        b"uncommitted\n"
+    );
+
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .args(["change", "create", "-m", "local history"])
+        .assert()
+        .success();
+    let local_head = std::fs::read(&head_path).unwrap();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .args(["pull", "origin"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read(&head_path).unwrap(), local_head);
+    assert_eq!(
+        std::fs::read(pull_path.join("hello.txt")).unwrap(),
+        b"uncommitted\n"
+    );
+
+    std::fs::write(pull_path.join(".sorrel/MERGE_STATE"), "pending").unwrap();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .args(["pull", "origin"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read(&head_path).unwrap(), local_head);
+    assert_eq!(
+        std::fs::read(pull_path.join(".sorrel/MERGE_STATE")).unwrap(),
+        b"pending"
+    );
 }
 
 fn init_empty_local_repo(repo_id: &str) {
@@ -262,4 +310,333 @@ fn init_local_repo(repo_id: &str) {
         snapshot: snap.id.to_hex(),
     })
     .expect("advance head");
+}
+
+fn cli(workspace: &Path, args: &[&str]) -> std::process::Output {
+    assert_cmd::Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(workspace)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+fn cli_ok(workspace: &Path, args: &[&str]) {
+    let output = cli(workspace, args);
+    assert!(
+        output.status.success(),
+        "{args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn head_bytes(workspace: &Path) -> (Vec<u8>, Vec<u8>) {
+    let head = std::fs::read(workspace.join(".sorrel/HEAD")).unwrap();
+    let value: Value = serde_json::from_slice(&head).unwrap();
+    let lane = std::fs::read(
+        workspace
+            .join(".sorrel/heads")
+            .join(value["lane"].as_str().unwrap()),
+    )
+    .unwrap();
+    (head, lane)
+}
+
+fn connected_workspace(hub: &LiveHub, repo_id: &str) -> TempDir {
+    let workspace = TempDir::new().unwrap();
+    cli_ok(workspace.path(), &["init"]);
+    cli_ok(
+        workspace.path(),
+        &["remote", "add", "origin", hub.url(), "--repo-id", repo_id],
+    );
+    workspace
+}
+
+#[test]
+fn cli_pull_rejects_dirty_work_and_preserves_both_heads() {
+    let hub = LiveHub::start();
+    let source = connected_workspace(&hub, "repo_dirty_pull");
+    std::fs::write(source.path().join("tracked.txt"), b"base\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "base"]);
+    cli_ok(source.path(), &["push"]);
+    let local = connected_workspace(&hub, "repo_dirty_pull");
+    cli_ok(local.path(), &["pull"]);
+    std::fs::write(source.path().join("tracked.txt"), b"remote\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "remote"]);
+    cli_ok(source.path(), &["push"]);
+
+    for edited in [true, false] {
+        if edited {
+            std::fs::write(local.path().join("tracked.txt"), b"uncommitted\n").unwrap();
+        } else {
+            std::fs::remove_file(local.path().join("tracked.txt")).unwrap();
+        }
+        let before = head_bytes(local.path());
+        let output = cli(local.path(), &["pull"]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("uncommitted"));
+        assert_eq!(head_bytes(local.path()), before);
+        if edited {
+            assert_eq!(
+                std::fs::read(local.path().join("tracked.txt")).unwrap(),
+                b"uncommitted\n"
+            );
+        } else {
+            assert!(!local.path().join("tracked.txt").exists());
+        }
+    }
+    std::fs::write(local.path().join("tracked.txt"), b"base\n").unwrap();
+    cli_ok(local.path(), &["pull"]);
+    assert_eq!(
+        std::fs::read(local.path().join("tracked.txt")).unwrap(),
+        b"remote\n"
+    );
+    assert_eq!(head_bytes(local.path()), head_bytes(source.path()));
+
+    std::fs::write(local.path().join(".sorrel/MERGE_STATE"), b"{}").unwrap();
+    let before = head_bytes(local.path());
+    let output = cli(local.path(), &["pull"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("merge is in progress"));
+    assert_eq!(head_bytes(local.path()), before);
+}
+
+#[test]
+fn cli_pull_rejects_divergence_rewinds_and_unrelated_history() {
+    let hub = LiveHub::start();
+    for case in ["diverged", "rewound", "unrelated"] {
+        let source = connected_workspace(&hub, &format!("repo_pull_{case}"));
+        std::fs::write(source.path().join("tracked.txt"), b"base\n").unwrap();
+        cli_ok(source.path(), &["change", "create", "-m", "base"]);
+        cli_ok(source.path(), &["push"]);
+        let local = connected_workspace(&hub, &format!("repo_pull_{case}"));
+        if case != "unrelated" {
+            cli_ok(local.path(), &["pull"]);
+        }
+        std::fs::write(local.path().join("tracked.txt"), b"local\n").unwrap();
+        cli_ok(local.path(), &["change", "create", "-m", "local"]);
+        if case == "diverged" {
+            std::fs::write(source.path().join("tracked.txt"), b"remote\n").unwrap();
+            cli_ok(source.path(), &["change", "create", "-m", "remote"]);
+            cli_ok(source.path(), &["push"]);
+        }
+        let before = head_bytes(local.path());
+        let output = cli(local.path(), &["pull"]);
+        assert!(!output.status.success(), "{case}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("not a fast-forward"));
+        assert_eq!(head_bytes(local.path()), before);
+        assert_eq!(
+            std::fs::read(local.path().join("tracked.txt")).unwrap(),
+            b"local\n"
+        );
+    }
+}
+
+#[test]
+fn cli_pull_rejects_ignored_path_collisions_before_restoring() {
+    let hub = LiveHub::start();
+    for directory in [false, true] {
+        let repo_id = format!("repo_obstructed_pull_{directory}");
+        let source = connected_workspace(&hub, &repo_id);
+        std::fs::write(source.path().join(".gitignore"), "blocked\n").unwrap();
+        cli_ok(
+            source.path(),
+            &["change", "create", "-m", "ignore obstruction"],
+        );
+        cli_ok(source.path(), &["push"]);
+        let local = connected_workspace(&hub, &repo_id);
+        cli_ok(local.path(), &["pull"]);
+        let preserved = if directory {
+            std::fs::create_dir(local.path().join("blocked")).unwrap();
+            local.path().join("blocked/local-only")
+        } else {
+            local.path().join("blocked")
+        };
+        std::fs::write(&preserved, b"preserve\n").unwrap();
+        std::fs::write(source.path().join(".gitignore"), "").unwrap();
+        std::fs::write(source.path().join("blocked"), b"remote\n").unwrap();
+        std::fs::write(source.path().join("aaa.txt"), b"earlier checkout path\n").unwrap();
+        cli_ok(source.path(), &["change", "create", "-m", "add files"]);
+        cli_ok(source.path(), &["push"]);
+        let before = head_bytes(local.path());
+        let output = cli(local.path(), &["pull"]);
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("untracked or ignored path"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(head_bytes(local.path()), before);
+        assert_eq!(std::fs::read(preserved).unwrap(), b"preserve\n");
+        assert_eq!(
+            std::fs::read_to_string(local.path().join(".gitignore")).unwrap(),
+            "blocked\n"
+        );
+        assert!(!local.path().join("aaa.txt").exists());
+    }
+}
+
+#[test]
+fn cli_pull_rejects_reserved_paths_before_removing_tracked_files() {
+    let hub = LiveHub::start();
+    for reserved in [".git", ".sorrel", ".GiT", ".sorrel. "] {
+        let repo_id = format!("repo_reserved_pull_{}", reserved.replace(['.', ' '], "x"));
+        let source = connected_workspace(&hub, &repo_id);
+        std::fs::write(source.path().join("tracked.txt"), b"preserve\n").unwrap();
+        cli_ok(source.path(), &["change", "create", "-m", "base"]);
+        cli_ok(source.path(), &["push"]);
+        let local = connected_workspace(&hub, &repo_id);
+        cli_ok(local.path(), &["pull"]);
+        let before = head_bytes(local.path());
+        let parent: Value = serde_json::from_slice(&before.0).unwrap();
+        let store = FileObjectStore::new(source.path().join(".sorrel")).unwrap();
+        let blob = sorrel_core::write_blob(&store, b"invalid destination\n").unwrap();
+        let tree = write_tree(
+            &store,
+            vec![sorrel_core::TreeEntry {
+                name: "new-file".to_owned(),
+                path: PathBuf::from(reserved).join("new-file"),
+                entry_type: sorrel_core::EntryType::File,
+                object: sorrel_core::ObjectRef::new(sorrel_core::ObjectKind::Blob, blob.id),
+                mode: sorrel_core::EntryMode::Normal,
+                size: Some(blob.size()),
+                content_hash: Some(blob.content_hash),
+            }],
+        )
+        .unwrap();
+        let mut options = SnapshotOptions::new(&repo_id);
+        options.parents = vec![sorrel_core::ObjectRef::new(
+            sorrel_core::ObjectKind::Snapshot,
+            parse_object_id_hex(parent["snapshot"].as_str().unwrap()).unwrap(),
+        )];
+        let snapshot = write_snapshot(&store, tree.id, options).unwrap();
+        let remote = repo::Remote {
+            url: hub.url().to_owned(),
+            repo_id,
+        };
+        sync::push(&store, &remote, "origin", "HEAD", &snapshot.id, None).unwrap();
+        let output = cli(local.path(), &["pull"]);
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("invalid snapshot path"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(head_bytes(local.path()), before);
+        assert_eq!(
+            std::fs::read(local.path().join("tracked.txt")).unwrap(),
+            b"preserve\n"
+        );
+        assert!(!local.path().join(reserved).join("new-file").exists());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn cli_pull_restore_io_failure_preserves_both_heads() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let hub = LiveHub::start();
+    let source = connected_workspace(&hub, "repo_pull_io_failure");
+    std::fs::write(source.path().join("tracked.txt"), b"base\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "base"]);
+    cli_ok(source.path(), &["push"]);
+    let local = connected_workspace(&hub, "repo_pull_io_failure");
+    cli_ok(local.path(), &["pull"]);
+    std::fs::write(source.path().join("tracked.txt"), b"remote\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "remote"]);
+    cli_ok(source.path(), &["push"]);
+
+    let path = local.path().join("tracked.txt");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+    // Privileged test processes can bypass filesystem permissions.
+    if std::fs::OpenOptions::new().write(true).open(&path).is_ok() {
+        return;
+    }
+    let before = head_bytes(local.path());
+    let output = cli(local.path(), &["pull"]);
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Permission denied") || stderr.contains("restore target is read-only"),
+        "expected a checkout permission error, got: {stderr}"
+    );
+    assert_eq!(head_bytes(local.path()), before);
+    assert_eq!(std::fs::read(path).unwrap(), b"base\n");
+}
+
+#[test]
+fn cli_pull_allows_clean_file_directory_transitions() {
+    let hub = LiveHub::start();
+    let source = connected_workspace(&hub, "repo_pull_transitions");
+    std::fs::write(source.path().join("a"), b"file\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "file"]);
+    cli_ok(source.path(), &["push"]);
+    let local = connected_workspace(&hub, "repo_pull_transitions");
+    cli_ok(local.path(), &["pull"]);
+
+    std::fs::remove_file(source.path().join("a")).unwrap();
+    std::fs::create_dir(source.path().join("a")).unwrap();
+    std::fs::write(source.path().join("a/child"), b"nested\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "directory"]);
+    cli_ok(source.path(), &["push"]);
+    cli_ok(local.path(), &["pull"]);
+    assert_eq!(
+        std::fs::read(local.path().join("a/child")).unwrap(),
+        b"nested\n"
+    );
+    assert_eq!(head_bytes(local.path()), head_bytes(source.path()));
+
+    std::fs::remove_file(source.path().join("a/child")).unwrap();
+    std::fs::remove_dir(source.path().join("a")).unwrap();
+    std::fs::write(source.path().join("a"), b"file again\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "file again"]);
+    cli_ok(source.path(), &["push"]);
+    cli_ok(local.path(), &["pull"]);
+    assert_eq!(
+        std::fs::read(local.path().join("a")).unwrap(),
+        b"file again\n"
+    );
+    assert_eq!(head_bytes(local.path()), head_bytes(source.path()));
+}
+
+#[test]
+fn cli_pull_preserves_ignored_children_on_directory_to_file() {
+    let hub = LiveHub::start();
+    let source = connected_workspace(&hub, "repo_pull_ignored_child");
+    std::fs::create_dir(source.path().join("a")).unwrap();
+    std::fs::write(source.path().join("a/tracked"), b"tracked\n").unwrap();
+    std::fs::write(source.path().join(".gitignore"), "a/local-only\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "directory"]);
+    cli_ok(source.path(), &["push"]);
+    let local = connected_workspace(&hub, "repo_pull_ignored_child");
+    cli_ok(local.path(), &["pull"]);
+    std::fs::write(local.path().join("a/local-only"), b"preserve\n").unwrap();
+
+    std::fs::remove_file(source.path().join("a/tracked")).unwrap();
+    std::fs::remove_dir(source.path().join("a")).unwrap();
+    std::fs::write(source.path().join("a"), b"file\n").unwrap();
+    cli_ok(
+        source.path(),
+        &["change", "create", "-m", "replace directory"],
+    );
+    cli_ok(source.path(), &["push"]);
+    let before = head_bytes(local.path());
+    let output = cli(local.path(), &["pull"]);
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("untracked or ignored path"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(head_bytes(local.path()), before);
+    assert_eq!(
+        std::fs::read(local.path().join("a/tracked")).unwrap(),
+        b"tracked\n"
+    );
+    assert_eq!(
+        std::fs::read(local.path().join("a/local-only")).unwrap(),
+        b"preserve\n"
+    );
 }
