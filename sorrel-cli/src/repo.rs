@@ -127,7 +127,14 @@ impl WorkspaceLock {
         // Recheck under the lock before interpreting any recovery journal.
         let _ = load_manifest_at(&root.join(MANIFEST_FILE))?;
         sorrel_core::durability::flush_root_ancestors(root)?;
-        recover_metadata_transaction(root)?;
+        if load_manifest_at(&root.join(MANIFEST_FILE))?
+            .is_some_and(|v| v["schemaVersion"] == crate::workspace::SHARED_VERSION)
+        {
+            recover_shared_metadata_transaction(root)?;
+            crate::workspace::validate_current_head()?;
+        } else {
+            recover_metadata_transaction(root)?;
+        }
         Ok(guard)
     }
 }
@@ -219,7 +226,7 @@ fn stage_bytes_with_flush(
     }
 }
 
-fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     write_bytes_atomic_with_flush(
         metadata_root(path),
         path,
@@ -314,6 +321,23 @@ fn recover_metadata_transaction_with_flush(
         Err(error) => return Err(error),
     };
     let entries: Vec<(PathBuf, PathBuf, String)> = serde_json::from_slice(&bytes)?;
+    recover_entries(root, root, &journal, entries, flush)
+}
+
+fn transaction_root<'a>(local: &'a Path, common: &'a Path, path: &Path) -> &'a Path {
+    if path == Path::new(CHANGES_INDEX_FILE) || path.parent() == Some(Path::new(HEADS_DIR)) {
+        common
+    } else {
+        local
+    }
+}
+fn recover_entries(
+    root: &Path,
+    common: &Path,
+    journal: &Path,
+    entries: Vec<(PathBuf, PathBuf, String)>,
+    flush: &dyn Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
     let mut destinations = std::collections::BTreeSet::new();
     let mut temporaries = std::collections::BTreeSet::new();
     for (target, temporary, digest) in &entries {
@@ -352,18 +376,21 @@ fn recover_metadata_transaction_with_flush(
                 "invalid metadata transaction path",
             ));
         }
-        validate_metadata_path(root, target)?;
-        validate_metadata_path(root, temporary)?;
+        let destination_root = transaction_root(root, common, target);
+        validate_metadata_path(destination_root, target)?;
+        validate_metadata_path(destination_root, temporary)?;
     }
     // A journal rename may have succeeded before its barrier failed.
-    flush(root, root).map_err(|source| publication_uncertain(&journal, source))?;
+    flush(common, common).map_err(|source| publication_uncertain(journal, source))?;
     let mut snapshots = std::collections::BTreeSet::new();
     let mut changes = std::collections::BTreeSet::new();
     let mut payloads = BTreeMap::new();
     let mut journal_operation = None;
     for (target, temporary, digest) in &entries {
-        let target = root.join(target);
-        let temporary = root.join(temporary);
+        let destination_root = transaction_root(root, common, target);
+        let logical_target = target.clone();
+        let target = destination_root.join(target);
+        let temporary = destination_root.join(temporary);
         let data = fs::read(if temporary.is_file() {
             &temporary
         } else {
@@ -412,7 +439,7 @@ fn recover_metadata_transaction_with_flush(
             }
         }
         if target.file_name().is_some_and(|name| name == HEAD_FILE)
-            || target.parent() == Some(root.join(HEADS_DIR).as_path())
+            || target.parent() == Some(common.join(HEADS_DIR).as_path())
         {
             if let Ok(value) = serde_json::from_slice::<Value>(&data) {
                 if let Some(snapshot) = value.get("snapshot").and_then(Value::as_str) {
@@ -424,6 +451,11 @@ fn recover_metadata_transaction_with_flush(
             .file_name()
             .is_some_and(|name| name == CHANGES_INDEX_FILE)
         {
+            if load_manifest_at(&common.join(MANIFEST_FILE))?
+                .is_some_and(|v| v["schemaVersion"] == crate::workspace::SHARED_VERSION)
+            {
+                validate_changes_index(common, &data)?;
+            }
             for line in String::from_utf8_lossy(&data).lines() {
                 if let Ok(value) = serde_json::from_str::<Value>(line) {
                     if let Some(snapshot) = value.get("snapshot").and_then(Value::as_str) {
@@ -435,19 +467,20 @@ fn recover_metadata_transaction_with_flush(
                 }
             }
         }
-        payloads.insert(target.strip_prefix(root).unwrap().to_owned(), data);
+        payloads.insert(logical_target, data);
     }
     if let Some(operation) = &journal_operation {
-        validate_journal_operation_refs(root, operation, &payloads)?;
+        validate_journal_operation_refs(root, common, operation, &payloads)?;
     }
     if !snapshots.is_empty() || !changes.is_empty() {
         let snapshots: Vec<_> = snapshots.iter().map(String::as_str).collect();
         let changes: Vec<_> = changes.iter().map(String::as_str).collect();
-        flush_core_references(root, &snapshots, &changes)?;
+        flush_core_references(common, &snapshots, &changes)?;
     }
     for (target, temporary, _) in entries {
-        let target = root.join(target);
-        let temporary = root.join(temporary);
+        let destination_root = transaction_root(root, common, &target);
+        let target = destination_root.join(target);
+        let temporary = destination_root.join(temporary);
         let data_path = if temporary.is_file() {
             &temporary
         } else {
@@ -461,11 +494,252 @@ fn recover_metadata_transaction_with_flush(
         if temporary.is_file() {
             fs::rename(&temporary, &target)?;
         }
-        flush(target.parent().unwrap(), root)
+        flush(target.parent().unwrap(), destination_root)
             .map_err(|source| publication_uncertain(&target, source))?;
     }
-    fs::remove_file(&journal)?;
-    flush(root, root).map_err(|source| publication_uncertain(&journal, source))
+    fs::remove_file(journal)?;
+    flush(common, common).map_err(|source| publication_uncertain(journal, source))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum TargetScope {
+    Common,
+    Workspace,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SharedEntry {
+    scope: TargetScope,
+    path: PathBuf,
+    temporary: PathBuf,
+    digest: String,
+    before_digest: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SharedJournal {
+    version: u32,
+    repo_id: String,
+    workspace_id: String,
+    binding: crate::workspace::Binding,
+    link_digest: Option<String>,
+    entries: Vec<SharedEntry>,
+}
+pub(crate) fn validate_changes_index(common: &Path, bytes: &[u8]) -> io::Result<()> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Entry {
+        snapshot: String,
+        change: String,
+    }
+    let text = std::str::from_utf8(bytes).map_err(io::Error::other)?;
+    let store = sorrel_core::FileObjectStore::open_existing(common).map_err(io::Error::other)?;
+    for line in text.lines() {
+        let entry: Entry = serde_json::from_str(line)?;
+        if !valid_digest(&entry.snapshot) || !valid_digest(&entry.change) {
+            return Err(invalid_record("invalid journal changes index"));
+        }
+        let id = sorrel_core::parse_object_id_hex(&entry.change).map_err(io::Error::other)?;
+        let change = sorrel_core::read_change(&store, &id).map_err(io::Error::other)?;
+        if change.resulting_snapshot.id.to_hex() != entry.snapshot {
+            return Err(invalid_record(
+                "changes index snapshot disagrees with change",
+            ));
+        }
+    }
+    Ok(())
+}
+fn target_scope(path: &Path) -> TargetScope {
+    if path == Path::new(CHANGES_INDEX_FILE) || path.parent() == Some(Path::new(HEADS_DIR)) {
+        TargetScope::Common
+    } else {
+        TargetScope::Workspace
+    }
+}
+fn shared_metadata_transaction(updates: &[(PathBuf, Vec<u8>)]) -> io::Result<()> {
+    let layout = crate::workspace::current()
+        .ok_or_else(|| invalid_record("shared layout is not configured"))?;
+    crate::workspace::validate_link(layout)?;
+    let local = layout.binding.root.join(SORREL_DIR);
+    let common = &layout.common;
+    let journal_path = common.join(TRANSACTION_FILE);
+    if journal_path.exists() {
+        return Err(invalid_record("pending shared metadata transaction"));
+    }
+    let mut journal = SharedJournal {
+        version: 1,
+        repo_id: layout.repo_id.clone(),
+        workspace_id: layout.id.clone(),
+        binding: layout.binding.clone(),
+        link_digest: if layout.id == "default" {
+            None
+        } else {
+            Some(sorrel_core::ObjectId::for_bytes(&fs::read(local.join(MANIFEST_FILE))?).to_hex())
+        },
+        entries: Vec::new(),
+    };
+    let preparation = (|| {
+        for (target, bytes) in updates {
+            let absolute = std::env::current_dir()?.join(target);
+            let relative = if let Ok(path) = absolute.strip_prefix(&local) {
+                path.to_owned()
+            } else {
+                absolute
+                    .strip_prefix(common)
+                    .map_err(|_| invalid_record("metadata target outside registered roots"))?
+                    .to_owned()
+            };
+            let destination_root = transaction_root(&local, common, &relative);
+            if destination_root.join(&relative) != absolute {
+                return Err(invalid_record("metadata target in wrong root"));
+            }
+            validate_metadata_path(destination_root, &relative)?;
+            let before_digest = match fs::read(&absolute) {
+                Ok(bytes) => Some(sorrel_core::ObjectId::for_bytes(&bytes).to_hex()),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+                Err(e) => return Err(e),
+            };
+            let temporary = stage_bytes_with_flush(
+                destination_root,
+                &absolute,
+                bytes,
+                &sorrel_core::durability::flush_directory_chain,
+            )?;
+            journal.entries.push(SharedEntry {
+                scope: target_scope(&relative),
+                path: relative,
+                temporary: temporary.strip_prefix(destination_root).unwrap().to_owned(),
+                digest: sorrel_core::ObjectId::for_bytes(bytes).to_hex(),
+                before_digest,
+            });
+        }
+        write_json_atomic(&journal_path, &serde_json::to_value(&journal)?)
+    })();
+    if let Err(error) = preparation {
+        if !is_publication_uncertain(&error) {
+            for entry in &journal.entries {
+                let root = transaction_root(&local, common, &entry.path);
+                let _ = fs::remove_file(root.join(&entry.temporary));
+            }
+        }
+        return Err(error);
+    }
+    recover_shared_metadata_transaction(common)
+}
+fn recover_shared_metadata_transaction(common: &Path) -> io::Result<()> {
+    let path = common.join(TRANSACTION_FILE);
+    validate_metadata_path(common, Path::new(TRANSACTION_FILE))?;
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let journal: SharedJournal = serde_json::from_slice(&bytes)?;
+    if journal.version != 1 || journal.entries.is_empty() {
+        return Err(invalid_record(
+            "invalid shared metadata journal version or entries",
+        ));
+    }
+    let manifest = crate::workspace::shared_manifest(common)?;
+    let layout = crate::workspace::registered_layout(common, &manifest, &journal.workspace_id)?;
+    if journal.repo_id != layout.repo_id || journal.binding != layout.binding {
+        return Err(invalid_record(
+            "journal workspace identity disagrees with registration",
+        ));
+    }
+    crate::workspace::validate_link(&layout)?;
+    let local = layout.binding.root.join(SORREL_DIR);
+    let digest = if layout.id == "default" {
+        None
+    } else {
+        Some(sorrel_core::ObjectId::for_bytes(&fs::read(local.join(MANIFEST_FILE))?).to_hex())
+    };
+    if journal.link_digest != digest {
+        return Err(invalid_record("journal workspace link changed"));
+    }
+    let mut entries = Vec::new();
+    let mut operation_count = 0;
+    for entry in journal.entries {
+        if entry.scope != target_scope(&entry.path) {
+            return Err(invalid_record("journal target has wrong root scope"));
+        }
+        let destination_root = transaction_root(&local, common, &entry.path);
+        validate_metadata_path(destination_root, &entry.path)?;
+        let current_digest = match fs::read(destination_root.join(&entry.path)) {
+            Ok(bytes) => Some(sorrel_core::ObjectId::for_bytes(&bytes).to_hex()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e),
+        };
+        if entry
+            .before_digest
+            .as_ref()
+            .is_some_and(|digest| !valid_digest(digest))
+            || (current_digest != entry.before_digest
+                && current_digest.as_deref() != Some(&entry.digest))
+        {
+            return Err(invalid_record(
+                "current metadata disagrees with journal recovery state",
+            ));
+        }
+        if entry.path.parent() == Some(Path::new(HEADS_DIR)) {
+            let lane = entry
+                .path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| invalid_record("invalid journal lane"))?;
+            let bindings: BTreeMap<String, crate::workspace::Binding> =
+                serde_json::from_value(manifest["workspaces"].clone())?;
+            if bindings
+                .iter()
+                .any(|(id, binding)| binding.lane == lane && id != &layout.id)
+            {
+                return Err(invalid_record("journal attempts foreign lane publication"));
+            }
+        }
+        if entry.path.parent() == Some(Path::new(OPERATIONS_DIR)) {
+            operation_count += 1;
+        }
+        entries.push((entry.path, entry.temporary, entry.digest));
+    }
+    if operation_count != 1 {
+        return Err(invalid_record(
+            "shared journal requires exactly one local operation",
+        ));
+    }
+    // Validate pinned HEAD in both operation states, including already-published refs.
+    for (target, temporary, digest) in &entries {
+        if target.parent() == Some(Path::new(OPERATIONS_DIR)) {
+            validate_metadata_path(&local, target)?;
+            validate_metadata_path(&local, temporary)?;
+            let staged = local.join(temporary);
+            let bytes = fs::read(if staged.is_file() {
+                staged
+            } else {
+                local.join(target)
+            })?;
+            if sorrel_core::ObjectId::for_bytes(&bytes).to_hex() != *digest {
+                return Err(invalid_record("invalid journal operation digest"));
+            }
+            let operation: Operation = serde_json::from_slice(&bytes)?;
+            for state in [&operation.before, &operation.after] {
+                if state
+                    .head
+                    .as_ref()
+                    .is_none_or(|head| head.lane != layout.binding.lane)
+                {
+                    return Err(invalid_record("journal HEAD violates fixed lane binding"));
+                }
+            }
+        }
+    }
+    recover_entries(
+        &local,
+        common,
+        &path,
+        entries,
+        &sorrel_core::durability::flush_directory_chain,
+    )
 }
 
 #[derive(Deserialize)]
@@ -492,6 +766,7 @@ fn parse_ref_payload(path: &Path, bytes: &[u8]) -> io::Result<Value> {
 
 fn validate_journal_operation_refs(
     root: &Path,
+    common: &Path,
     operation: &Operation,
     payloads: &BTreeMap<PathBuf, Vec<u8>>,
 ) -> io::Result<()> {
@@ -534,7 +809,8 @@ fn validate_journal_operation_refs(
         }
     }
     for (path, (before, after)) in expected {
-        validate_metadata_path(root, &path)?;
+        let destination_root = transaction_root(root, common, &path);
+        validate_metadata_path(destination_root, &path)?;
         if before != after && !payloads.contains_key(&path) {
             return Err(invalid_record("journal is missing an operation ref update"));
         }
@@ -547,7 +823,7 @@ fn validate_journal_operation_refs(
         }
         // A replay can observe either side of each already started publication,
         // but must never overwrite a ref changed independently since the crash.
-        let current = match fs::read(root.join(&path)) {
+        let current = match fs::read(destination_root.join(&path)) {
             Ok(bytes) => Some(parse_ref_payload(&path, &bytes)?),
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
             Err(error) => return Err(error),
@@ -572,7 +848,7 @@ pub fn sorrel_dir() -> PathBuf {
 /// `.sorrel/objects` and `.sorrel/tmp`.
 #[must_use]
 pub fn object_store_root() -> PathBuf {
-    sorrel_dir()
+    crate::workspace::common_dir()
 }
 
 /// Path to the manifest file.
@@ -590,7 +866,7 @@ pub fn head_path() -> PathBuf {
 /// Path to the per-lane heads directory (`.sorrel/heads/`).
 #[must_use]
 pub fn heads_dir() -> PathBuf {
-    sorrel_dir().join(HEADS_DIR)
+    crate::workspace::common_dir().join(HEADS_DIR)
 }
 
 /// Path to the per-lane head file for `lane_id`.
@@ -602,7 +878,7 @@ pub fn lane_head_path(lane_id: &str) -> PathBuf {
 /// Path to the remotes configuration file.
 #[must_use]
 pub fn remotes_path() -> PathBuf {
-    sorrel_dir().join(REMOTES_FILE)
+    crate::workspace::common_dir().join(REMOTES_FILE)
 }
 
 /// Path to the workspace stat-cache file (`.sorrel/stat-cache.json`).
@@ -614,7 +890,7 @@ pub fn stat_cache_path() -> PathBuf {
 /// Path to the snapshot → change index (`.sorrel/changes.index`).
 #[must_use]
 pub fn changes_index_path() -> PathBuf {
-    sorrel_dir().join(CHANGES_INDEX_FILE)
+    crate::workspace::common_dir().join(CHANGES_INDEX_FILE)
 }
 
 /// Path to the Git import mapping file (`.sorrel/git-map.json`).
@@ -804,7 +1080,11 @@ pub fn load_changes_index() -> BTreeMap<String, String> {
 /// file via temp + rename so concurrent readers never see a partial write.
 /// The caller must hold [`WorkspaceLock`] to serialize read-modify-write.
 pub fn append_changes_index(entry: &ChangesIndexEntry) -> io::Result<()> {
-    flush_core_references(&sorrel_dir(), &[&entry.snapshot], &[&entry.change])?;
+    flush_core_references(
+        &crate::workspace::common_dir(),
+        &[&entry.snapshot],
+        &[&entry.change],
+    )?;
     write_bytes_atomic(&changes_index_path(), &changes_index_bytes(entry)?)
 }
 
@@ -935,17 +1215,28 @@ pub fn write_json_atomic(path: &Path, value: &Value) -> io::Result<()> {
 /// Optional fields in the supported namespace are preserved. No migration or
 /// rewrite is performed when the version is missing, malformed, or unknown.
 pub fn load_manifest() -> io::Result<Option<Value>> {
-    load_manifest_at(&manifest_path())
+    load_manifest_at(&crate::workspace::common_dir().join(MANIFEST_FILE))
 }
 
-fn load_manifest_at(path: &Path) -> io::Result<Option<Value>> {
+pub(crate) fn load_manifest_at(path: &Path) -> io::Result<Option<Value>> {
     let bytes = match fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error),
     };
     let value: Value = serde_json::from_slice(&bytes)?;
-    if value.get("schemaVersion").and_then(Value::as_str) != Some(PROTOCOL_VERSION) {
+    if value
+        .get("schemaVersion")
+        .and_then(Value::as_str)
+        .is_none_or(|version| {
+            !matches!(
+                version,
+                PROTOCOL_VERSION
+                    | crate::workspace::SHARED_VERSION
+                    | crate::workspace::LINK_VERSION
+            )
+        })
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("unsupported workspace schema version; expected {PROTOCOL_VERSION}"),
@@ -995,7 +1286,11 @@ fn flush_snapshot_closure(root: &Path, snapshot: &str) -> io::Result<()> {
     flush_core_references(root, &[snapshot], &[])
 }
 
-fn flush_core_references(root: &Path, snapshots: &[&str], changes: &[&str]) -> io::Result<()> {
+pub(crate) fn flush_core_references(
+    root: &Path,
+    snapshots: &[&str],
+    changes: &[&str],
+) -> io::Result<()> {
     let store = sorrel_core::FileObjectStore::open_existing(root).map_err(io::Error::other)?;
     let mut roots = snapshots
         .iter()
@@ -1066,7 +1361,7 @@ fn invalid_record(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-fn valid_component(name: &str) -> bool {
+pub(crate) fn valid_component(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
@@ -1075,7 +1370,7 @@ fn valid_component(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-' || c == b'.')
 }
 
-fn valid_digest(id: &str) -> bool {
+pub(crate) fn valid_digest(id: &str) -> bool {
     id.len() == 64
         && id
             .bytes()
@@ -1084,7 +1379,7 @@ fn valid_digest(id: &str) -> bool {
 
 // Check every existing component before staging or replaying a journal. Metadata
 // registries must never redirect publication through symlinks outside .sorrel.
-fn validate_metadata_path(root: &Path, relative: &Path) -> io::Result<()> {
+pub(crate) fn validate_metadata_path(root: &Path, relative: &Path) -> io::Result<()> {
     if relative
         .components()
         .any(|c| !matches!(c, std::path::Component::Normal(_)))
@@ -1101,7 +1396,15 @@ fn validate_metadata_path(root: &Path, relative: &Path) -> io::Result<()> {
             Ok(metadata) if metadata.file_type().is_symlink() => {
                 return Err(invalid_record("metadata path contains a symlink"));
             }
-            Ok(_) => {}
+            Ok(metadata) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    if metadata.is_file() && metadata.nlink() > 1 {
+                        return Err(invalid_record("metadata file has hard links"));
+                    }
+                }
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
@@ -1235,8 +1538,8 @@ fn read_state(lanes: impl Iterator<Item = String>) -> io::Result<LocalState> {
             return Err(invalid_record("invalid lane identifier"));
         }
         let path = Path::new(HEADS_DIR).join(&lane);
-        validate_metadata_path(&sorrel_dir(), &path)?;
-        let snapshot = match fs::read(sorrel_dir().join(&path)) {
+        validate_metadata_path(&crate::workspace::common_dir(), &path)?;
+        let snapshot = match fs::read(crate::workspace::common_dir().join(&path)) {
             Ok(bytes) => {
                 let value = parse_ref_payload(&path, &bytes)?;
                 Some(
@@ -1271,6 +1574,15 @@ fn prepare_transition(
     action: &str,
     related_operation: Option<String>,
 ) -> io::Result<PreparedTransition> {
+    crate::workspace::validate_current_head()?;
+    if let Some(head) = &after.head {
+        crate::workspace::check_head_lane(&head.lane)?;
+    }
+    for (lane, snapshot) in &after.lane_heads {
+        if before.lane_heads.get(lane) != Some(snapshot) {
+            crate::workspace::check_lane_writer(lane)?;
+        }
+    }
     let operations = load_operations()?;
     let previous = operations.last().map(|(id, _)| id.clone());
     let operation = Operation {
@@ -1298,7 +1610,7 @@ fn prepare_transition(
         .map(|entry| entry.change.as_str())
         .into_iter()
         .collect();
-    flush_core_references(&sorrel_dir(), &snapshots, &changes)?;
+    flush_core_references(&crate::workspace::common_dir(), &snapshots, &changes)?;
     let bytes = serde_json::to_vec(&operation)?;
     let operation_id = sorrel_core::ObjectId::for_bytes(&bytes).to_hex();
     let operation_path =
@@ -1326,7 +1638,8 @@ fn prepare_transition(
         updates.push((head_path(), serde_json::to_vec(head)?));
     }
     for (path, _) in &updates {
-        validate_metadata_path(&sorrel_dir(), path.strip_prefix(sorrel_dir()).unwrap())?;
+        let root = metadata_root(path);
+        validate_metadata_path(root, path.strip_prefix(root).unwrap())?;
         if path.exists()
             && (!path.is_file() || path.parent() == Some(registry_dir(OPERATIONS_DIR).as_path()))
         {
@@ -1374,7 +1687,11 @@ pub fn publish_prepared(prepared: PreparedTransition) -> io::Result<()> {
             "local state changed before ref publication",
         ));
     }
-    metadata_transaction(&sorrel_dir(), &prepared.updates)
+    if crate::workspace::current().is_some() {
+        shared_metadata_transaction(&prepared.updates)
+    } else {
+        metadata_transaction(&sorrel_dir(), &prepared.updates)
+    }
 }
 
 /// Prepare the inverse of the latest local active HEAD transition. Other lane
@@ -1500,7 +1817,7 @@ pub fn create_checkpoint(name: &str, head: &Head) -> io::Result<Checkpoint> {
     if read_state(std::iter::once(head.lane.clone()))?.head != Some(head.clone()) {
         return Err(io::Error::other("HEAD changed before checkpoint creation"));
     }
-    flush_snapshot_closure(&sorrel_dir(), &head.snapshot)?;
+    flush_snapshot_closure(&crate::workspace::common_dir(), &head.snapshot)?;
     write_json_atomic(&path, &serde_json::to_value(&checkpoint)?)?;
     Ok(checkpoint)
 }
@@ -1536,6 +1853,7 @@ pub fn write_lane_head(lane_id: &str, snapshot: &str) -> io::Result<()> {
 
 /// Publish a lane pointer and an immutable operation in the same journal.
 pub fn write_lane_head_action(lane_id: &str, snapshot: &str, action: &str) -> io::Result<()> {
+    crate::workspace::check_lane_writer(lane_id)?;
     let before = read_state(std::iter::once(lane_id.to_owned()))?;
     let mut after = before.clone();
     after
@@ -1553,6 +1871,11 @@ pub fn ensure_heads_migrated() -> io::Result<()> {
     let dir = heads_dir();
     if dir.is_dir() {
         return Ok(());
+    }
+    if crate::workspace::current().is_some() {
+        return Err(invalid_record(
+            "missing shared lane-head registry; refusing implicit repair",
+        ));
     }
     let Some(head) = load_head_raw()? else {
         return Ok(());
@@ -1678,7 +2001,11 @@ pub fn add_remote(name: &str, url: &str, repo_id: &str) -> io::Result<()> {
 /// Path to a named registry subdirectory under `.sorrel/`.
 #[must_use]
 pub fn registry_dir(name: &str) -> PathBuf {
-    sorrel_dir().join(name)
+    if matches!(name, OPERATIONS_DIR | CHECKPOINTS_DIR) {
+        sorrel_dir().join(name)
+    } else {
+        crate::workspace::common_dir().join(name)
+    }
 }
 
 /// Writes a JSON registry entry atomically at `.sorrel/<dir>/<id>.json`.

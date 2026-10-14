@@ -670,3 +670,62 @@ fn cli_pull_rejects_corrupt_operation_history_before_restoring() {
         b"base\n"
     );
 }
+
+#[test]
+fn linked_pull_advances_only_its_owned_lane_and_checkout_with_shared_remotes() {
+    let hub = LiveHub::start();
+    let temp = TempDir::new().unwrap();
+    let main = temp.path().join("main");
+    let linked = temp.path().join("linked");
+    std::fs::create_dir(&main).unwrap();
+    cli_ok(&main, &["init"]);
+    std::fs::write(main.join("base.txt"), "base\n").unwrap();
+    cli_ok(&main, &["change", "create", "-m", "base"]);
+    let lane_output = cli(&main, &["lane", "create", "--name", "linked", "--json"]);
+    assert!(lane_output.status.success());
+    let lane: Value = serde_json::from_slice(&lane_output.stdout).unwrap();
+    let lane = lane["object"]["id"].as_str().unwrap();
+    cli_ok(
+        &main,
+        &[
+            "remote",
+            "add",
+            "origin",
+            hub.url(),
+            "--repo-id",
+            "repo_shared_link_pull",
+        ],
+    );
+    cli_ok(&main, &["workspace", "enable", "--apply"]);
+    cli_ok(&main, &["workspace", "add", lane, linked.to_str().unwrap()]);
+    cli_ok(&main, &["push"]);
+    let publisher = connected_workspace(&hub, "repo_shared_link_pull");
+    cli_ok(publisher.path(), &["pull"]);
+    std::fs::write(publisher.path().join("remote.txt"), "from hub\n").unwrap();
+    cli_ok(
+        publisher.path(),
+        &["change", "create", "-m", "remote advance"],
+    );
+    cli_ok(publisher.path(), &["push"]);
+    let main_heads = head_bytes(&main);
+    std::fs::write(main.join("base.txt"), "unfinished main work\n").unwrap();
+    cli_ok(&linked, &["pull"]);
+    assert_eq!(head_bytes(&main), main_heads);
+    assert_eq!(
+        std::fs::read(main.join("base.txt")).unwrap(),
+        b"unfinished main work\n"
+    );
+    assert!(!main.join("remote.txt").exists());
+    assert_eq!(
+        std::fs::read(linked.join("remote.txt")).unwrap(),
+        b"from hub\n"
+    );
+    let head: Value =
+        serde_json::from_slice(&std::fs::read(linked.join(".sorrel/HEAD")).unwrap()).unwrap();
+    let lane_head: Value =
+        serde_json::from_slice(&std::fs::read(main.join(".sorrel/heads").join(lane)).unwrap())
+            .unwrap();
+    assert_eq!(head["lane"], lane);
+    assert_eq!(head["snapshot"], lane_head["snapshot"]);
+    assert!(!linked.join(".sorrel/remotes.json").exists());
+}

@@ -120,6 +120,36 @@ Unknown format versions fail closed.
 There is no general migration framework yet, so alpha workspaces and Hub data
 must be backed up before upgrading.
 
+### Opt-in isolated lane directories (source builds)
+
+`workspace enable` previews compatibility; `workspace enable --apply` performs
+full metadata/reference preflight and a durable, digested backup of original
+mutable metadata before atomically opting into `sorrel.workspace.shared.v1`.
+Standalone repositories retain v0 without startup conversion. Older CLIs reject
+the shared version and `sorrel.workspace.link.v1` descriptors before recovery or
+mutation. Protocol schemas and immutable object formats remain v0.
+
+`workspace add <inactive-lane-id> <new-path>` materializes independent native files
+before registering the fixed-lane binding in the common manifest. Roots must not
+overlap. The default directory owns its active lane too; every directory remains
+pinned to its lane. Shared objects, lane/stack/slice registries, lane heads, change
+index, grants, secret references and remotes have one common authority. `HEAD`,
+merge state, stat cache, operations, checkpoints, run logs and previews stay local.
+Core's additive registry-aware selection APIs protect shared provider paths while
+retaining local configuration and root metadata exclusions.
+
+All locked commands use the common `write.lock`. Shared publications use typed
+common/workspace targets staged beside each destination. Replay validates the
+registered canonical roots, exact link digest, pinned HEAD, lane ownership,
+operation chain, exact ref payloads and current before/after states, change-index
+pairs and full object closure before renaming anything. A missing or stale
+recovery destination blocks publication; it is never silently recreated. Lane
+publication guards cover normal recording, merge, recovery, Hub pull and Git
+divergence parking. Default-directory Git behavior remains; linked-directory Git
+commands are refused before side effects. There is no security sandbox, SDK
+linkage, move/remove/ownership transfer or universal working-file rollback. See
+[the opt-in and backup guide](../sorrel-cli/README.md#isolated-lane-directories-source-builds-only).
+
 ## Change, lane, and merge flow
 
 `status`, `diff`, and `change create` use Core's `materialize_workspace_snapshot`,

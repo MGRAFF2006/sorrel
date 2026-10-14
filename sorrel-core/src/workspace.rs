@@ -29,8 +29,21 @@ pub fn materialize_workspace_snapshot(
     stat_cache: Option<&mut StatCache>,
     options: SnapshotOptions,
 ) -> SnapshotResult<Snapshot> {
+    materialize_workspace_snapshot_with_registry(store, root, baseline, stat_cache, options, None)
+}
+
+/// Uses the supplied shared SecretRef registry in addition to local provider configuration.
+pub fn materialize_workspace_snapshot_with_registry(
+    store: &impl ObjectStore,
+    root: impl AsRef<Path>,
+    baseline: Option<&ObjectId>,
+    stat_cache: Option<&mut StatCache>,
+    options: SnapshotOptions,
+    secret_registry: Option<&Path>,
+) -> SnapshotResult<Snapshot> {
     let root = root.as_ref();
-    let mut selection = WorkspaceSelection::load(store, root, baseline)?;
+    let mut selection =
+        WorkspaceSelection::load_with_registry(store, root, baseline, secret_registry)?;
     selection.validate_tracked_paths()?;
     let excluded = [".sorrel", ".git"].map(std::ffi::OsString::from).into();
     let mut paths_seen = BTreeSet::new();
@@ -65,11 +78,34 @@ pub fn materialize_workspace_snapshot_paths(
     stat_cache: Option<&mut StatCache>,
     options: SnapshotOptions,
 ) -> SnapshotResult<Snapshot> {
+    materialize_workspace_snapshot_paths_with_registry(
+        store, root, baseline, paths, stat_cache, options, None,
+    )
+}
+
+/// Uses the supplied shared SecretRef registry in addition to local provider configuration.
+pub fn materialize_workspace_snapshot_paths_with_registry(
+    store: &impl ObjectStore,
+    root: impl AsRef<Path>,
+    baseline: &ObjectId,
+    paths: &[PathBuf],
+    stat_cache: Option<&mut StatCache>,
+    options: SnapshotOptions,
+    secret_registry: Option<&Path>,
+) -> SnapshotResult<Snapshot> {
     if paths.is_empty() {
-        return materialize_workspace_snapshot(store, root, Some(baseline), stat_cache, options);
+        return materialize_workspace_snapshot_with_registry(
+            store,
+            root,
+            Some(baseline),
+            stat_cache,
+            options,
+            secret_registry,
+        );
     }
     let root = root.as_ref();
-    let mut selection = WorkspaceSelection::load(store, root, Some(baseline))?;
+    let mut selection =
+        WorkspaceSelection::load_with_registry(store, root, Some(baseline), secret_registry)?;
     selection.validate_tracked_paths()?;
     let mut selectors = BTreeSet::new();
     for path in paths {
@@ -129,6 +165,23 @@ pub fn materialize_workspace_snapshot_paths(
         cache.retain(&paths_seen);
     }
     Ok(snapshot)
+}
+
+/// Validate recorded paths against local configuration and a shared SecretRef registry
+/// before restoring a new checkout. Reads configuration and tree metadata, never working file contents.
+pub fn validate_workspace_snapshot_secrets(
+    store: &impl ObjectStore,
+    root: impl AsRef<Path>,
+    snapshot: &ObjectId,
+    secret_registry: &Path,
+) -> SnapshotResult<()> {
+    WorkspaceSelection::load_with_registry(
+        store,
+        root.as_ref(),
+        Some(snapshot),
+        Some(secret_registry),
+    )?
+    .validate_tracked_paths()
 }
 
 fn overlay_selected_tree(
@@ -192,7 +245,19 @@ pub fn explain_workspace_path(
     baseline: Option<&ObjectId>,
     path: impl AsRef<Path>,
 ) -> SnapshotResult<WorkspacePathExplanation> {
-    let mut selection = WorkspaceSelection::load(store, root.as_ref(), baseline)?;
+    explain_workspace_path_with_registry(store, root, baseline, path, None)
+}
+
+/// Uses the supplied shared SecretRef registry in addition to local provider configuration.
+pub fn explain_workspace_path_with_registry(
+    store: &impl ObjectStore,
+    root: impl AsRef<Path>,
+    baseline: Option<&ObjectId>,
+    path: impl AsRef<Path>,
+    secret_registry: Option<&Path>,
+) -> SnapshotResult<WorkspacePathExplanation> {
+    let mut selection =
+        WorkspaceSelection::load_with_registry(store, root.as_ref(), baseline, secret_registry)?;
     explain_path(&mut selection, path.as_ref())
 }
 
@@ -315,6 +380,15 @@ impl WorkspaceSelection {
         root: &Path,
         baseline: Option<&ObjectId>,
     ) -> SnapshotResult<Self> {
+        Self::load_with_registry(store, root, baseline, None)
+    }
+
+    pub(crate) fn load_with_registry(
+        store: &impl ObjectStore,
+        root: &Path,
+        baseline: Option<&ObjectId>,
+        secret_registry: Option<&Path>,
+    ) -> SnapshotResult<Self> {
         let root = fs::canonicalize(root).map_err(|error| config_io(root, error))?;
         let mut selection = Self {
             root,
@@ -325,7 +399,7 @@ impl WorkspaceSelection {
             rules: BTreeMap::new(),
             ignored_directories: BTreeSet::new(),
         };
-        selection.load_providers()?;
+        selection.load_providers(secret_registry)?;
         if let Some(id) = baseline {
             let snapshot = read_snapshot(store, id)?;
             collect_tracked(
@@ -416,12 +490,14 @@ impl WorkspaceSelection {
         Ok(ignored)
     }
 
-    fn load_providers(&mut self) -> SnapshotResult<()> {
+    fn load_providers(&mut self, secret_registry: Option<&Path>) -> SnapshotResult<()> {
         let yaml = self.root.join("sorrel.secrets.yml");
         if let Some(bytes) = read_optional(&yaml)? {
             self.add_provider_config(Path::new("sorrel.secrets.yml"), &bytes)?;
         }
-        let registry = self.root.join(".sorrel/secrets");
+        let registry = secret_registry
+            .map(Path::to_owned)
+            .unwrap_or_else(|| self.root.join(".sorrel/secrets"));
         match fs::read_dir(&registry) {
             Ok(entries) => {
                 for entry in entries {
