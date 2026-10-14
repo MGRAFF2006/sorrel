@@ -65,11 +65,16 @@ export function createWorkOsBrowserAuth(env = process.env, options = {}) {
     if (!session) return null;
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) requireSameOrigin(request);
     let result;
+    let refreshedSession;
     try {
       result = await session.authenticate();
       if (!result.authenticated && result.reason === 'invalid_jwt') {
         result = await session.refresh();
-        if (result.authenticated) setCookie(response, SESSION_COOKIE, result.sealedSession, SESSION_MAX_AGE);
+        if (result.authenticated) {
+          refreshedSession = result.sealedSession;
+          // SDK refresh seals the response; authenticate verifies the new JWT.
+          result = await session.authenticate();
+        }
         else if (result.retryable) throw new Error('retryable refresh');
       }
     } catch {
@@ -81,10 +86,13 @@ export function createWorkOsBrowserAuth(env = process.env, options = {}) {
     }
     const accessToken = result.accessToken ?? result.session?.accessToken;
     const claims = decodeJwt(accessToken).payload;
-    if (claims.sub !== result.user?.id || claims.client_id !== env.WORKOS_CLIENT_ID || typeof claims.sid !== 'string') {
+    if (typeof claims.sub !== 'string' || !claims.sub.trim() || claims.sub !== result.user?.id
+        || claims.client_id !== env.WORKOS_CLIENT_ID || typeof claims.sid !== 'string' || !claims.sid.trim()
+        || claims.sid !== result.sessionId || !Number.isFinite(claims.exp)) {
       setCookie(response, SESSION_COOKIE, '', 0);
       return null;
     }
+    if (refreshedSession) setCookie(response, SESSION_COOKIE, refreshedSession, SESSION_MAX_AGE);
     return {
       principal: { type: 'user', id: `workos:${claims.sub}` },
       sessionId: claims.sid,
@@ -106,14 +114,22 @@ export function createWorkOsBrowserAuth(env = process.env, options = {}) {
         if (pending.size >= 1000) throw new HttpError(429, 'Sign-in is busy; try again shortly', 'auth_busy');
         const state = randomBytes(32).toString('base64url');
         const nonce = randomBytes(32).toString('base64url');
-        const pkce = await workos.pkce.generate();
-        const location = workos.userManagement.getAuthorizationUrl({
-          provider: 'authkit', redirectUri: callback, state,
-          codeChallenge: pkce.codeChallenge, codeChallengeMethod: 'S256', screenHint: 'sign-in',
-        });
-        pending.set(state, { nonce, verifier: pkce.codeVerifier, expires: Date.now() + LOGIN_TTL_MS });
-        setCookie(response, LOGIN_COOKIE, nonce, LOGIN_TTL_MS / 1000);
-        response.writeHead(302, { location }).end();
+        const transaction = { nonce, verifier: null, expires: Date.now() + LOGIN_TTL_MS };
+        // Reserve capacity before asynchronous PKCE generation.
+        pending.set(state, transaction);
+        try {
+          const pkce = await workos.pkce.generate();
+          transaction.verifier = pkce.codeVerifier;
+          const location = workos.userManagement.getAuthorizationUrl({
+            provider: 'authkit', redirectUri: callback, state,
+            codeChallenge: pkce.codeChallenge, codeChallengeMethod: 'S256', screenHint: 'sign-in',
+          });
+          setCookie(response, LOGIN_COOKIE, nonce, LOGIN_TTL_MS / 1000);
+          response.writeHead(302, { location }).end();
+        } catch (error) {
+          pending.delete(state);
+          throw error;
+        }
         return true;
       }
       if (url.pathname === '/auth/callback' && request.method === 'GET') {

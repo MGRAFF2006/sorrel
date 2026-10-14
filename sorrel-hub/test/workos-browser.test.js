@@ -27,19 +27,51 @@ test('hosted login fails closed on partial or insecure configuration', () => {
   }
 });
 
+test('login capacity remains bounded during concurrent PKCE work and expired transactions are discarded', async t => {
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  let release;
+  const pkceReady = new Promise(resolve => { release = resolve; });
+  const browserAuth = createWorkOsBrowserAuth(env, { workos: {
+    pkce: { async generate() { await pkceReady; return { codeVerifier: 'fixture-verifier', codeChallenge: 'fixture-challenge' }; } },
+    userManagement: { getAuthorizationUrl({ state }) { return `https://idp.example/?state=${state}`; } },
+  } });
+  function response() {
+    const headers = new Map();
+    return { getHeader: name => headers.get(name), setHeader: (name, value) => headers.set(name, value),
+      writeHead(_status, values) { this.location = values.location; return this; }, end() {}, headers };
+  }
+  const request = { method: 'GET', headers: {} };
+  const loginUrl = new URL('https://hub.example/auth/login');
+  const first = response();
+  const logins = Array.from({ length: 1000 }, (_, i) => browserAuth.handleRequest(request, i === 0 ? first : response(), loginUrl));
+  await assert.rejects(browserAuth.handleRequest(request, response(), loginUrl), error => error.statusCode === 429);
+  release();
+  await Promise.all(logins);
+  const state = new URL(first.location).searchParams.get('state');
+  const loginCookie = first.headers.get('set-cookie')[0].split(';')[0];
+  now += 10 * 60 * 1000;
+  await assert.rejects(browserAuth.handleRequest({ method: 'GET', headers: { cookie: loginCookie } }, response(),
+    new URL(`https://hub.example/auth/callback?state=${state}&code=fixture`)), error => error.code === 'invalid_login_state');
+  assert.equal(await browserAuth.handleRequest(request, response(), loginUrl), true);
+});
+
 test('real AuthKit SDK seals, verifies and refreshes browser sessions through the actual proxy', async t => {
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const untrustedKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
   const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'fixture', alg: 'RS256', use: 'sig' };
-  function token(exp, subject = 'user_fixture') {
+  function token(exp, overrides = {}, signingKey = privateKey) {
     const header = Buffer.from(JSON.stringify({ alg: 'RS256', kid: jwk.kid })).toString('base64url');
-    const claims = Buffer.from(JSON.stringify({ iss: 'https://api.workos.com', sub: subject,
-      sid: 'session_fixture', client_id: env.WORKOS_CLIENT_ID, exp })).toString('base64url');
+    const claims = Buffer.from(JSON.stringify({ iss: 'https://api.workos.com', sub: 'user_fixture',
+      sid: 'session_fixture', client_id: env.WORKOS_CLIENT_ID, exp, ...overrides })).toString('base64url');
     const data = `${header}.${claims}`;
-    return `${data}.${sign('RSA-SHA256', Buffer.from(data), privateKey).toString('base64url')}`;
+    return `${data}.${sign('RSA-SHA256', Buffer.from(data), signingKey).toString('base64url')}`;
   }
   let challenge;
   let exchanges = 0;
   let refreshes = 0;
+  let refreshClaims = {};
+  let refreshSigningKey = privateKey;
   const idp = http.createServer(async (request, response) => {
     if (request.url.startsWith('/sso/jwks/')) {
       response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ keys: [jwk] }));
@@ -56,7 +88,9 @@ test('real AuthKit SDK seals, verifies and refreshes browser sessions through th
       assert.equal(body.refresh_token, 'fixture-refresh-secret');
       refreshes++;
     }
-    const access = token(Math.floor(Date.now() / 1000) + (body.grant_type === 'authorization_code' ? -120 : 300));
+    const access = body.grant_type === 'authorization_code'
+      ? token(Math.floor(Date.now() / 1000) - 120)
+      : token(Math.floor(Date.now() / 1000) + 300, refreshClaims, refreshSigningKey);
     response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
       user: { id: 'user_fixture', email: 'fixture@example.com', email_verified: true },
       access_token: access, refresh_token: 'fixture-refresh-secret', authentication_method: 'Password',
@@ -101,6 +135,9 @@ test('real AuthKit SDK seals, verifies and refreshes browser sessions through th
   assert.equal(refreshes, 1);
   assert.equal(JSON.stringify(sessionBody).includes('Token'), false);
   const refreshedCookie = session.headers.getSetCookie()[0].split(';')[0];
+  const invalidBearer = await fetch(`${url}/api/session`, { headers: { cookie: refreshedCookie, authorization: 'Bearer invalid' } });
+  assert.equal((await invalidBearer.json()).data.session, null, 'bearer must take precedence over a valid browser cookie');
+  assert.equal(invalidBearer.headers.getSetCookie().length, 0);
   const rejected = await fetch(`${url}/api/auth/logout`, { method: 'POST', headers: { cookie: refreshedCookie, origin: 'https://attacker.example' } });
   assert.equal(rejected.status, 403);
   const write = await fetch(`${url}/api/projects`, { method: 'POST', headers: { cookie: refreshedCookie, origin: 'https://attacker.example' } });
@@ -127,4 +164,26 @@ test('real AuthKit SDK seals, verifies and refreshes browser sessions through th
   assert.deepEqual((await localLogout.json()).data, {
     logoutUrl: `${env.SORREL_HUB_PUBLIC_URL}/?auth=logout-incomplete`, remoteLogout: false,
   });
+
+  for (const [name, overrides, signingKey] of [
+    ['untrusted signature', {}, untrustedKey],
+    ['wrong client', { client_id: 'another-client' }, privateKey],
+    ['wrong subject', { sub: 'user_other' }, privateKey],
+    ['missing session', { sid: undefined }, privateKey],
+    ['empty session', { sid: '' }, privateKey],
+    ['missing expiry', { exp: undefined }, privateKey],
+    ['expired refresh', { exp: Math.floor(Date.now() / 1000) - 120 }, privateKey],
+  ]) {
+    refreshClaims = overrides;
+    refreshSigningKey = signingKey;
+    const expired = await workos.userManagement.sealSessionDataFromAuthenticationResponse({
+      authenticationResponse: { accessToken: token(Math.floor(Date.now() / 1000) - 120),
+        refreshToken: 'fixture-refresh-secret', user: { id: 'user_fixture' } },
+      cookiePassword: env.WORKOS_COOKIE_PASSWORD,
+    });
+    const rejectedSession = await fetch(`${url}/api/session`, { headers: { cookie: `__Host-sorrel-session=${expired}` } });
+    assert.equal(rejectedSession.status, 200, name);
+    assert.equal((await rejectedSession.json()).data.session, null, name);
+    assert.ok(rejectedSession.headers.getSetCookie().every(value => value.includes('Max-Age=0')), name);
+  }
 });

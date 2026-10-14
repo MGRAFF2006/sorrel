@@ -23,7 +23,7 @@ kept as external references.
 The `v0.1.0-alpha.2` server has development, WorkOS, and OIDC AuthAdapter seams,
 but production session/login integration is incomplete in that release. Current
 source adds SDK-sealed WorkOS browser sessions and an invite-only hosting path;
-see [hosted pilot setup](../docs/GETTING_STARTED.md#hosted-pilot-from-current-source).
+see the browser login and operator provisioning settings below.
 Live credentialed deployment remains a launch gate. The alpha also
 omits merge queue behavior, hosted compute, and secret values. Two further
 declared gaps: list endpoints return full arrays (no pagination), and object
@@ -154,6 +154,16 @@ must use HTTPS; cookie writes require a matching Origin. `/session` exposes only
 identity and expiry, never access/refresh tokens. CLI bearer authentication still
 works; browser login does not provision authority. Hosted startup
 (`SORREL_HUB_DEPLOY=saas`) requires operator grants and rejects demo bypasses.
+
+For an invited WorkOS subject, preview native Core grants and workspace metadata
+with `node scripts/provision-pilot.mjs --subject user_ID --organization org_ID
+--project proj_ID --repository repo_ID --metadata-dir <metadata-directory>
+--grants-file <grants-file>`. Stop Hub, repeat with `--write`, configure
+`SORREL_HUB_TRUSTED_GRANTS_FILE` and `SORREL_HUB_METADATA_DIR` to those paths,
+then restart. These grants do not include project creation or policy administration.
+Pending browser logins are bounded to 1,000 transactions for ten minutes in one
+API instance; a restart requires starting login again. Multiple API instances
+require a shared transaction store before hosting this flow.
 
 Every collaboration, metadata and sync read or write requires an authenticated
 session and a native Core allow decision. Without one, private endpoints return

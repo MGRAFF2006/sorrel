@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { pilotGrants, provisionPilot } from '../scripts/provision-pilot.mjs';
 import { createFsMetadataStore } from '../src/fs-metadata-store.js';
+import { evaluate } from '../src/core-policy.js';
 
 test('pilot provisioning uses exact Core scopes, persists and safely repeats', t => {
   const root = mkdtempSync(join(tmpdir(), 'sorrel-pilot-'));
@@ -24,4 +25,21 @@ test('pilot provisioning uses exact Core scopes, persists and safely repeats', t
   assert.equal(Object.keys(JSON.parse(readFileSync(options.grantsFile))).length, 6);
   assert.throws(() => provisionPilot({ ...options, subject: 'user_charlie', organization: 'org_other', write: true }), /another workspace/);
   assert.throws(() => pilotGrants({ ...options, repository: '*' }), /concrete identifier/);
+});
+
+test('pilot grants authorize the invited workspace through native Core and exclude policy administration', async () => {
+  const options = { subject: 'user_alice', organization: 'org_team', project: 'proj_team', repository: 'repo_team' };
+  const grants = Object.values(pilotGrants(options));
+  const principal = { kind: 'user', id: 'workos:user_alice' };
+  for (const [action, resource, allowed, actingPrincipal = principal] of [
+    ['org.read', { kind: 'org', id: 'org_team' }, true],
+    ['proposal.review', { kind: 'project', id: 'proj_team' }, true],
+    ['repo.ref.write', { kind: 'repo', id: 'repo_team' }, true],
+    ['policy.grant', { kind: 'project', id: 'proj_team' }, false],
+    ['project.create', { kind: 'org', id: 'org_team' }, false],
+    ['repo.read', { kind: 'repo', id: 'repo_other' }, false],
+    ['repo.read', { kind: 'repo', id: 'repo_team' }, false, { kind: 'user', id: 'workos:user_bob' }],
+  ]) {
+    assert.equal((await evaluate({ principal: actingPrincipal, action, resource, grants })).allowed, allowed, action);
+  }
 });
