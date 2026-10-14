@@ -107,10 +107,13 @@ are not inspected, including when `.git` is a worktree pointer file.
 The command also works before `init`, without creating `.sorrel/`.
 
 Explanation reads current ignore/provider configuration and immutable HEAD
-snapshot/tree metadata. It does not replay pending metadata transactions or
-acquire the writer lock, so the result is a moment-in-time observation rather
-than an atomic view of concurrent changes. Parent components and absolute paths
-are rejected, symlink ancestors are not traversed, and unsupported leaf types
+snapshot/tree metadata. Standalone explanation does not acquire the writer
+lock or replay pending metadata transactions; its result is a moment-in-time
+observation. In explicitly enabled shared repositories, explanation acquires the
+common command lock and completes pending metadata recovery before reading HEAD.
+It can therefore finish an interrupted publication in another registered
+directory. Concurrent file edits remain outside the lock. Parent components and
+absolute paths are rejected, symlink ancestors are not traversed, and unsupported leaf types
 are reported as excluded. No rule editing or preset configuration is included.
 
 For legacy workspaces that already track secrets, see the
