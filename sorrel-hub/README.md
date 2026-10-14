@@ -134,8 +134,11 @@ request data are omitted; the client response remains redacted.
 - `workos` uses `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` to verify AuthKit
   Bearer JWTs. It requires a string `client_id` exactly matching
   `WORKOS_CLIENT_ID` and reads keys from
-  `<issuer>/sso/jwks/<encoded-client-id>`. The issuer defaults to
-  `https://api.workos.com`; `WORKOS_ISSUER` overrides it. AuthKit tokens do not
+  `https://api.workos.com/sso/jwks/<encoded-client-id>`. The issuer defaults to
+  `https://api.workos.com` or the client-scoped
+  `https://api.workos.com/user_management/<client-id>`; `WORKOS_ISSUER` replaces
+  these with an exact expected issuer without changing the API JWKS endpoint.
+  Both browser and bearer sessions use these issuer rules. AuthKit tokens do not
   require `aud`; optional `WORKOS_AUDIENCE` adds an `aud` restriction without
   replacing the `client_id` check. See the
   [WorkOS session-token contract](https://workos.com/docs/reference/authkit/session-tokens).

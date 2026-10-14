@@ -10,6 +10,16 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { verifyOidcAccessToken } from './oidc-jwt.js';
 
+/** Exact AuthKit issuers; issuer identity never selects the API/JWKS host. */
+export function workOsIssuers(clientId, issuer) {
+  const configured = issuer ? [issuer] : ['https://api.workos.com',
+    `https://api.workos.com/user_management/${encodeURIComponent(clientId)}`];
+  return configured.flatMap(value => {
+    const base = value.replace(/\/$/, '');
+    return [base, `${base}/`];
+  });
+}
+
 /**
  * @typedef {{ type: string, id: string }} Principal
  * @typedef {{
@@ -74,12 +84,12 @@ export function createDevActingPrincipalAdapter() {
  * Verifies AuthKit Bearer JWTs against client-specific JWKS and `client_id`.
  * Full WorkOS session/cookie verification lands with sealed-session support.
  *
- * @param {{ apiKey?: string, clientId?: string, issuer?: string, audience?: string }} [options]
+ * @param {{ apiKey?: string, clientId?: string, issuer?: string, audience?: string, jwksUri?: string }} [options]
  * @returns {AuthAdapter}
  */
 export function createWorkOsAdapter(options = {}) {
   const configured = Boolean(options.apiKey && options.clientId);
-  const issuer = options.issuer ?? 'https://api.workos.com';
+  const issuer = workOsIssuers(options.clientId, options.issuer);
   return {
     mode: 'workos',
     async resolveSession(request) {
@@ -94,7 +104,7 @@ export function createWorkOsAdapter(options = {}) {
         const payload = await verifyOidcAccessToken(bearer, {
           issuer,
           clientId: options.clientId,
-          jwksUri: `${issuer.replace(/\/$/, '')}/sso/jwks/${encodeURIComponent(options.clientId)}`,
+          jwksUri: options.jwksUri ?? `https://api.workos.com/sso/jwks/${encodeURIComponent(options.clientId)}`,
           audience: options.audience,
         });
         const subject = payload.sub;

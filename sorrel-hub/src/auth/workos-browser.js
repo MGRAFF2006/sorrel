@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { WorkOS } from '@workos-inc/node';
 import { HttpError, sendJson } from '../http.js';
 import { decodeJwt } from './oidc-jwt.js';
+import { workOsIssuers } from './adapter.js';
 
 const SESSION_COOKIE = '__Host-sorrel-session';
 const LOGIN_COOKIE = '__Host-sorrel-login';
@@ -40,7 +41,7 @@ export function createWorkOsBrowserAuth(env = process.env, options = {}) {
   const workos = options.workos ?? new WorkOS(env.WORKOS_API_KEY, {
     clientId: env.WORKOS_CLIENT_ID,
     timeout: 5_000, maxRetries: 1,
-    issuer: [(env.WORKOS_ISSUER || 'https://api.workos.com').replace(/\/$/, ''), `${(env.WORKOS_ISSUER || 'https://api.workos.com').replace(/\/$/, '')}/`],
+    issuer: workOsIssuers(env.WORKOS_CLIENT_ID, env.WORKOS_ISSUER),
   });
   const password = env.WORKOS_COOKIE_PASSWORD;
   const callback = `${origin}/api/auth/callback`;

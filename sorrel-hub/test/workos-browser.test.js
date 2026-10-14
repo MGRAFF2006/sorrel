@@ -8,6 +8,7 @@ import test from 'node:test';
 import { WorkOS } from '@workos-inc/node';
 import { createApp } from '../src/app.js';
 import { createWorkOsBrowserAuth } from '../src/auth/workos-browser.js';
+import { clearJwksCache } from '../src/auth/oidc-jwt.js';
 import { createHubWebServer } from '../../sorrel-hub-web/server/hub-web-server.mjs';
 
 const env = { SORREL_HUB_AUTH: 'workos', SORREL_HUB_PUBLIC_URL: 'https://hub.example.com',
@@ -25,6 +26,50 @@ test('hosted login fails closed on partial or insecure configuration', () => {
   for (const url of ['http://hub.example.com', 'https://hub.example.com/path', 'https://user:password@hub.example.com']) {
     assert.throws(() => createWorkOsBrowserAuth({ ...env, SORREL_HUB_PUBLIC_URL: url }), /HTTPS origin/);
   }
+});
+
+test('production SDK and bearer adapter share exact issuer rules independently of the API JWKS endpoint', async t => {
+  clearJwksCache();
+  t.after(clearJwksCache);
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'scoped-issuer-fixture', alg: 'RS256', use: 'sig' };
+  const originalFetch = globalThis.fetch;
+  const jwksRequests = [];
+  t.mock.method(globalThis, 'fetch', (input, options) => {
+    const target = new URL(input instanceof Request ? input.url : String(input));
+    if (target.origin !== 'https://api.workos.com') return originalFetch(input, options);
+    assert.equal(target.pathname, '/sso/jwks/client_fixture', 'issuer must not select the API/JWKS path');
+    jwksRequests.push(target.href);
+    return Promise.resolve(new Response(JSON.stringify({ keys: [jwk] }), { headers: { 'content-type': 'application/json' } }));
+  });
+  const scopedIssuer = `https://api.workos.com/user_management/${env.WORKOS_CLIENT_ID}`;
+  for (const [issuer, configuredIssuer] of [
+    [scopedIssuer, undefined],
+    ['https://api.workos.com', undefined],
+    [scopedIssuer, scopedIssuer],
+    ['https://identity.example.com/authkit', 'https://identity.example.com/authkit'],
+  ]) {
+    const fixtureEnv = { ...env, WORKOS_ISSUER: configuredIssuer };
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', kid: jwk.kid })).toString('base64url');
+    const claims = Buffer.from(JSON.stringify({ iss: issuer, sub: 'user_fixture', sid: 'session_fixture',
+      client_id: env.WORKOS_CLIENT_ID, exp: Math.floor(Date.now() / 1000) + 300 })).toString('base64url');
+    const signingInput = `${header}.${claims}`;
+    const token = `${signingInput}.${sign('RSA-SHA256', Buffer.from(signingInput), privateKey).toString('base64url')}`;
+    const workos = new WorkOS(env.WORKOS_API_KEY, { clientId: env.WORKOS_CLIENT_ID });
+    const sealedSession = await workos.userManagement.sealSessionDataFromAuthenticationResponse({
+      authenticationResponse: { accessToken: token, refreshToken: 'fixture-refresh', user: { id: 'user_fixture' } },
+      cookiePassword: env.WORKOS_COOKIE_PASSWORD,
+    });
+    const app = createApp({ env: fixtureEnv }); // Exercise the actual production SDK construction.
+    const url = await listen(t, http.createServer(app.handleRequest));
+    for (const headers of [{ cookie: `__Host-sorrel-session=${sealedSession}` }, { authorization: `Bearer ${token}` }]) {
+      const response = await fetch(`${url}/session`, { headers });
+      assert.equal(response.status, 200, issuer);
+      assert.deepEqual((await response.json()).data.session?.principal, { type: 'user', id: 'workos:user_fixture' }, issuer);
+      assert.equal(response.headers.getSetCookie().length, 0, 'a valid access token must not cause refresh or cookie removal');
+    }
+  }
+  assert.ok(jwksRequests.length >= 4, 'real SDK JWKS requests and bearer verification were exercised');
 });
 
 test('login capacity remains bounded during concurrent PKCE work and expired transactions are discarded', async t => {
