@@ -2,7 +2,7 @@
 
 # Sorrel status
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
 
 What works today, what does not, and where to look next. For how to run the
 stack, see [GETTING_STARTED.md](GETTING_STARTED.md). The forward plan is
@@ -19,6 +19,22 @@ work, rejects non-fast-forward pulls, and checks restore paths and objects befor
 deletions. **These changes are not in the published alpha artifacts.** The
 invite-only staging deployment is running; end-to-end live sessions remain
 unverified. This is not a general production-readiness claim.
+
+The source-built CLI now includes a durable operation log, named checkpoints of
+recorded snapshots, and guarded undo of local active-HEAD transitions. Checkpoint
+creation, restore and undo refuse dirty working trees and pending merges. Restore
+uses the current lane; undo appends history and preserves unrelated lane heads.
+These commands do not save unfinished work, ignored/untracked files or secrets,
+and are not in the published alpha. See
+[the CLI recovery guide](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/README.md#local-operations-checkpoints-and-undo).
+
+The source agent library adds owner-specific release, heartbeat of active claims,
+and 15-minute default leases. Expired claims leave the active view and overlap
+warnings; registrations and stored records remain. Legacy claims without expiry
+stay active indefinitely until explicitly released, reclaimed or renewed. This
+is local advisory coordination with caller-supplied owner IDs and lexical,
+case-sensitive paths, without authentication, enforcement, cleanup or Hub APIs.
+See [claim lifecycle and limitations](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-agents/README.md#claim-lifecycle).
 
 The operator selected `sorrel.humunkulud.com` on `homelab-services` through the
 existing Cloudflare Tunnel. Tested source-built containers are healthy, DNS and
@@ -41,6 +57,9 @@ restored separately with all 627 files verified; metadata, grants and private
 configuration matched, and an isolated restored Hub passed health and anonymous
 access checks. Live session/refresh/revocation, two-team isolation, public CLI
 upload and independent off-host recovery checks remain pending.
+The updated pilot's scheduled 2026-10-15 backup completed successfully at 00:30
+Berlin time using discovery of the running Hub's actual data mount; both
+containers resumed healthy. This is backup evidence, not an off-host restore.
 
 The 2026-10-14 audit reproduced first-import data loss, dirty/diverged pulls,
 ignored-file and symlink restore collisions, and broken browser cookie/redirect
@@ -53,8 +72,8 @@ transport. Regression coverage is in
 Important remaining product gaps:
 
 - Lanes keep independent heads but share a checkout; separate directories,
-  selective changes, operation history/checkpoints/undo, and complete claim
-  lifecycle are still future work.
+  selective changes and authenticated remote agent coordination remain future
+  work. Local leases do not isolate execution or authorize writes.
 - Hub reviews compare recorded snapshots. “Mark as merged” changes metadata;
   real Core integration and checks/approvals tied to exact snapshots are pending.
 - Hosted access is operator-provisioned; self-service team access, managed CLI
@@ -168,8 +187,8 @@ dependencies and workspace Cargo commands from the repo root.
 
 1. Validate real WorkOS identity and a credentialed hosted pilot, including
    managed CLI onboarding, two-team access boundaries and backup restoration.
-2. Add operation history/checkpoints/undo, isolated lane directories, selective
-   changes and complete advisory claim lifecycle.
+2. Extend recovery to interrupted working-tree writes, add isolated lane
+   directories, selective changes and authenticated remote agent coordination.
 3. Implement real proposal integration with snapshot-bound checks and approvals.
 4. Add a narrow MCP adapter, handoff bundles, useful stacks and materialized slices.
 5. Add migrations, quotas, self-service access, workflow streaming/cancellation
