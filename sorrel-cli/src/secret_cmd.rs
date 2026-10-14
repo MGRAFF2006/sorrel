@@ -453,5 +453,5 @@ pub fn register_handle(handle: &SecretHandle) -> io::Result<PathBuf> {
         "description": handle.description
     });
     repo::write_registry_entry(repo::SECRETS_DIR, &handle.id, &object)?;
-    Ok(repo::sorrel_dir().join(repo::SECRETS_DIR).join(&handle.id))
+    Ok(repo::registry_dir(repo::SECRETS_DIR).join(&handle.id))
 }

@@ -27,8 +27,8 @@ path. The old alpha artifacts do not contain new source changes.
 1. Extend recorded-state recovery to interrupted working-tree restores. Preserve
    unfinished work and define filesystem-failure rollback before promising
    universal undo.
-2. Separate working directories per lane sharing immutable objects. Define
-   ownership and locking; independent heads alone do not isolate filesystem edits.
+2. Extend fixed-lane isolated directories with explicit directory lifecycle and
+   ownership transfer; assess linked Git/SDK support and finer locks from real use.
 3. Extend literal path recording to selective hunks. Leave unrelated unfinished
    work untouched.
 4. Connect advisory claims to authenticated remote coordination and explicit

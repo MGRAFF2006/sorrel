@@ -13,16 +13,17 @@ use serde_json::{json, Value};
 use sorrel_core::merge3::{merge3, MergeOutcome};
 use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_export_with_force, git_import,
-    is_descendant, materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree,
-    parse_object_id_hex, read_conflict, read_merge_result, read_snapshot, read_snapshot_files,
-    read_stack, read_tree, restore_snapshot_to_directory, snapshot_diff, validate_snapshot_restore,
-    write_snapshot, write_tree, ChangeOptions, ConflictType, EntryMode, FileObjectStore,
-    GitExportOptions, GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions,
-    ObjectId, ObjectKind, ObjectRef, ObjectStore, ObjectStoreError, ObjectStoreResult,
-    PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
+    is_descendant, materialize_workspace_snapshot_with_registry, merge_base,
+    merge_snapshots_with_worktree, parse_object_id_hex, read_conflict, read_merge_result,
+    read_snapshot, read_snapshot_files, read_stack, read_tree, restore_snapshot_to_directory,
+    snapshot_diff, validate_snapshot_restore, write_snapshot, write_tree, ChangeOptions,
+    ConflictType, EntryMode, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
+    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
+    ObjectStoreError, ObjectStoreResult, PathChangeKind, Principal, SnapshotOptions, StackOptions,
+    StatCache, Visibility,
 };
 
-use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
+use sorrel_cli::{cli_policy, hub, linediff, repo, sync, workspace, CommandOutput};
 
 use sorrel_cli::workflow_cmd::{self, WorkflowFileArgs, WorkflowRunJobArgs};
 
@@ -49,6 +50,11 @@ struct Cli {
 enum Commands {
     /// Initialize Sorrel metadata for the current repository.
     Init,
+    /// Explicitly enable sharing and attach fixed-lane native directories.
+    Workspace {
+        #[command(subcommand)]
+        command: WorkspaceCommand,
+    },
     /// Explain how workspace paths are selected.
     Path {
         #[command(subcommand)]
@@ -138,6 +144,19 @@ enum Commands {
         #[command(subcommand)]
         command: GitCommand,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum WorkspaceCommand {
+    /// Preview compatibility and backup requirements; --apply explicitly enables sharing.
+    Enable {
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Attach an existing inactive lane to a new, nonoverlapping directory.
+    Add { lane_id: String, path: PathBuf },
+    /// List the common repository's fixed-lane directory bindings.
+    List,
 }
 
 #[derive(Debug, Subcommand)]
@@ -570,7 +589,15 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli) -> io::Result<ExitCode> {
     // Check before recovery, registry writes, or launching external commands.
+    workspace::configure()?;
     let _ = repo::load_manifest()?;
+    if matches!(&cli.command, Commands::Git { .. })
+        && workspace::current().is_some_and(|layout| layout.id != "default")
+    {
+        return Err(io::Error::other(
+            "Git bridge commands are unavailable in linked workspaces; use the default directory",
+        ));
+    }
     if let Commands::Secret {
         command: sorrel_cli::secret_cmd::SecretCommand::Run(args),
     } = cli.command
@@ -610,7 +637,18 @@ fn run(cli: Cli) -> io::Result<ExitCode> {
 fn execute(command: Commands) -> io::Result<CommandOutput> {
     // Workflow processes can invoke Sorrel themselves; never hold a workspace
     // mutation lock while waiting for arbitrary user commands.
-    let root = repo::sorrel_dir();
+    let root = workspace::common_dir();
+    if matches!(
+        &command,
+        Commands::Workspace {
+            command: WorkspaceCommand::Enable { .. }
+        }
+    ) && root.join("metadata-transaction.json").exists()
+    {
+        return Err(io::Error::other(
+            "pending metadata transaction; recover it with another command before enabling sharing",
+        ));
+    }
     // Headless commands must not create metadata. Only init and Git import
     // bootstrap a workspace; other writers require existing metadata.
     let needs_workspace_lock = root.exists()
@@ -621,7 +659,9 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
                     command: GitCommand::Import(_)
                 }
         );
-    let _workspace_lock = if matches!(&command, Commands::Workflow { .. } | Commands::Path { .. }) {
+    let _workspace_lock = if matches!(&command, Commands::Workflow { .. })
+        || (matches!(&command, Commands::Path { .. }) && workspace::current().is_none())
+    {
         None
     } else if needs_workspace_lock {
         Some(repo::WorkspaceLock::acquire(&root)?)
@@ -629,6 +669,17 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
         None
     };
     match command {
+        Commands::Workspace { command } => {
+            let json = match command {
+                WorkspaceCommand::Enable { apply } => workspace::enable(apply)?,
+                WorkspaceCommand::Add { lane_id, path } => workspace::add(&lane_id, &path)?,
+                WorkspaceCommand::List => workspace::list()?,
+            };
+            Ok(CommandOutput {
+                human: serde_json::to_string_pretty(&json)?,
+                json,
+            })
+        }
         Commands::Init => init_output(),
         Commands::Status => status_output(),
         Commands::Path {
@@ -1047,14 +1098,17 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
         options.created_at = repo::now_rfc3339();
         options.message = Some(args.message.clone());
         options.parents = vec![ObjectRef::new(ObjectKind::Snapshot, base_id)];
-        to_io(sorrel_core::materialize_workspace_snapshot_paths(
-            &store,
-            Path::new("."),
-            &base_id,
-            &args.paths,
-            Some(&mut stat_cache),
-            options,
-        ))?
+        to_io(
+            sorrel_core::materialize_workspace_snapshot_paths_with_registry(
+                &store,
+                Path::new("."),
+                &base_id,
+                &args.paths,
+                Some(&mut stat_cache),
+                options,
+                Some(&repo::registry_dir(repo::SECRETS_DIR)),
+            ),
+        )?
         .id
     };
     let diff = to_io(snapshot_diff(&store, &base_id, &new_snapshot))?;
@@ -1141,18 +1195,20 @@ fn path_explain_output(path: &Path) -> io::Result<CommandOutput> {
         let head = repo::load_head()?.ok_or_else(|| io::Error::other("missing HEAD pointer"))?;
         let store = to_io(FileObjectStore::open_existing(repo::object_store_root()))?;
         let baseline = parse_object_id_hex(&head.snapshot).map_err(io::Error::other)?;
-        to_io(sorrel_core::explain_workspace_path(
+        to_io(sorrel_core::explain_workspace_path_with_registry(
             &store,
             &root,
             Some(&baseline),
             path,
+            Some(&repo::registry_dir(repo::SECRETS_DIR)),
         ))?
     } else {
-        to_io(sorrel_core::explain_workspace_path(
+        to_io(sorrel_core::explain_workspace_path_with_registry(
             &sorrel_core::InMemoryObjectStore::new(),
             &root,
             None,
             path,
+            Some(&repo::registry_dir(repo::SECRETS_DIR)),
         ))?
     };
     let state = if explanation.included {
@@ -1772,6 +1828,7 @@ fn lane_switch_output(args: LaneSwitchArgs) -> io::Result<CommandOutput> {
         head,
         store,
     } = open_repo()?;
+    workspace::check_head_lane(&args.lane_id)?;
     repo::ensure_heads_migrated()?;
 
     if !repo::lane_exists(&args.lane_id) {
@@ -1972,12 +2029,13 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
         .transpose()?
         .unwrap_or(true);
     let previous = if empty_workspace && colocated {
-        let current = to_io(materialize_workspace_snapshot(
+        let current = to_io(materialize_workspace_snapshot_with_registry(
             &store,
             ".",
             Some(&imported.head_snapshot),
             None,
             SnapshotOptions::new(repo_id.clone()),
+            Some(&repo::registry_dir(repo::SECRETS_DIR)),
         ))?;
         if !args.force
             && !to_io(snapshot_diff(&store, &imported.head_snapshot, &current.id))?.is_empty()
@@ -2543,6 +2601,7 @@ fn park_git_lane(
     for entry in repo::list_registry_entries(repo::LANES_DIR)? {
         if entry.get("name").and_then(Value::as_str) == Some(name.as_str()) {
             if let Some(id) = entry.get("id").and_then(Value::as_str).map(str::to_owned) {
+                workspace::check_lane_writer(&id)?;
                 let mut updated = entry;
                 updated["headSnapshot"] = json!({ "kind": "Snapshot", "id": theirs_hex });
                 repo::write_registry_entry(repo::LANES_DIR, &id, &updated)?;
@@ -3001,6 +3060,9 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
         .parse::<ObjectId>()
         .map_err(|error| io::Error::other(format!("invalid lane head snapshot id: {error}")))?;
 
+    if let Some(layout) = workspace::current() {
+        workspace::validate_snapshot_secrets(layout, &store, &theirs_id)?;
+    }
     if ours_id == theirs_id {
         return Err(io::Error::other(format!(
             "nothing to merge: active lane and `{lane_id}` already share the same head"
@@ -3217,6 +3279,9 @@ fn restore_worktree_to_snapshot(
     current: &ObjectId,
     target: &ObjectId,
 ) -> io::Result<()> {
+    if let Some(layout) = workspace::current() {
+        workspace::validate_snapshot_secrets(layout, store, target)?;
+    }
     // Validate the complete object graph before removing any existing file.
     let current_paths = to_io(validate_snapshot_restore(store, current))?;
     let target_paths = to_io(validate_snapshot_restore(store, target))?;
@@ -4087,12 +4152,13 @@ fn materialize_worktree(
             .transpose()?
             .flatten(),
     };
-    let snapshot = to_io(materialize_workspace_snapshot(
+    let snapshot = to_io(materialize_workspace_snapshot_with_registry(
         store,
         Path::new("."),
         baseline.as_ref(),
         stat_cache,
         options,
+        Some(&repo::registry_dir(repo::SECRETS_DIR)),
     ))?;
     Ok(snapshot.id)
 }
@@ -4145,7 +4211,7 @@ fn persist_slice_if_initialized(name: &str, slice: &Value) -> io::Result<()> {
         return Ok(());
     }
 
-    let slices_dir = repo::sorrel_dir().join(repo::SLICES_DIR);
+    let slices_dir = repo::registry_dir(repo::SLICES_DIR);
     fs::create_dir_all(&slices_dir)?;
     write_json_file(&slices_dir.join(slice_file_name(name)), slice)
 }

@@ -87,6 +87,10 @@ The public guides and changelog are mirrored onto the landing site
 - Vault, runners, slices prototypes; public landing site live on Cloudflare
 - **Single monorepo** — clone once, no submodule tokens
 
+Source builds also offer explicitly enabled [fixed-lane isolated directories](sorrel-cli/README.md#isolated-lane-directories-source-builds-only),
+with a preflight/backup format opt-in and older-client refusal. These are not in
+published alpha artifacts.
+
 **Still missing from the published alpha**
 
 - Production Hub authentication and signed client identity

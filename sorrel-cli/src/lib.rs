@@ -17,6 +17,7 @@ pub mod secret_cmd;
 pub mod secretspec_bridge;
 pub mod sync;
 pub mod workflow_cmd;
+pub mod workspace;
 
 /// Structured result of a CLI command: a machine-readable `--json` value and a
 /// human-readable line. Shared by the binary and the workflow command module.

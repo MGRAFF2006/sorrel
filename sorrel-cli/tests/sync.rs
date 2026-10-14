@@ -670,3 +670,100 @@ fn cli_pull_rejects_corrupt_operation_history_before_restoring() {
         b"base\n"
     );
 }
+
+#[test]
+fn linked_pull_advances_only_its_owned_lane_and_checkout_with_shared_remotes() {
+    let hub = LiveHub::start();
+    let temp = TempDir::new().unwrap();
+    let main = temp.path().join("main");
+    let linked = temp.path().join("linked");
+    std::fs::create_dir(&main).unwrap();
+    cli_ok(&main, &["init"]);
+    std::fs::write(main.join("base.txt"), "base\n").unwrap();
+    cli_ok(&main, &["change", "create", "-m", "base"]);
+    let lane_output = cli(&main, &["lane", "create", "--name", "linked", "--json"]);
+    assert!(lane_output.status.success());
+    let lane: Value = serde_json::from_slice(&lane_output.stdout).unwrap();
+    let lane = lane["object"]["id"].as_str().unwrap();
+    cli_ok(
+        &main,
+        &[
+            "remote",
+            "add",
+            "origin",
+            hub.url(),
+            "--repo-id",
+            "repo_shared_link_pull",
+        ],
+    );
+    cli_ok(&main, &["workspace", "enable", "--apply"]);
+    cli_ok(&main, &["workspace", "add", lane, linked.to_str().unwrap()]);
+    cli_ok(&main, &["push"]);
+    let publisher = connected_workspace(&hub, "repo_shared_link_pull");
+    cli_ok(publisher.path(), &["pull"]);
+    std::fs::write(publisher.path().join("remote.txt"), "from hub\n").unwrap();
+    cli_ok(
+        publisher.path(),
+        &["change", "create", "-m", "remote advance"],
+    );
+    cli_ok(publisher.path(), &["push"]);
+    let main_heads = head_bytes(&main);
+    std::fs::write(main.join("base.txt"), "unfinished main work\n").unwrap();
+    cli_ok(&linked, &["pull"]);
+    assert_eq!(head_bytes(&main), main_heads);
+    assert_eq!(
+        std::fs::read(main.join("base.txt")).unwrap(),
+        b"unfinished main work\n"
+    );
+    assert!(!main.join("remote.txt").exists());
+    assert_eq!(
+        std::fs::read(linked.join("remote.txt")).unwrap(),
+        b"from hub\n"
+    );
+    let head: Value =
+        serde_json::from_slice(&std::fs::read(linked.join(".sorrel/HEAD")).unwrap()).unwrap();
+    let lane_head: Value =
+        serde_json::from_slice(&std::fs::read(main.join(".sorrel/heads").join(lane)).unwrap())
+            .unwrap();
+    assert_eq!(head["lane"], lane);
+    assert_eq!(head["snapshot"], lane_head["snapshot"]);
+    assert!(!linked.join(".sorrel/remotes.json").exists());
+}
+
+#[test]
+fn shared_pull_refuses_paths_protected_only_in_the_receiving_directory() {
+    let hub = LiveHub::start();
+    let source = connected_workspace(&hub, "repo_receiver_provider_guard");
+    std::fs::write(source.path().join("base.txt"), "base\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "base"]);
+    cli_ok(source.path(), &["push"]);
+    let receiver = connected_workspace(&hub, "repo_receiver_provider_guard");
+    cli_ok(receiver.path(), &["pull"]);
+    cli_ok(receiver.path(), &["workspace", "enable", "--apply"]);
+    std::fs::create_dir(receiver.path().join(".sorrel/secrets")).unwrap();
+    std::fs::write(receiver.path().join(".sorrel/secrets/provider.json"),serde_json::to_vec(&serde_json::json!({"provider":format!("dotenv:{}",receiver.path().join("credentials.txt").display())})).unwrap()).unwrap();
+    std::fs::write(
+        source.path().join("credentials.txt"),
+        "synthetic ordinary remote file",
+    )
+    .unwrap();
+    cli_ok(
+        source.path(),
+        &["change", "create", "-m", "remote credential-shaped file"],
+    );
+    cli_ok(source.path(), &["push"]);
+    let before = head_bytes(receiver.path());
+    let result = cli(receiver.path(), &["pull"]);
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("protected"));
+    assert_eq!(head_bytes(receiver.path()), before);
+    assert!(!receiver.path().join("credentials.txt").exists());
+    assert!(!receiver
+        .path()
+        .join(".sorrel/metadata-transaction.json")
+        .exists());
+    assert_eq!(
+        std::fs::read(receiver.path().join("base.txt")).unwrap(),
+        b"base\n"
+    );
+}

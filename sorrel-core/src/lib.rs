@@ -79,6 +79,8 @@ pub use transport::{
 };
 
 pub use workspace::{
-    explain_workspace_path, materialize_workspace_snapshot, materialize_workspace_snapshot_paths,
-    WorkspacePathExplanation,
+    explain_workspace_path, explain_workspace_path_with_registry, materialize_workspace_snapshot,
+    materialize_workspace_snapshot_paths, materialize_workspace_snapshot_paths_with_registry,
+    materialize_workspace_snapshot_with_registry, validate_workspace_snapshot_secrets,
+    validate_workspace_snapshot_secrets_at, WorkspacePathExplanation,
 };

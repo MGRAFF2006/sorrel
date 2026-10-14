@@ -107,10 +107,13 @@ are not inspected, including when `.git` is a worktree pointer file.
 The command also works before `init`, without creating `.sorrel/`.
 
 Explanation reads current ignore/provider configuration and immutable HEAD
-snapshot/tree metadata. It does not replay pending metadata transactions or
-acquire the writer lock, so the result is a moment-in-time observation rather
-than an atomic view of concurrent changes. Parent components and absolute paths
-are rejected, symlink ancestors are not traversed, and unsupported leaf types
+snapshot/tree metadata. Standalone explanation does not acquire the writer
+lock or replay pending metadata transactions; its result is a moment-in-time
+observation. In explicitly enabled shared repositories, explanation acquires the
+common command lock and completes pending metadata recovery before reading HEAD.
+It can therefore finish an interrupted publication in another registered
+directory. Concurrent file edits remain outside the lock. Parent components and
+absolute paths are rejected, symlink ancestors are not traversed, and unsupported leaf types
 are reported as excluded. No rule editing or preset configuration is included.
 
 For legacy workspaces that already track secrets, see the
@@ -125,7 +128,7 @@ leave a temporary preview directory, but does not publish its objects or HEAD.
 Workspace commands acquire an advisory operating-system lock before reading
 or changing metadata. If another command is using the same workspace, retry
 after its busy error; the lock releases automatically when that process exits.
-Use separate workspaces for concurrent edits. Workflow child processes run
+Use explicitly enabled isolated lane directories for concurrent edits (see above). Workflow child processes run
 outside the lock so they can invoke Sorrel. Head and change-index publication
 is journaled and an interrupted commit finishes on the next locked command.
 
@@ -219,9 +222,10 @@ A workspace lives in a `.sorrel/` directory next to the working tree:
 }
 ```
 
-The CLI accepts only `schemaVersion: "sorrel.protocol.v0"`. Missing, malformed,
-or unknown versions fail before command execution or metadata recovery; no
-migration or rewrite occurs. Use a version-compatible Sorrel release to inspect
+Standalone manifests use `schemaVersion: "sorrel.protocol.v0"`; explicitly enabled
+shared/link manifests use the workspace-only versions described above. Missing,
+malformed or unknown versions fail before command execution or metadata recovery;
+ordinary commands never convert formats. Use a version-compatible Sorrel release to inspect
 such a repository. Optional fields in supported v0 manifests remain intact.
 
 `HEAD`:
@@ -492,6 +496,66 @@ cargo test --workspace
 cargo clippy --bin sorrel -- -D warnings
 cargo fmt --all -- --check
 ```
+
+## Isolated lane directories (source builds only)
+
+Two agents can edit ordinary independent directories on different fixed lanes,
+sharing one repository identity, immutable object store and authoritative lane
+heads. This is filesystem separation for cooperative clients, not a security
+sandbox. Published alpha binaries do not include these commands.
+
+```sh
+# In an existing standalone workspace; create the inactive lane first.
+sorrel lane create --name agent-b
+sorrel workspace enable           # compatibility/backup preview; no conversion
+sorrel workspace enable --apply   # explicit preflight, backup, then format opt-in
+sorrel workspace add <lane-id> ../agent-b  # destination must not exist
+sorrel workspace list
+# Each agent now runs status/change/merge/checkpoint/undo in its own directory.
+```
+
+Enabling is never automatic. Preflight rejects pending merges/journals, malformed
+metadata, inconsistent heads and unavailable/corrupt referenced objects. Recover
+any pending journal with another command first. Before changing the manifest,
+Sorrel durably backs up original mutable metadata to
+`.sorrel/workspace-backups/<id>/metadata/`, with file digests and restoration
+instructions in `backup.json`. Objects are shared immutable data and are not
+copied; temporary files and the lock are excluded. Failed preflight or backup
+keeps the original format and metadata. A failed directory creation does not
+register ownership; interruption can leave an incomplete, unregistered destination
+for operator inspection. It is never silently adopted or overwritten.
+
+The enabled common manifest uses `sorrel.workspace.shared.v1`; linked manifests
+use `sorrel.workspace.link.v1`. These are local workspace formats, not protocol or
+object versions. Older CLI versions reject both before command side effects or
+recovery. Standalone repositories keep `sorrel.protocol.v0` and existing behavior.
+To restore the pre-enable backup, stop all clients, preserve linked work
+separately, verify its file digests, and restore `metadata/` over the original
+`.sorrel/` while retaining immutable objects. This restores pre-enable refs and
+history, not work recorded after enabling. Do not resume linked clients against a
+restored standalone repository.
+
+Each registered directory owns one lane, including the default directory's active
+lane when enabled. Switching, duplicate attachment and foreign lane-head
+publication are refused. Use `merge <other-lane-id>` to integrate recorded work
+into your own lane; the other checkout and unfinished edits remain untouched.
+The common repository shares objects, lane/stack registries and heads, change
+index, grants, secret references, slices and remotes. Each directory keeps its
+own `HEAD`, merge state, stat cache, operation/checkpoint registries, run logs and
+preview files. Shared provider paths protect full/selected recording and path
+explanation in every directory. Incoming merges, restores and ref publication also
+validate provider paths in the receiving directory before writing files or refs;
+no provider values or unrecorded files are copied.
+
+One common command lock serializes metadata operations. A typed common journal
+stages each file beside its destination and validates workspace registration,
+link identity, operation history, exact before/after refs and object closure
+before replay. Missing/moved roots, stale links or invalid refs fail closed; they
+are not recreated. Recovery completes before the next locked command publishes.
+It does not roll back interrupted working-file writes or make concurrent editing
+an atomic snapshot. Git import/export/sync remain available in the default
+directory; linked Git commands are refused before side effects. Directory moves,
+removal, ownership transfer, linked Git parity and SDK linkage are not supported.
 
 ## Local operations, checkpoints, and undo
 

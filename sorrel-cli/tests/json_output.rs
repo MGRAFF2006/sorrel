@@ -2201,3 +2201,43 @@ fn local_operation_checkpoint_and_recovery_json_contracts() {
     assert_eq!(undo["after"], restored["before"]);
     assert_content_id(&undo["operationId"]);
 }
+
+#[test]
+fn fixed_lane_workspace_commands_report_explicit_optin_and_shared_identity() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("default");
+    std::fs::create_dir(&root).unwrap();
+    let init = command_json(&root, &["init", "--json"]);
+    let lane = command_json(&root, &["lane", "create", "--name", "linked", "--json"]);
+    let preview = command_json(&root, &["workspace", "enable", "--json"]);
+    assert_eq!(preview["command"], "workspace enable");
+    assert_eq!(preview["mocked"], false);
+    assert_eq!(preview["status"], "preview");
+    assert_nonempty_str(&preview["compatibility"]["olderClients"]);
+    let enabled = command_json(&root, &["workspace", "enable", "--apply", "--json"]);
+    assert_eq!(enabled["status"], "enabled");
+    assert!(Path::new(enabled["backup"].as_str().unwrap())
+        .join("backup.json")
+        .is_file());
+    let linked = temp.path().join("linked");
+    let added = command_json(
+        &root,
+        &[
+            "workspace",
+            "add",
+            lane["object"]["id"].as_str().unwrap(),
+            linked.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    assert_eq!(added["command"], "workspace add");
+    assert_eq!(added["mocked"], false);
+    assert_eq!(added["status"], "created");
+    assert_nonempty_str(&added["workspaceId"]);
+    let list = command_json(&linked, &["workspace", "list", "--json"]);
+    assert_eq!(list["command"], "workspace list");
+    assert_eq!(list["mocked"], false);
+    assert_eq!(list["repoId"], init["repoId"]);
+    assert_eq!(list["currentWorkspace"], added["workspaceId"]);
+    assert_eq!(list["workspaces"].as_object().unwrap().len(), 2);
+}
