@@ -28,6 +28,14 @@ These commands do not save unfinished work, ignored/untracked files or secrets,
 and are not in the published alpha. See
 [the CLI recovery guide](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/README.md#local-operations-checkpoints-and-undo).
 
+The source-built CLI also adds repeatable literal `change create --path` selectors
+for exact files and directory subtrees. Selected additions, modifications,
+deletions and modes overlay HEAD without changing working files; unrelated edits
+remain dirty and can be recorded later. Existing ignore/provider protections and
+operation history still apply. This is absent from published alpha artifacts;
+hunk staging and isolated lane directories remain future work. See
+[selective recording](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/README.md#workspace-file-selection).
+
 The source agent library adds owner-specific release, heartbeat of active claims,
 and 15-minute default leases. Expired claims leave the active view and overlap
 warnings; registrations and stored records remain. Legacy claims without expiry
@@ -72,8 +80,7 @@ transport. Regression coverage is in
 Important remaining product gaps:
 
 - Lanes keep independent heads but share a checkout; separate directories,
-  selective changes and authenticated remote agent coordination remain future
-  work. Local leases do not isolate execution or authorize writes.
+  hunk staging and authenticated remote agent coordination remain future work. Local leases do not isolate execution or authorize writes.
 - Hub reviews compare recorded snapshots. “Mark as merged” changes metadata;
   real Core integration and checks/approvals tied to exact snapshots are pending.
 - Hosted access is operator-provisioned; self-service team access, managed CLI
@@ -188,7 +195,7 @@ dependencies and workspace Cargo commands from the repo root.
 1. Validate real WorkOS identity and a credentialed hosted pilot, including
    managed CLI onboarding, two-team access boundaries and backup restoration.
 2. Extend recovery to interrupted working-tree writes, add isolated lane
-   directories, selective changes and authenticated remote agent coordination.
+   directories, hunk staging and authenticated remote agent coordination.
 3. Implement real proposal integration with snapshot-bound checks and approvals.
 4. Add a narrow MCP adapter, handoff bundles, useful stacks and materialized slices.
 5. Add migrations, quotas, self-service access, workflow streaming/cancellation

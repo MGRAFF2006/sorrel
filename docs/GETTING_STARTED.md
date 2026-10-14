@@ -214,6 +214,13 @@ working tree with no pending merge; they do not save unfinished or ignored work.
 Use the source-built binary in your initialized workspace and follow the
 [local recovery guide](../sorrel-cli/README.md#local-operations-checkpoints-and-undo).
 
+The source-built CLI also supports literal file/subtree recording, for example
+`sorrel change create -m "Parser fix" --path src/parser.rs --path tests/parser`.
+Omitting `--path` records the whole visible workspace. Unselected edits remain
+untouched and dirty for a later change; ignore and secret protections still
+apply. This is absent from the published alpha and does not provide hunk staging
+or isolated lane checkouts. See [selector rules](../sorrel-cli/README.md#workspace-file-selection).
+
 ## Hub API + Hub UI
 
 ### Hosted pilot from current source
