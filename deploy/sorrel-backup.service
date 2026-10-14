@@ -1,0 +1,12 @@
+[Unit]
+Description=Consistent encrypted Sorrel pilot backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/sorrel/pilot-backup.env
+ExecStart=/bin/bash ${SORREL_CHECKOUT}/deploy/backup-pilot.sh
+Nice=10
+IOSchedulingClass=idle
+UMask=0077

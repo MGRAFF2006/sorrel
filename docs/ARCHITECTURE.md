@@ -1,13 +1,28 @@
 # Sorrel architecture
 
-Last updated: 2026-09-01
+Last updated: 2026-10-14
 
-This document describes the architecture that exists in `v0.1.0-alpha.2`.
+This document describes the alpha architecture and explicitly labeled current
+source additions. Those additions require a source build; the published
+`v0.1.0-alpha.2` artifacts do not include them.
 Long-term product research lives in
 [`AGENT_NATIVE_VERSION_CONTROL_REPORT.md`](../AGENT_NATIVE_VERSION_CONTROL_REPORT.md);
 it is design background, not a statement that every described feature ships.
 
 ## System boundary
+
+Current source adds a WorkOS browser session boundary around Hub: hosted AuthKit
+login → browser-bound callback with PKCE → SDK-sealed HttpOnly cookie → verified
+Core principal → existing Core policy checks. The browser host forwards cookies,
+origins and redirects without establishing authority itself. Cookie writes
+require the configured HTTPS origin; bearer auth remains available to CLI/mobile.
+Login and Core authorization are separate: the invite-only pilot provisions
+exact native grants as an operator action. No browser metadata creates grants.
+
+Pending login transactions use bounded memory in one API instance. A restart
+requires retrying an unfinished login; multiple instances need shared transaction
+storage and coordinated metadata. Native WorkOS sessions survive a Hub restart
+when the cookie password and IdP configuration remain the same.
 
 Sorrel is a monorepo containing an independent version-control engine, a local
 CLI, shared protocol contracts, optional collaboration services, workflow and
@@ -214,7 +229,9 @@ Runners, and Vault; checksum and behavior tests keep implementations aligned.
 
 Hub development auth accepts an acting-principal header only on loopback or
 under an explicit insecure-demo override. OIDC bearer verification and WorkOS
-adapter seams exist, but production sessions and login are not complete.
+adapter seams exist in the released alpha. Current source adds the WorkOS
+browser flow described above; live provider and deployment validation remain
+launch gates.
 
 Secret values are not Sorrel objects. Protocol, CLI, Vault, Runners, Hub, and UI
 carry `SecretRef` handles and policy/audit metadata. The CLI integrates upstream

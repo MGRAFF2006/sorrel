@@ -13,6 +13,13 @@ including reproduction steps, affected versions, and expected impact.
 
 ## Alpha deployment boundary
 
+Current source includes an invite-only WorkOS browser-login deployment path.
+The published alpha does not. Live identity-provider, two-team access, restart,
+and disaster-recovery validation must pass before public hosting; see
+[the hosted setup](docs/GETTING_STARTED.md#hosted-pilot-from-current-source).
+Core grants remain authoritative after sign-in. General migrations, quotas,
+multi-instance coordination and full worktree rollback are not complete.
+
 The alpha Hub is a development service, not a production security boundary.
 Published server images improve reproducibility and runtime isolation; they do
 not change that support boundary:

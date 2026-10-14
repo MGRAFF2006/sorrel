@@ -27,13 +27,23 @@
 
 ---
 
-Sorrel is an **agent-native version-control system** — a new VCS core built for
-modern software work: parallel AI agents, cloud and in-memory workspaces,
-first-class permissions and secrets, portable workflows, and shareable slices of
-unfinished work. It is not "Git but nicer"; it is a layered system with a
-content-addressed object store, changes/lanes/slices, a Core-native
-identity/permission/policy spine, a bidirectional Git bridge, and a collaboration
-product on top.
+Sorrel brings humans and coding agents into a shared review workflow. Develop
+locally, record work on lanes, inspect before/after snapshots in **Sorrel Hub**,
+and discuss what should be integrated. A Rust VCS engine and bidirectional Git
+bridge keep local history and existing repositories in reach; Core grants
+decide who can read and change shared work.
+
+The hosted product is being prepared as an invite-only pilot. Current source
+adds WorkOS browser login, session handling, scoped operator provisioning and
+HTTPS deployment, alongside data-safety fixes. These changes require a source
+build and live deployment validation; they are not in the published alpha.
+See the [pilot setup](docs/GETTING_STARTED.md#hosted-pilot-from-current-source)
+and [prioritized roadmap](ROADMAP.md).
+
+Lanes currently share a working directory. Separate agent checkouts, recovery
+checkpoints/undo, focused changes, and real proposal integration with
+snapshot-bound checks are the next product priorities. Hub “Mark as merged”
+records a human confirmation; it does not merge files or advance a target ref.
 
 > **Latest release:** [`v0.1.0-alpha.2`](https://github.com/MGRAFF2006/sorrel/releases/tag/v0.1.0-alpha.2)
 > is an installable developer preview with downloadable CLI artifacts and
@@ -70,7 +80,7 @@ The public guides and changelog are mirrored onto the landing site
 - Vault, runners, slices prototypes; public landing site live on Cloudflare
 - **Single monorepo** — clone once, no submodule tokens
 
-**Still missing**
+**Still missing from the published alpha**
 
 - Production Hub authentication and signed client identity
 - Stable embedding surface (C ABI / N-API / WASM / daemon)
@@ -81,17 +91,16 @@ Details: [`docs/STATUS.md`](docs/STATUS.md).
 
 ## Quick start
 
-Install the prebuilt CLI from a release that includes installer assets (replace
-`<TAG>` with its tag from the
-[Releases page](https://github.com/MGRAFF2006/sorrel/releases)):
+Try the published preview in a disposable directory. For current hosted login
+and safety improvements, use the source-build instructions instead.
 
 ```sh
 # Linux and macOS
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-cli-installer.sh | sh
+  https://github.com/MGRAFF2006/sorrel/releases/download/v0.1.0-alpha.2/sorrel-cli-installer.sh | sh
 
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/MGRAFF2006/sorrel/releases/download/<TAG>/sorrel-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/MGRAFF2006/sorrel/releases/download/v0.1.0-alpha.2/sorrel-cli-installer.ps1 | iex"
 ```
 
 Then start a repository—no source checkout, Rust, or Node.js installation is
@@ -106,10 +115,10 @@ sorrel change create -m "add a.txt"
 sorrel log
 ```
 
-Those releases also provide platform archives, desktop GUI installers, and
-SHA-256 checksum files for a manual, auditable installation. Windows ARM64 is
-a required target for both CLI and desktop artifacts. Older alpha releases
-remain source-only. See
+The verified alpha assets provide five CLI platform archives and SHA-256 files:
+Linux x64/ARM64, macOS Intel/Apple Silicon, and Windows x64. Windows ARM64 and
+desktop bundles are intended distribution targets but absent from that release.
+See
 [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) for platform details and
 source builds.
 

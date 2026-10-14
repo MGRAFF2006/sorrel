@@ -1,0 +1,9 @@
+{$SORREL_HUB_HOST} {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        X-Frame-Options DENY
+    }
+    reverse_proxy hub-web:5180
+}
