@@ -60,6 +60,41 @@ when ignored later. `.env`, `.env.*`, and configured local dotenv-provider paths
 are protected before contents enter the object store; `.env.example` remains an
 ordinary file. Ignore negation cannot reinclude protected secret files.
 
+Record literal paths with repeatable `--path` selectors:
+
+```sh
+sorrel change create -m "Update parser" --path src/parser.rs --path tests/parser
+sorrel change create -m "Remove obsolete file" --path src/obsolete.rs
+sorrel change create -m "Record remaining work"
+```
+
+Each selector names an exact file or a directory subtree at path-component
+boundaries (`src` does not select `src-old`). Paths are relative to the workspace
+root; `./` and trailing separators are normalized. Quote filenames containing
+shell metacharacters: selectors are literal, with no glob matching or hunk
+staging. `--path .` selects the visible workspace. Omitting `--path` retains
+full-workspace recording.
+
+Selected additions, modifications, deletions, and executable-mode changes are
+overlaid on HEAD. Every unselected recorded entry is preserved; working files
+are untouched, and unselected edits remain visible in `status`/`diff` for a later
+ordinary change. File/directory replacements require selecting the replaced
+path, rather than only a new descendant that would discard an unselected file.
+A missing selector must name a tracked deletion (including a deleted subtree).
+Absolute paths, parent traversal, root `.sorrel`/`.git` metadata, unknown paths,
+explicit ignored paths (even if previously tracked), protected secrets, and
+symlinks or symlink ancestors are rejected before publication. Selecting a
+containing directory still applies normal ignore and secret filtering; existing
+ordinary tracked descendants retain the usual tracked-file behavior.
+An unchanged selection reports `no changes to record since HEAD`.
+
+Selective recording uses the normal durable `change create` operation, change
+objects, active lane head, and JSON response shape; it reports only selected
+changes. It is unavailable during a pending merge: finish with
+`merge --continue` or abort first. Checkpoint and undo commands keep their dirty
+workspace guard, so record remaining work before using recovery commands.
+Lanes continue to share the working directory.
+
 Use `sorrel path explain <workspace-relative-path>` (or add `--json`) to inspect
 `included`, `tracked`, `ignored`, `protected`, and `metadata` flags without
 reading the target's contents or creating snapshots, blobs, or cache entries.

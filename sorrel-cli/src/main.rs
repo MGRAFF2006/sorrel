@@ -278,6 +278,10 @@ struct ChangeCreateArgs {
     #[arg(short = 'm', long)]
     message: String,
 
+    /// Record only this literal workspace-relative file or directory (repeatable).
+    #[arg(long = "path")]
+    paths: Vec<PathBuf>,
+
     /// Optional longer description.
     #[arg(long)]
     description: Option<String>,
@@ -1024,21 +1028,42 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
 
     let store = to_io(FileObjectStore::new(repo::object_store_root()))?;
 
-    // Snapshot the working tree (minus `.sorrel/`) and diff it against HEAD.
     let mut stat_cache = repo::load_stat_cache();
-    let new_snapshot = materialize_worktree(
-        &store,
-        &repo_id,
-        Some(args.message.clone()),
-        &[base_id],
-        Some(&mut stat_cache),
-    )?;
-    repo::save_stat_cache(&stat_cache)?;
+    let new_snapshot = if args.paths.is_empty() {
+        materialize_worktree(
+            &store,
+            &repo_id,
+            Some(args.message.clone()),
+            &[base_id],
+            Some(&mut stat_cache),
+        )?
+    } else {
+        if repo::merge_state_path().exists() {
+            return Err(io::Error::other(
+                "cannot selectively record during a pending merge; use `sorrel merge --continue`",
+            ));
+        }
+        let mut options = SnapshotOptions::new(repo_id);
+        options.created_at = repo::now_rfc3339();
+        options.message = Some(args.message.clone());
+        options.parents = vec![ObjectRef::new(ObjectKind::Snapshot, base_id)];
+        to_io(sorrel_core::materialize_workspace_snapshot_paths(
+            &store,
+            Path::new("."),
+            &base_id,
+            &args.paths,
+            Some(&mut stat_cache),
+            options,
+        ))?
+        .id
+    };
     let diff = to_io(snapshot_diff(&store, &base_id, &new_snapshot))?;
 
     if diff.is_empty() {
         return Err(io::Error::other("no changes to record since HEAD"));
     }
+
+    repo::save_stat_cache(&stat_cache)?;
 
     let change = to_io(create_change(&store, base_id, new_snapshot, {
         let mut options = ChangeOptions::new(Principal::system(), args.message.clone());

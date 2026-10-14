@@ -12,8 +12,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
-    read_snapshot, read_tree, snapshot::write_tree_from_dir, write_snapshot, EntryType, ObjectId,
-    ObjectStore, Snapshot, SnapshotError, SnapshotOptions, SnapshotResult, StatCache,
+    read_snapshot, read_tree, snapshot::write_tree_from_dir, write_snapshot, write_tree, EntryType,
+    ObjectId, ObjectKind, ObjectRef, ObjectStore, Snapshot, SnapshotError, SnapshotOptions,
+    SnapshotResult, StatCache, Tree, TreeEntry,
 };
 
 /// Snapshots a workspace with its nested `.gitignore` and `.sorrelignore` rules.
@@ -49,6 +50,123 @@ pub fn materialize_workspace_snapshot(
     write_snapshot(store, tree.id, options)
 }
 
+/// Records literal files or directory subtrees over `baseline`, preserving every
+/// unselected entry. Empty `paths` retains full-workspace semantics. Selectors
+/// are normalized and validated before writing objects; ignored, protected,
+/// metadata, unknown, and symlink paths are rejected. Select the replaced path
+/// itself for a file/directory transition, rather than only a descendant.
+/// Working files are never changed. Cache entries describe observed file bytes,
+/// not the resulting snapshot; unvisited entries are dropped conservatively.
+pub fn materialize_workspace_snapshot_paths(
+    store: &impl ObjectStore,
+    root: impl AsRef<Path>,
+    baseline: &ObjectId,
+    paths: &[PathBuf],
+    stat_cache: Option<&mut StatCache>,
+    options: SnapshotOptions,
+) -> SnapshotResult<Snapshot> {
+    if paths.is_empty() {
+        return materialize_workspace_snapshot(store, root, Some(baseline), stat_cache, options);
+    }
+    let root = root.as_ref();
+    let mut selection = WorkspaceSelection::load(store, root, Some(baseline))?;
+    selection.validate_tracked_paths()?;
+    let mut selectors = BTreeSet::new();
+    for path in paths {
+        let explanation = explain_path(&mut selection, path)?;
+        let relative = normalize_selector(path)?;
+        let tracked = selection
+            .tracked
+            .iter()
+            .any(|path| path.starts_with(&relative))
+            || selection.tracked_directories.contains(&relative);
+        if path.as_os_str().is_empty()
+            || !explanation.included
+            || explanation.ignored
+            || (explanation.exists != Some(true) && !tracked)
+        {
+            return Err(config_error(path, "selector must name a visible file/directory or tracked deletion; ignored, protected, metadata and unsupported paths cannot be selected"));
+        }
+        selectors.insert(relative);
+    }
+    // Selecting a descendant must not silently replace an unselected tracked file.
+    for path in &selectors {
+        for ancestor in path.ancestors().skip(1) {
+            if selection.tracked.contains(ancestor)
+                && !selectors
+                    .iter()
+                    .any(|selected| ancestor.starts_with(selected))
+            {
+                return Err(config_error(
+                    path,
+                    "file/directory replacement requires selecting the replaced path",
+                ));
+            }
+        }
+    }
+    selection.selectors = Some(selectors);
+    let excluded = [".sorrel", ".git"].map(std::ffi::OsString::from).into();
+    let mut paths_seen = BTreeSet::new();
+    let mut stat_cache = stat_cache;
+    let current = write_tree_from_dir(
+        store,
+        root,
+        Path::new(""),
+        &excluded,
+        stat_cache.as_deref_mut(),
+        Some(&mut paths_seen),
+        Some(&mut selection),
+    )?;
+    let base = read_snapshot(store, baseline)?;
+    let tree = overlay_selected_tree(
+        store,
+        read_tree(store, &base.root_tree.id)?.entries,
+        current.entries,
+        selection.selectors.as_ref().unwrap(),
+    )?;
+    let snapshot = write_snapshot(store, tree.id, options)?;
+    if let Some(cache) = stat_cache {
+        cache.retain(&paths_seen);
+    }
+    Ok(snapshot)
+}
+
+fn overlay_selected_tree(
+    store: &impl ObjectStore,
+    base: Vec<TreeEntry>,
+    current: Vec<TreeEntry>,
+    selectors: &BTreeSet<PathBuf>,
+) -> SnapshotResult<Tree> {
+    let mut current: BTreeMap<_, _> = current.into_iter().map(|e| (e.path.clone(), e)).collect();
+    let mut entries = Vec::new();
+    for mut entry in base {
+        let observed = current.remove(&entry.path);
+        if selectors.iter().any(|path| entry.path.starts_with(path)) {
+            entries.extend(observed);
+        } else if entry.entry_type == EntryType::Directory
+            && selectors.iter().any(|path| path.starts_with(&entry.path))
+        {
+            let children = observed
+                .map(|entry| read_tree(store, &entry.object.id))
+                .transpose()?
+                .map(|tree| tree.entries)
+                .unwrap_or_default();
+            let tree = overlay_selected_tree(
+                store,
+                read_tree(store, &entry.object.id)?.entries,
+                children,
+                selectors,
+            )?;
+            entry.object = ObjectRef::new(ObjectKind::Tree, tree.id);
+            entries.push(entry);
+        } else {
+            entries.push(entry);
+        }
+    }
+    entries.extend(current.into_values());
+    write_tree(store, entries)
+}
+
 /// Selection eligibility for a workspace-relative path, without reading its contents.
 /// `included` describes the current selection rules; a missing path can be eligible.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -74,20 +192,32 @@ pub fn explain_workspace_path(
     baseline: Option<&ObjectId>,
     path: impl AsRef<Path>,
 ) -> SnapshotResult<WorkspacePathExplanation> {
+    let mut selection = WorkspaceSelection::load(store, root.as_ref(), baseline)?;
+    explain_path(&mut selection, path.as_ref())
+}
+
+fn normalize_selector(path: &Path) -> SnapshotResult<PathBuf> {
     let mut relative = PathBuf::new();
-    for component in path.as_ref().components() {
+    for component in path.components() {
         match component {
             Component::Normal(name) => relative.push(name),
             Component::CurDir => {}
             _ => {
                 return Err(config_error(
-                    path.as_ref(),
+                    path,
                     "path must be workspace-relative without parent components",
                 ))
             }
         }
     }
-    let mut selection = WorkspaceSelection::load(store, root.as_ref(), baseline)?;
+    Ok(relative)
+}
+
+fn explain_path(
+    selection: &mut WorkspaceSelection,
+    path: &Path,
+) -> SnapshotResult<WorkspacePathExplanation> {
+    let relative = normalize_selector(path)?;
     let metadata = relative.components().next().is_some_and(|component| {
         component.as_os_str() == ".sorrel" || component.as_os_str() == ".git"
     });
@@ -164,7 +294,9 @@ pub fn explain_workspace_path(
 
 pub(crate) struct WorkspaceSelection {
     root: PathBuf,
+    selectors: Option<BTreeSet<PathBuf>>,
     tracked: BTreeSet<PathBuf>,
+    tracked_directories: BTreeSet<PathBuf>,
     protected: BTreeSet<PathBuf>,
     rules: BTreeMap<PathBuf, Gitignore>,
     ignored_directories: BTreeSet<PathBuf>,
@@ -179,7 +311,9 @@ impl WorkspaceSelection {
         let root = fs::canonicalize(root).map_err(|error| config_io(root, error))?;
         let mut selection = Self {
             root,
+            selectors: None,
             tracked: BTreeSet::new(),
+            tracked_directories: BTreeSet::new(),
             protected: BTreeSet::new(),
             rules: BTreeMap::new(),
             ignored_directories: BTreeSet::new(),
@@ -187,7 +321,12 @@ impl WorkspaceSelection {
         selection.load_providers()?;
         if let Some(id) = baseline {
             let snapshot = read_snapshot(store, id)?;
-            collect_tracked(store, &snapshot.root_tree.id, &mut selection.tracked)?;
+            collect_tracked(
+                store,
+                &snapshot.root_tree.id,
+                &mut selection.tracked,
+                &mut selection.tracked_directories,
+            )?;
         }
         Ok(selection)
     }
@@ -214,7 +353,12 @@ impl WorkspaceSelection {
     }
 
     pub(crate) fn allows(&mut self, path: &Path, is_dir: bool) -> SnapshotResult<bool> {
-        if self.is_protected(path) {
+        if self.selectors.as_ref().is_some_and(|selectors| {
+            !selectors.iter().any(|selected| {
+                path.starts_with(selected) || (is_dir && selected.starts_with(path))
+            })
+        }) || self.is_protected(path)
+        {
             return Ok(false);
         }
         if self.tracked.contains(path) {
@@ -299,7 +443,9 @@ impl WorkspaceSelection {
     pub(crate) fn empty(root: &Path) -> Self {
         Self {
             root: root.to_owned(),
+            selectors: None,
             tracked: BTreeSet::new(),
+            tracked_directories: BTreeSet::new(),
             protected: BTreeSet::new(),
             rules: BTreeMap::new(),
             ignored_directories: BTreeSet::new(),
@@ -422,13 +568,17 @@ fn collect_tracked(
     store: &impl ObjectStore,
     tree: &ObjectId,
     paths: &mut BTreeSet<PathBuf>,
+    directories: &mut BTreeSet<PathBuf>,
 ) -> SnapshotResult<()> {
     for entry in read_tree(store, tree)?.entries {
         match entry.entry_type {
             EntryType::File => {
                 paths.insert(entry.path);
             }
-            EntryType::Directory => collect_tracked(store, &entry.object.id, paths)?,
+            EntryType::Directory => {
+                directories.insert(entry.path);
+                collect_tracked(store, &entry.object.id, paths, directories)?;
+            }
         }
     }
     Ok(())

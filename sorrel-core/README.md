@@ -91,6 +91,20 @@ object/path preflight for callers that remove obsolete tracked files first.
 These checks do not provide rollback for I/O failures or protection against
 concurrent filesystem swaps.
 
+### Selective workspace recording
+
+`materialize_workspace_snapshot_paths(store, root, &baseline, paths, cache,
+options)` overlays literal workspace-relative files/subtrees onto an existing
+snapshot. Empty `paths` uses full-workspace semantics. The API preserves
+unselected tree entries and modes without changing working files, applies the
+same ignore/provider protections as `materialize_workspace_snapshot`, and
+validates all selectors before writing objects. Explicit ignored, protected,
+metadata, unknown, and symlink paths are rejected. Select the replaced path for
+file/directory transitions. Set snapshot parents in `SnapshotOptions` as usual;
+call `create_change` with the resulting snapshot to build the native change.
+The stat cache describes observed file bytes; unvisited entries are discarded
+so later full-workspace materialization safely rechecks them.
+
 ## Changes and diff
 
 `create_change` diffs two already-stored snapshots and writes the change

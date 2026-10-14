@@ -370,6 +370,50 @@ fn change_create_records_real_change_and_advances_head() {
 }
 
 #[test]
+fn selective_change_create_preserves_json_contract_and_reports_only_selected_paths() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path();
+    let init = command_json(root, &["init", "--json"]);
+    std::fs::write(root.join("selected.txt"), b"selected").unwrap();
+    std::fs::write(root.join("later.txt"), b"later").unwrap();
+    let value = command_json(
+        root,
+        &[
+            "change",
+            "create",
+            "-m",
+            "select one",
+            "--description",
+            "literal file",
+            "--path",
+            "selected.txt",
+            "--json",
+        ],
+    );
+    assert_eq!(value["command"], "change create");
+    assert_eq!(value["mocked"], false);
+    assert_eq!(value["status"], "created");
+    assert_content_id(&value["object"]["id"]);
+    assert_content_id(&value["object"]["resultingSnapshot"]["id"]);
+    assert_eq!(value["object"]["kind"], "Change");
+    assert_eq!(value["object"]["message"], "select one");
+    assert_eq!(value["object"]["description"], "literal file");
+    assert_eq!(
+        value["object"]["baseSnapshot"]["id"],
+        init["headSnapshot"]["id"]
+    );
+    assert_eq!(value["object"]["changedPaths"], 1);
+    assert_eq!(
+        value["object"]["diff"],
+        json!({"added": ["selected.txt"], "modified": [], "deleted": []})
+    );
+    assert_eq!(
+        command_json(root, &["status", "--json"])["worktree"]["changes"]["added"],
+        json!(["later.txt"])
+    );
+}
+
+#[test]
 fn change_create_rejects_empty_change() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     command_json(temp_dir.path(), &["init", "--json"]);

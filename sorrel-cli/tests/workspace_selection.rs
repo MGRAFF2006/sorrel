@@ -126,3 +126,295 @@ fn cli_keeps_tracked_files_when_a_later_ignore_rule_matches_them() {
         b"second\n"
     );
 }
+
+fn write(root: &Path, path: &str, bytes: &str) {
+    let path = root.join(path);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, bytes).unwrap();
+}
+
+fn assert_selective_failure(root: &Path, paths: &[&str]) {
+    let head = fs::read(root.join(".sorrel/HEAD")).unwrap();
+    let index = fs::read(root.join(".sorrel/changes.index")).ok();
+    let cache = fs::read(root.join(".sorrel/stat-cache.json")).ok();
+    let history = command(root, &["operation", "log", "--json"]);
+    let lane = fs::read(root.join(".sorrel/heads/lane_main")).unwrap();
+    let mut args = vec!["change", "create", "-m", "must fail", "--json"];
+    for path in paths {
+        args.extend(["--path", path]);
+    }
+    let output = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "{paths:?}");
+    assert!(output.stdout.is_empty());
+    assert_eq!(fs::read(root.join(".sorrel/HEAD")).unwrap(), head);
+    assert_eq!(
+        fs::read(root.join(".sorrel/heads/lane_main")).unwrap(),
+        lane
+    );
+    assert_eq!(fs::read(root.join(".sorrel/changes.index")).ok(), index);
+    assert_eq!(fs::read(root.join(".sorrel/stat-cache.json")).ok(), cache);
+    assert_eq!(command(root, &["operation", "log", "--json"]), history);
+}
+
+#[test]
+fn selective_recording_leaves_unselected_bytes_dirty_and_full_recording_remains_correct() {
+    use serde_json::json;
+    let workspace = TempDir::new().unwrap();
+    let root = workspace.path();
+    command(root, &["init", "--json"]);
+    for path in [
+        "chosen",
+        "remove",
+        "dir/edit",
+        "dir/remove",
+        "dir-sibling",
+        "other-edit",
+        "other-remove",
+    ] {
+        write(root, path, "before");
+    }
+    command(root, &["change", "create", "-m", "base", "--json"]);
+    command(root, &["checkpoint", "create", "base", "--json"]);
+    let lane = command(root, &["lane", "create", "--name", "untouched", "--json"])["object"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let lane_before = fs::read(root.join(".sorrel/heads").join(&lane)).unwrap();
+    for path in [
+        "chosen",
+        "new",
+        "dir/edit",
+        "dir/new",
+        "dir-sibling",
+        "other-edit",
+        "other-new",
+    ] {
+        write(root, path, "after");
+    }
+    for path in ["remove", "dir/remove", "other-remove"] {
+        fs::remove_file(root.join(path)).unwrap();
+    }
+    command(root, &["status", "--json"]); // Prime cache before partial recording.
+    let partial = command(
+        root,
+        &[
+            "change", "create", "-m", "partial", "--path", "./chosen", "--path", "new", "--path",
+            "remove", "--path", "dir/", "--path", "dir/edit", "--json",
+        ],
+    );
+    assert_eq!(partial["object"]["changedPaths"], 6);
+    assert_eq!(
+        partial["object"]["diff"],
+        json!({"added":["dir/new", "new"], "modified":["chosen", "dir/edit"], "deleted":["dir/remove", "remove"]})
+    );
+    let store = FileObjectStore::new(root.join(".sorrel")).unwrap();
+    let id = partial["object"]["resultingSnapshot"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let files = read_snapshot_files(&store, &id).unwrap();
+    for path in ["dir-sibling", "other-edit", "other-remove"] {
+        assert_eq!(files[Path::new(path)], b"before");
+    }
+    assert!(!files.contains_key(Path::new("other-new")));
+    for path in [
+        "chosen",
+        "new",
+        "dir/edit",
+        "dir/new",
+        "dir-sibling",
+        "other-edit",
+        "other-new",
+    ] {
+        assert_eq!(fs::read(root.join(path)).unwrap(), b"after");
+    }
+    for path in ["remove", "dir/remove", "other-remove"] {
+        assert!(!root.join(path).exists());
+    }
+    let status = command(root, &["status", "--json"]);
+    assert_eq!(status["worktree"]["dirty"], true);
+    assert_eq!(
+        status["worktree"]["changes"],
+        json!({"added":["other-new"], "modified":["dir-sibling", "other-edit"], "deleted":["other-remove"]})
+    );
+    let diff = command(root, &["diff", "--json"]);
+    assert!(diff.to_string().contains("other-edit"));
+    assert!(!diff.to_string().contains("chosen"));
+    let log = command(root, &["operation", "log", "--json"]);
+    assert_eq!(log["operations"][0]["operation"]["action"], "change create");
+    assert_eq!(
+        log["operations"][0]["operation"]["after"]["head"]["snapshot"],
+        partial["object"]["resultingSnapshot"]["id"]
+    );
+    for args in [
+        &["undo", "--json"][..],
+        &["checkpoint", "create", "dirty", "--json"],
+        &["checkpoint", "restore", "base", "--json"],
+    ] {
+        Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(root)
+            .args(args)
+            .assert()
+            .failure();
+    }
+    let later = command(root, &["change", "create", "-m", "remaining", "--json"]);
+    assert_eq!(later["object"]["changedPaths"], 4);
+    assert_eq!(
+        command(root, &["status", "--json"])["worktree"]["dirty"],
+        false
+    );
+    command(root, &["checkpoint", "create", "full", "--json"]);
+    command(root, &["undo", "--json"]);
+    assert_eq!(fs::read(root.join("other-edit")).unwrap(), b"before");
+    assert_eq!(fs::read(root.join("chosen")).unwrap(), b"after");
+    assert!(!root.join("other-new").exists());
+    command(root, &["undo", "--json"]);
+    assert_eq!(fs::read(root.join("other-edit")).unwrap(), b"after");
+    command(root, &["checkpoint", "restore", "base", "--json"]);
+    assert_eq!(fs::read(root.join("chosen")).unwrap(), b"before");
+    command(root, &["checkpoint", "restore", "full", "--json"]);
+    assert_eq!(fs::read(root.join("chosen")).unwrap(), b"after");
+    assert_eq!(
+        fs::read(root.join(".sorrel/heads").join(lane)).unwrap(),
+        lane_before
+    );
+}
+
+#[test]
+fn invalid_ignored_private_and_pending_merge_selectors_leave_refs_index_cache_and_log_unchanged() {
+    let workspace = TempDir::new().unwrap();
+    let root = workspace.path();
+    command(root, &["init", "--json"]);
+    write_fixture(root);
+    command(root, &["change", "create", "-m", "base", "--json"]);
+    write(root, "source.txt", "updated");
+    for path in [
+        "",
+        "../source.txt",
+        "dir/../source.txt",
+        "/tmp",
+        ".sorrel/HEAD",
+        ".git/config",
+        "missing",
+        "build",
+        "build/output",
+        "local.txt",
+        ".env",
+        "private/credentials",
+    ] {
+        assert_selective_failure(root, &["source.txt", path]);
+    }
+    // Valid selection with no selected difference also cannot publish an operation.
+    assert_selective_failure(root, &[".env.example"]);
+    write(root, ".sorrel/MERGE_STATE", "pending fixture");
+    assert_selective_failure(root, &["source.txt"]);
+    assert_eq!(fs::read(root.join("source.txt")).unwrap(), b"updated");
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_selectors_fail_without_publication_and_do_not_block_unrelated_selection() {
+    let workspace = TempDir::new().unwrap();
+    let external = TempDir::new().unwrap();
+    let root = workspace.path();
+    command(root, &["init", "--json"]);
+    write(root, "source", "before");
+    command(root, &["change", "create", "-m", "base", "--json"]);
+    write(external.path(), "value", "OUTSIDE_PRIVATE_FIXTURE");
+    std::os::unix::fs::symlink(external.path(), root.join("link")).unwrap();
+    std::os::unix::fs::symlink(external.path().join("value"), root.join("leaf")).unwrap();
+    write(root, "source", "after");
+    for path in ["link", "link/value", "leaf"] {
+        assert_selective_failure(root, &["source", path]);
+    }
+    command(
+        root,
+        &[
+            "change", "create", "-m", "safe", "--path", "source", "--json",
+        ],
+    );
+    let store = FileObjectStore::new(root.join(".sorrel")).unwrap();
+    assert!(!store.has(&blob_id("OUTSIDE_PRIVATE_FIXTURE")).unwrap());
+    assert_eq!(
+        fs::read(external.path().join("value")).unwrap(),
+        b"OUTSIDE_PRIVATE_FIXTURE"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn selective_modes_and_file_directory_replacements_use_native_changes() {
+    use sorrel_core::{read_tree, EntryMode};
+    use std::os::unix::fs::PermissionsExt;
+    let workspace = TempDir::new().unwrap();
+    let root = workspace.path();
+    command(root, &["init", "--json"]);
+    for path in ["mode", "later-mode", "file", "dir/old"] {
+        write(root, path, "before");
+        fs::set_permissions(root.join(path), fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    command(root, &["change", "create", "-m", "base", "--json"]);
+    for path in ["mode", "later-mode"] {
+        fs::set_permissions(root.join(path), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    fs::remove_file(root.join("file")).unwrap();
+    write(root, "file/new", "new");
+    fs::remove_dir_all(root.join("dir")).unwrap();
+    write(root, "dir", "replacement");
+    assert_selective_failure(root, &["file/new"]);
+    assert_selective_failure(root, &["dir/old"]);
+    let change = command(
+        root,
+        &[
+            "change",
+            "create",
+            "-m",
+            "types and mode",
+            "--path",
+            "mode",
+            "--path",
+            "file",
+            "--path",
+            "dir",
+            "--json",
+        ],
+    );
+    assert_eq!(change["object"]["changedPaths"], 5);
+    let store = FileObjectStore::new(root.join(".sorrel")).unwrap();
+    let id = change["object"]["resultingSnapshot"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let snapshot = read_snapshot(&store, &id).unwrap();
+    let entries = read_tree(&store, &snapshot.root_tree.id).unwrap().entries;
+    assert_eq!(
+        entries.iter().find(|e| e.name == "mode").unwrap().mode,
+        EntryMode::Executable
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .find(|e| e.name == "later-mode")
+            .unwrap()
+            .mode,
+        EntryMode::Normal
+    );
+    assert_eq!(fs::read(root.join("file/new")).unwrap(), b"new");
+    assert_eq!(fs::read(root.join("dir")).unwrap(), b"replacement");
+    let later = command(
+        root,
+        &["change", "create", "-m", "remaining mode", "--json"],
+    );
+    assert_eq!(
+        later["object"]["diff"]["modified"],
+        serde_json::json!(["later-mode"])
+    );
+}
