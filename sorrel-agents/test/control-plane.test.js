@@ -214,8 +214,8 @@ test('new paths normalize separators and dots; invalid paths and ttl values cann
   assert.equal(claim.path, 'src/a/file');
   const windows = await plane.claimPath({ agentId: 'agent', path: String.raw`src\a\file` });
   assert.equal(windows.path, claim.path);
-  for (const path of ['', ' ', '.', '/', '/abs', '../a', 'a/../b', String.raw`a\..\b`,
-    String.raw`C:\file`, 'C:file', String.raw`\\host\file`, 'a\0b', 'a\nb', 1]) {
+  for (const path of ['', ' ', './ ', '././ /', '.', '/', '/abs', '../a', 'a/../b', String.raw`a\..\b`,
+    String.raw`C:\file`, 'C:file', './C:/repo', '././c:repo', './C:/repo/file', String.raw`.\C:\repo`, String.raw`\\host\file`, 'a\0b', 'a\nb', 1]) {
     await assert.rejects(plane.claimPath({ agentId: 'agent', path }), /path/);
   }
   for (const ttlMs of [0, -1, 1.5, NaN, Infinity, null, '100', Number.MAX_SAFE_INTEGER + 1]) {
@@ -274,4 +274,60 @@ test('release and heartbeat reload latest state across independent processes', a
     assert.equal(state.claims.filter((claim) => claim.agentId === id).length, 20);
   }
   assert.deepEqual(fs.readdirSync(options.stateDir), ['state.json']);
+});
+
+function legacyAliases(options) {
+  const state = {
+    agents: [{ id: 'old' }, { id: 'other' }],
+    claims: [
+      { agentId: 'old', path: './src/old', claimedAt: '2020-01-01T00:00:00.000Z' },
+      { agentId: 'old', path: 'src//old/', claimedAt: '2020-01-02T00:00:00.000Z' },
+      { agentId: 'old', path: 'src/old/child', claimedAt: '2020-01-03T00:00:00.000Z' },
+      { agentId: 'other', path: './src/old', claimedAt: '2020-01-04T00:00:00.000Z' },
+    ],
+  };
+  fs.writeFileSync(join(options.stateDir, 'state.json'), JSON.stringify(state));
+  return state;
+}
+
+test('explicit reclaim consolidates legacy aliases and one release removes the whole owner/path', async (t) => {
+  const { plane, options } = leasedPlane(t);
+  const legacy = legacyAliases(options);
+  assert.deepEqual((await plane.activeWork()).claims, legacy.claims);
+  assert.deepEqual(JSON.parse(fs.readFileSync(join(options.stateDir, 'state.json'), 'utf8')), legacy);
+  const claimed = await plane.claimPath({ agentId: 'old', path: './src/old' });
+  assert.equal(claimed.path, 'src/old');
+  const active = await new AgentControlPlane(options).activeWork();
+  assert.deepEqual(active.claims, [legacy.claims[2], legacy.claims[3], claimed]);
+  assert.equal(await plane.releaseClaim({ agentId: 'old', path: './src/old' }), true);
+  assert.equal(await plane.releaseClaim({ agentId: 'old', path: './src/old' }), false);
+  assert.equal(await plane.releaseClaim({ agentId: 'old', path: 'src/old' }), false);
+  assert.deepEqual((await plane.activeWork()).claims, [legacy.claims[2], legacy.claims[3]]);
+
+  legacyAliases(options);
+  assert.equal(await plane.releaseClaim({ agentId: 'old', path: 'src/old' }), true);
+  assert.equal(await plane.releaseClaim({ agentId: 'old', path: './src/old' }), false);
+  assert.deepEqual((await new AgentControlPlane(options).activeWork()).claims, [legacy.claims[2], legacy.claims[3]]);
+});
+
+test('failed legacy consolidation and release preserve all alias records and original timestamps', async (t) => {
+  const { plane, options } = leasedPlane(t);
+  const legacy = legacyAliases(options);
+  const previous = fs.readFileSync(join(options.stateDir, 'state.json'), 'utf8');
+  const snapshot = (await plane.activeWork()).claims;
+  const rename = t.mock.method(fs, 'renameSync', () => { throw new Error('simulated disk failure'); });
+  syncBuiltinESMExports();
+  try {
+    for (const update of [() => plane.claimPath({ agentId: 'old', path: 'src/old' }),
+      () => plane.releaseClaim({ agentId: 'old', path: './src/old' })]) {
+      await assert.rejects(update(), /simulated disk failure/);
+      assert.deepEqual([...plane.claims.values()], legacy.claims);
+      assert.deepEqual(snapshot, legacy.claims);
+      assert.equal(fs.readFileSync(join(options.stateDir, 'state.json'), 'utf8'), previous);
+      assert.deepEqual(fs.readdirSync(options.stateDir), ['state.json']);
+    }
+  } finally {
+    rename.mock.restore();
+    syncBuiltinESMExports();
+  }
 });

@@ -21,8 +21,18 @@ function normalizeClaimPath(path) {
     throw new Error('claim path must be relative and cannot contain traversal');
   }
   const normalized = relative.split('/').filter((part) => part && part !== '.').join('/');
-  if (!normalized) throw new Error('claim path must name a repository path');
+  if (!normalized.trim()) throw new Error('claim path must name a repository path');
+  if (/^[a-z]:/i.test(normalized)) throw new Error('claim path cannot use a Windows drive form');
   return normalized;
+}
+
+function recordedPath(path) {
+  try {
+    return normalizeClaimPath(path);
+  } catch {
+    // Opaque legacy paths remain addressable for explicit release.
+    return path;
+  }
 }
 
 function claimTtl(input) {
@@ -185,9 +195,21 @@ export class AgentControlPlane {
         claimedAt: new Date(now).toISOString(),
         expiresAt: new Date(now + ttl).toISOString(),
       };
+      this.#releaseClaims(claim.agentId, path);
       this.claims.set(JSON.stringify([claim.agentId, claim.path]), claim);
       return claim;
     });
+  }
+
+  #releaseClaims(agentId, path) {
+    let removed = false;
+    for (const [key, claim] of this.claims) {
+      if (claim.agentId === agentId && recordedPath(claim.path) === path) {
+        this.claims.delete(key);
+        removed = true;
+      }
+    }
+    return removed;
   }
 
   /** Release only the named owner's claim; repeated releases return false. */
@@ -195,18 +217,8 @@ export class AgentControlPlane {
     if (!input?.agentId || typeof input.path !== 'string' || !input.path) {
       throw new Error('releaseClaim requires agentId and path');
     }
-    let path = input.path;
-    try {
-      path = normalizeClaimPath(path);
-    } catch {
-      // Release accepts opaque legacy paths too; it never creates a new claim.
-    }
-    return this.#mutate(() => {
-      // Existing legacy paths can be released verbatim without rewriting them.
-      const recorded = JSON.stringify([input.agentId, input.path]);
-      if (this.claims.has(recorded)) return this.claims.delete(recorded);
-      return this.claims.delete(JSON.stringify([input.agentId, path]));
-    });
+    const path = recordedPath(input.path);
+    return this.#mutate(() => this.#releaseClaims(input.agentId, path));
   }
 
   /** Renew an existing agent's active claims, never expired or released claims.

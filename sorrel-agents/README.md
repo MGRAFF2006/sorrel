@@ -39,7 +39,8 @@ await plane.releaseClaim({ agentId: 'agent_docs', path: 'README.md' });
   claims default to **15 minutes** (`DEFAULT_CLAIM_TTL_MS` is exported). Optional
   `ttlMs` must be a positive safe integer in milliseconds whose resulting expiry
   fits a JavaScript date. Claiming the same owner/path again explicitly replaces
-  its record and starts a new lease, including after expiry or release.
+  its record and starts a new lease, including after expiry or release. Explicit
+  replacement consolidates that owner's valid legacy aliases for the same path.
 - `heartbeat({ agentId, ttlMs? })` returns the registered agent's renewed active
   claims. It preserves `claimedAt`, sets `renewedAt`, and sets `expiresAt` relative
   to the current time using the same default and TTL validation. It never revives
@@ -48,6 +49,7 @@ await plane.releaseClaim({ agentId: 'agent_docs', path: 'README.md' });
 - `releaseClaim({ agentId, path })` deletes only that owner's named claim and
   returns `true` when removed, or `false` if absent, including repeated calls.
   It can also delete an expired claim or an opaque legacy path recorded verbatim.
+  Valid legacy aliases for that owner/path are released together.
 - `activeWork()` returns `{ agents, claims, warnings }`. Registrations are
   identities, not evidence of live work: agents remain listed after their claims
   expire. Claims are inactive **at** their expiry timestamp and are omitted from
