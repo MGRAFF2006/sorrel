@@ -40,8 +40,15 @@ build and live deployment validation; they are not in the published alpha.
 See the [pilot setup](docs/GETTING_STARTED.md#hosted-pilot-from-current-source)
 and [prioritized roadmap](ROADMAP.md).
 
-Lanes currently share a working directory. Separate agent checkouts, recovery
-checkpoints/undo, focused changes, and real proposal integration with
+The source-built CLI also provides an operation log, named checkpoints of
+recorded snapshots, and guarded local undo. Checkpoint creation and recovery
+require a clean working tree and do not back up unfinished or ignored files; see
+[local recovery](sorrel-cli/README.md#local-operations-checkpoints-and-undo).
+The source agent library adds leased advisory claims, heartbeat, release and
+overlap warnings; these coordinate local work and never enforce access.
+
+Lanes currently share a working directory. Separate agent checkouts,
+focused changes, and real proposal integration with
 snapshot-bound checks are the next product priorities. Hub “Mark as merged”
 records a human confirmation; it does not merge files or advance a target ref.
 

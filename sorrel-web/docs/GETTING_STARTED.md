@@ -194,7 +194,7 @@ secret backend are not part of this alpha.
 ## Build from source or run the development Hub
 
 Source builds and the development Hub require Git, Rust 1.92+ with
-`clippy` and `rustfmt`, and Node.js 22+. Docker or Podman is optional for the
+`clippy` and `rustfmt`, and Node.js 22.11+. Docker or Podman is optional for the
 container preview.
 
 ```sh
@@ -208,6 +208,13 @@ cargo build --release -p sorrel-cli
 
 Sorrel is a single monorepo. No submodules or private dependency tokens are
 required.
+
+This source-built CLI includes `operation log`, named checkpoint
+creation/listing/restoration, and `undo`; the published alpha does not.
+Checkpoints reference recorded snapshots. Creation and recovery require a clean
+working tree with no pending merge; they do not save unfinished or ignored work.
+Use the source-built binary in your initialized workspace and follow the
+[local recovery guide](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/README.md#local-operations-checkpoints-and-undo).
 
 ## Hub API + Hub UI
 

@@ -1,6 +1,6 @@
 # Sorrel Roadmap
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
 
 The launch target is a hosted collaboration product for teams working with
 coding agents: **recoverable work, isolated execution, and consequential review**.
@@ -24,13 +24,15 @@ path. The old alpha artifacts do not contain new source changes.
 
 ## 2. Make daily agent work recoverable and isolated
 
-1. Operation history, named checkpoints and undo for lane/ref mutations. Preserve
-   prior state for switches, merges, imports and pulls, including failed operations.
+1. Extend recorded-state recovery to interrupted working-tree restores. Preserve
+   unfinished work and define filesystem-failure rollback before promising
+   universal undo.
 2. Separate working directories per lane sharing immutable objects. Define
    ownership and locking; independent heads alone do not isolate filesystem edits.
 3. Selective changes by path, then hunks. Leave unrelated unfinished work untouched.
-4. Claim release, heartbeat, expiry and overlap warnings. Coordination remains
-   advisory; stale claims must not look like a sandbox or permission boundary.
+4. Connect advisory claims to authenticated remote coordination and explicit
+   cleanup/retention. Keep expiry separate from authorization and execution
+   isolation; local leases must not look like a sandbox or permission boundary.
 
 Acceptance: two agents work separately, submit focused changes and recover from
 an abandoned or incorrect operation without losing each other's files. Add
