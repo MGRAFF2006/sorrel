@@ -10,11 +10,51 @@ import {
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
+export const DEFAULT_CLAIM_TTL_MS = 15 * 60 * 1000;
+
+function normalizeClaimPath(path) {
+  if (typeof path !== 'string' || !path.trim() || /[\x00-\x1f\x7f]/.test(path)) {
+    throw new Error('claim path must be a non-empty relative repository path');
+  }
+  const relative = path.replaceAll('\\', '/');
+  if (relative.startsWith('/') || /^[a-z]:/i.test(relative) || relative.split('/').includes('..')) {
+    throw new Error('claim path must be relative and cannot contain traversal');
+  }
+  const normalized = relative.split('/').filter((part) => part && part !== '.').join('/');
+  if (!normalized) throw new Error('claim path must name a repository path');
+  return normalized;
+}
+
+function claimTtl(input) {
+  const ttl = input.ttlMs === undefined ? DEFAULT_CLAIM_TTL_MS : input.ttlMs;
+  if (!Number.isSafeInteger(ttl) || ttl <= 0) {
+    throw new Error('ttlMs must be a positive safe integer in milliseconds');
+  }
+  return ttl;
+}
+
+function isActive(claim, now) {
+  // Legacy records have no lease; reading them must not silently expire them.
+  return claim.expiresAt === undefined || Date.parse(claim.expiresAt) > now;
+}
+
+function overlaps(first, second) {
+  try {
+    const a = normalizeClaimPath(first.path);
+    const b = normalizeClaimPath(second.path);
+    return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  } catch {
+    // Keep old opaque paths readable, but only compare invalid legacy paths exactly.
+    return first.path === second.path;
+  }
+}
+
 export class AgentControlPlane {
   /**
-   * @param {{ workspace?: string, stateDir?: string }} options
+   * @param {{ workspace?: string, stateDir?: string, now?: () => number }} options
    */
   constructor(options = {}) {
+    this.now = options.now ?? Date.now;
     this.workspace = options.workspace ?? null;
     this.stateDir =
       options.stateDir ??
@@ -112,45 +152,104 @@ export class AgentControlPlane {
     if (!input?.id) {
       throw new Error('registerAgent requires id');
     }
-    const agent = {
-      id: input.id,
-      lane: input.lane ?? 'lane_main',
-      displayName: input.displayName ?? input.id,
-      registeredAt: new Date().toISOString(),
-    };
     return this.#mutate(() => {
+      const agent = {
+        id: input.id,
+        lane: input.lane ?? 'lane_main',
+        displayName: input.displayName ?? input.id,
+        registeredAt: new Date(this.now()).toISOString(),
+      };
       this.agents.set(agent.id, agent);
       return agent;
     });
   }
 
   /**
-   * @param {{ agentId: string, path: string, mode?: 'advisory' | 'blocking' }} input
+   * @param {{ agentId: string, path: string, mode?: 'advisory' | 'blocking', ttlMs?: number }} input
    */
   async claimPath(input) {
     if (!input?.agentId || !input?.path) {
       throw new Error('claimPath requires agentId and path');
     }
-    const claim = {
-      agentId: input.agentId,
-      path: input.path,
-      mode: input.mode ?? 'advisory',
-      claimedAt: new Date().toISOString(),
-    };
+    const path = normalizeClaimPath(input.path);
+    const ttl = claimTtl(input);
     return this.#mutate(() => {
       if (!this.agents.has(input.agentId)) {
         throw new Error(`unknown agent ${input.agentId}`);
       }
+      const now = this.now();
+      const claim = {
+        agentId: input.agentId,
+        path,
+        mode: input.mode ?? 'advisory',
+        claimedAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + ttl).toISOString(),
+      };
       this.claims.set(JSON.stringify([claim.agentId, claim.path]), claim);
       return claim;
     });
   }
 
+  /** Release only the named owner's claim; repeated releases return false. */
+  async releaseClaim(input) {
+    if (!input?.agentId || typeof input.path !== 'string' || !input.path) {
+      throw new Error('releaseClaim requires agentId and path');
+    }
+    let path = input.path;
+    try {
+      path = normalizeClaimPath(path);
+    } catch {
+      // Release accepts opaque legacy paths too; it never creates a new claim.
+    }
+    return this.#mutate(() => {
+      // Existing legacy paths can be released verbatim without rewriting them.
+      const recorded = JSON.stringify([input.agentId, input.path]);
+      if (this.claims.has(recorded)) return this.claims.delete(recorded);
+      return this.claims.delete(JSON.stringify([input.agentId, path]));
+    });
+  }
+
+  /** Renew an existing agent's active claims, never expired or released claims.
+   * @param {{ agentId: string, ttlMs?: number }} input
+   */
+  async heartbeat(input) {
+    if (!input?.agentId) throw new Error('heartbeat requires agentId');
+    const ttl = claimTtl(input);
+    return this.#mutate(() => {
+      if (!this.agents.has(input.agentId)) throw new Error(`unknown agent ${input.agentId}`);
+      const now = this.now();
+      const renewedAt = new Date(now).toISOString();
+      const expiresAt = new Date(now + ttl).toISOString();
+      const renewed = [];
+      for (const [key, claim] of this.claims) {
+        if (claim.agentId === input.agentId && isActive(claim, now)) {
+          const next = { ...claim, renewedAt, expiresAt };
+          this.claims.set(key, next);
+          renewed.push(next);
+        }
+      }
+      return renewed;
+    });
+  }
+
   async activeWork() {
     if (this.stateDir) this.#load();
+    const now = this.now();
+    const claims = [...this.claims.values()].filter((claim) => isActive(claim, now));
+    const warnings = [];
+    // ponytail: pairwise scan; index paths only if coordination volume warrants it.
+    for (let index = 0; index < claims.length; index++) {
+      for (const other of claims.slice(index + 1)) {
+        const claim = claims[index];
+        if (claim.agentId !== other.agentId && overlaps(claim, other)) {
+          warnings.push({ type: 'overlap', claims: [claim, other] });
+        }
+      }
+    }
     return {
       agents: [...this.agents.values()],
-      claims: [...this.claims.values()],
+      claims,
+      warnings,
     };
   }
 }
