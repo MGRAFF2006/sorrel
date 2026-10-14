@@ -2151,8 +2151,8 @@ fn snapshot_is_empty_root(store: &FileObjectStore, id: &ObjectId) -> io::Result<
     if !snapshot.parents.is_empty() {
         return Ok(false);
     }
-    let files = to_io(read_snapshot_files(store, id))?;
-    Ok(files.is_empty())
+    let tree = to_io(read_tree(store, &snapshot.root_tree.id))?;
+    Ok(tree.entries.is_empty())
 }
 
 /// Incremental Git → Sorrel import of the mirrored branch; known commits are
@@ -3010,7 +3010,7 @@ fn restore_worktree_to_snapshot(
     target: &ObjectId,
 ) -> io::Result<()> {
     // Validate the complete object graph before removing any existing file.
-    to_io(validate_snapshot_restore(store, current))?;
+    let current_paths = to_io(validate_snapshot_restore(store, current))?;
     let target_paths = to_io(validate_snapshot_restore(store, target))?;
     let current_files = to_io(read_snapshot_files(store, current))?;
     let target_files = to_io(read_snapshot_files(store, target))?;
@@ -3049,6 +3049,16 @@ fn restore_worktree_to_snapshot(
                         path.display()
                     )));
                 }
+                Ok(metadata)
+                    if ancestor == path
+                        && current_files.contains_key(path)
+                        && !metadata.is_file() =>
+                {
+                    return Err(io::Error::other(format!(
+                        "tracked file is blocked by {}",
+                        path.display()
+                    )));
+                }
                 Ok(_) => {}
                 Err(error)
                     if matches!(
@@ -3062,7 +3072,7 @@ fn restore_worktree_to_snapshot(
     for path in target_files.keys() {
         match fs::symlink_metadata(path) {
             Ok(metadata) if metadata.is_dir() => {
-                validate_directory_replacement(path, &removed)?;
+                validate_directory_replacement(path, &removed, &current_paths)?;
                 replaced_directories.push(path.clone());
             }
             Ok(metadata) if !metadata.is_file() || !current_files.contains_key(path) => {
@@ -3116,12 +3126,20 @@ fn restore_worktree_to_snapshot(
 fn validate_directory_replacement(
     path: &Path,
     removed: &std::collections::BTreeSet<PathBuf>,
+    current_paths: &std::collections::BTreeSet<PathBuf>,
 ) -> io::Result<()> {
+    // Empty untracked directories carry local state too.
+    if !current_paths.contains(path) {
+        return Err(io::Error::other(format!(
+            "restore would overwrite an untracked or ignored path: {}",
+            path.display()
+        )));
+    }
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let child = entry.path();
         if entry.file_type()?.is_dir() {
-            validate_directory_replacement(&child, removed)?;
+            validate_directory_replacement(&child, removed, current_paths)?;
         } else if !entry.file_type()?.is_file() || !removed.contains(&child) {
             return Err(io::Error::other(format!(
                 "restore would overwrite an untracked or ignored path: {}",
@@ -3672,11 +3690,6 @@ fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
     let after_snapshot = parse_object_id_hex(&result.snapshot)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
     if before_snapshot != after_snapshot {
-        if !snapshot_is_empty_root(&store, &before_snapshot)?
-            && !to_io(is_descendant(&store, before_snapshot, after_snapshot))?
-        {
-            return Err(io::Error::other("remote history is not a fast-forward of the active lane; local history is preserved (pull does not merge divergent histories)"));
-        }
         restore_worktree_to_snapshot(&store, &before_snapshot, &after_snapshot)?;
         repo::write_head(&repo::Head {
             lane: before.lane,

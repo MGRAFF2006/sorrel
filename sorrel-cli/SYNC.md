@@ -144,7 +144,13 @@ It downloads and verifies the snapshot closure, requires a fast-forward (or an
 empty initial workspace), and restores files before publishing the new HEAD.
 Diverged history is preserved and rejected; pull does not merge it automatically.
 Ignored/untracked collisions and unsupported restore paths are rejected before
-deletions. Downloaded immutable objects can remain after a rejected pull.
+deletions, including collisions with empty untracked directories. Downloaded
+immutable objects can remain after a rejected pull. Filesystem failures or
+interruption during an otherwise valid checkout can still leave partially
+restored files with the previous HEAD; checkout does not provide rollback.
+
+The Rust `sorrel_cli::sync::pull` and `fetch` helpers download and validate only.
+Callers must restore successfully before publishing the returned snapshot.
 
 ## Example session
 

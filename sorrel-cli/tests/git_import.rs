@@ -144,3 +144,30 @@ fn first_import_requires_explicit_force_to_discard_work() {
         b"hello world\n"
     );
 }
+
+#[test]
+fn failed_import_restore_preserves_map_index_and_both_heads() {
+    let source = make_git_repo();
+    let destination = TempDir::new().unwrap();
+    let root = destination.path();
+    command_json(root, &["init", "--json"]);
+    std::fs::create_dir(root.join("readme.txt")).unwrap();
+    let metadata = ["HEAD", "heads/lane_main", "changes.index", "git-map.json"];
+    let before: Vec<_> = metadata
+        .iter()
+        .map(|path| std::fs::read(root.join(".sorrel").join(path)).ok())
+        .collect();
+    Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .args(["git", "import", source.path().to_str().unwrap(), "--force"])
+        .assert()
+        .failure();
+    let after: Vec<_> = metadata
+        .iter()
+        .map(|path| std::fs::read(root.join(".sorrel").join(path)).ok())
+        .collect();
+    assert_eq!(before, after);
+    assert!(root.join("readme.txt").is_dir());
+    assert!(!root.join("note.txt").exists());
+}

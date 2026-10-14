@@ -138,6 +138,12 @@ fn tracked_file_directory_transitions_still_restore() {
         sorrel(root, &["lane", "switch", &lane]);
         assert_eq!(fs::read(root.join("data/a.txt")).unwrap(), b"directory\n");
     }
+    fs::remove_file(root.join("data/a.txt")).unwrap();
+    sorrel(root, &["change", "create", "-m", "tracked empty directory"]);
+    sorrel(root, &["lane", "switch", "lane_main"]);
+    assert_eq!(fs::read(root.join("data")).unwrap(), b"file\n");
+    sorrel(root, &["lane", "switch", &lane]);
+    assert!(root.join("data").is_dir());
 }
 
 #[test]
@@ -232,4 +238,37 @@ fn restore_refuses_to_modify_hard_linked_files() {
         b"base\n"
     );
     assert_eq!(fs::read(root.join(".sorrel/HEAD")).unwrap(), head);
+}
+
+#[test]
+fn restore_preserves_untracked_empty_directory_collisions() {
+    for nested in [false, true] {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path();
+        let lane = incoming_lane(root, false);
+        fs::create_dir_all(root.join(if nested { "data/empty" } else { "data" })).unwrap();
+        let before = head_bytes(root);
+        Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(root)
+            .args(["lane", "switch", &lane])
+            .assert()
+            .failure();
+        assert_eq!(head_bytes(root), before);
+        assert_eq!(fs::read(root.join("keep.txt")).unwrap(), b"keep me\n");
+        assert!(root
+            .join(if nested { "data/empty" } else { "data" })
+            .is_dir());
+    }
+}
+
+fn head_bytes(root: &Path) -> (Vec<u8>, Vec<u8>) {
+    let head = fs::read(root.join(".sorrel/HEAD")).unwrap();
+    let value: Value = serde_json::from_slice(&head).unwrap();
+    let lane = fs::read(
+        root.join(".sorrel/heads")
+            .join(value["lane"].as_str().unwrap()),
+    )
+    .unwrap();
+    (head, lane)
 }

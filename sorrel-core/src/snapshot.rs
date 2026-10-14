@@ -611,13 +611,7 @@ pub fn restore_snapshot_to_directory(
 ) -> SnapshotResult<()> {
     let target = target.as_ref();
     let snapshot = read_snapshot(store, snapshot_id)?;
-    validate_restore_tree(
-        store,
-        &snapshot.root_tree.id,
-        target,
-        Path::new(""),
-        &mut BTreeSet::new(),
-    )?;
+    validate_snapshot_restore(store, snapshot_id)?;
     validate_restore_destination(store, &snapshot.root_tree.id, target)?;
     fs::create_dir_all(target).map_err(|source| SnapshotError::io(target, source))?;
     restore_tree(store, &snapshot.root_tree.id, target)
@@ -630,6 +624,16 @@ pub fn validate_snapshot_restore(
     snapshot_id: &ObjectId,
 ) -> SnapshotResult<BTreeSet<PathBuf>> {
     let snapshot = read_snapshot(store, snapshot_id)?;
+    if snapshot.root_tree.kind != ObjectKind::Tree
+        || snapshot
+            .parents
+            .iter()
+            .any(|parent| parent.kind != ObjectKind::Snapshot)
+    {
+        return Err(SnapshotError::InvalidPath {
+            path: PathBuf::new(),
+        });
+    }
     let mut paths = BTreeSet::new();
     validate_restore_tree(
         store,

@@ -268,24 +268,7 @@ impl WorkspaceSelection {
     fn load_providers(&mut self) -> SnapshotResult<()> {
         let yaml = self.root.join("sorrel.secrets.yml");
         if let Some(bytes) = read_optional(&yaml)? {
-            let config: Value =
-                serde_yaml_ng::from_slice(&bytes).map_err(|error| config_error(&yaml, error))?;
-            self.json_providers(&config)?;
-            if let Some(imports) = config.pointer("/localDev/import/envFiles") {
-                let imports = imports.as_array().ok_or_else(|| {
-                    config_error(&yaml, "localDev.import.envFiles must be an array")
-                })?;
-                for import in imports {
-                    let path = import
-                        .get("path")
-                        .and_then(Value::as_str)
-                        .filter(|path| !path.trim().is_empty())
-                        .ok_or_else(|| {
-                            config_error(&yaml, "localDev import requires a non-empty file path")
-                        })?;
-                    self.protect_path(self.root.join(path))?;
-                }
-            }
+            self.add_provider_config(Path::new("sorrel.secrets.yml"), &bytes)?;
         }
         let registry = self.root.join(".sorrel/secrets");
         match fs::read_dir(&registry) {
@@ -308,11 +291,44 @@ impl WorkspaceSelection {
         }
         let toml_path = self.root.join("secretspec.toml");
         if let Some(bytes) = read_optional(&toml_path)? {
-            let text =
-                std::str::from_utf8(&bytes).map_err(|error| config_error(&toml_path, error))?;
-            let config: Value =
-                toml::from_str(text).map_err(|error| config_error(&toml_path, error))?;
-            self.json_providers(&config)?;
+            self.add_provider_config(Path::new("secretspec.toml"), &bytes)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn empty(root: &Path) -> Self {
+        Self {
+            root: root.to_owned(),
+            tracked: BTreeSet::new(),
+            protected: BTreeSet::new(),
+            rules: BTreeMap::new(),
+            ignored_directories: BTreeSet::new(),
+        }
+    }
+
+    pub(crate) fn add_provider_config(&mut self, path: &Path, bytes: &[u8]) -> SnapshotResult<()> {
+        let file = self.root.join(path);
+        let config: Value = if path == Path::new("secretspec.toml") {
+            let text = std::str::from_utf8(bytes).map_err(|error| config_error(&file, error))?;
+            toml::from_str(text).map_err(|error| config_error(&file, error))?
+        } else {
+            serde_yaml_ng::from_slice(bytes).map_err(|error| config_error(&file, error))?
+        };
+        self.json_providers(&config)?;
+        if let Some(imports) = config.pointer("/localDev/import/envFiles") {
+            let imports = imports
+                .as_array()
+                .ok_or_else(|| config_error(&file, "localDev.import.envFiles must be an array"))?;
+            for import in imports {
+                let path = import
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .filter(|path| !path.trim().is_empty())
+                    .ok_or_else(|| {
+                        config_error(&file, "localDev import requires a non-empty file path")
+                    })?;
+                self.protect_path(self.root.join(path))?;
+            }
         }
         Ok(())
     }
