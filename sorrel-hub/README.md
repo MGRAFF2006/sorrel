@@ -21,8 +21,10 @@ the protocol `Principal` shape, policies reference protocol `Policy` and
 kept as external references.
 
 The `v0.1.0-alpha.2` server has development, WorkOS, and OIDC AuthAdapter seams,
-but production session/login integration is incomplete. Treat it as a localhost
-development server, not an internet-facing service. It also
+but production session/login integration is incomplete in that release. Current
+source adds SDK-sealed WorkOS browser sessions and an invite-only hosting path;
+see the browser login and operator provisioning settings below.
+Live credentialed deployment remains a launch gate. The alpha also
 omits merge queue behavior, hosted compute, and secret values. Two further
 declared gaps: list endpoints return full arrays (no pagination), and object
 upload verifies BLAKE3 content ids but does not JSON-Schema-validate object
@@ -121,7 +123,8 @@ request data are omitted; the client response remains redacted.
   restricted to loopback unless the insecure-demo bind override is explicit.
 - `oidc` verifies RS256/ES256 Bearer JWTs using
   required `SORREL_OIDC_ISSUER` and `SORREL_OIDC_AUDIENCE`; keys are read from
-  `<issuer>/.well-known/jwks.json`. Issuer-only configuration fails closed until
+  `<issuer>/.well-known/jwks.json` unless `SORREL_OIDC_JWKS_URI` selects the
+  provider's actual JWKS endpoint. Issuer-only configuration fails closed until
   an audience identifying this Hub is supplied. Keys are cached for ten minutes.
   An unknown signing-key ID triggers a shared refresh, limited to once per issuer
   URI every 30 seconds (including failed refreshes); HTTP fetches time out after
@@ -131,8 +134,11 @@ request data are omitted; the client response remains redacted.
 - `workos` uses `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` to verify AuthKit
   Bearer JWTs. It requires a string `client_id` exactly matching
   `WORKOS_CLIENT_ID` and reads keys from
-  `<issuer>/sso/jwks/<encoded-client-id>`. The issuer defaults to
-  `https://api.workos.com`; `WORKOS_ISSUER` overrides it. AuthKit tokens do not
+  `https://api.workos.com/sso/jwks/<encoded-client-id>`. The issuer defaults to
+  `https://api.workos.com` or the client-scoped
+  `https://api.workos.com/user_management/<client-id>`; `WORKOS_ISSUER` replaces
+  these with an exact expected issuer without changing the API JWKS endpoint.
+  Both browser and bearer sessions use these issuer rules. AuthKit tokens do not
   require `aud`; optional `WORKOS_AUDIENCE` adds an `aud` restriction without
   replacing the `client_id` check. See the
   [WorkOS session-token contract](https://workos.com/docs/reference/authkit/session-tokens).
@@ -143,8 +149,24 @@ array of strings). Expiry retains the existing 60-second clock-skew allowance.
 Tokens without expiry are rejected.
 
 These adapters authenticate a principal; authorization still requires trusted
-Core grant references. WorkOS remains an adapter skeleton without sealed
-sessions, and the browser UI does not provide an IdP login flow in this alpha.
+Core grant references. The published alpha has bearer-only adapters. In current
+source, configure `SORREL_HUB_PUBLIC_URL` and `WORKOS_COOKIE_PASSWORD` alongside
+WorkOS credentials for `/auth/login`, `/auth/callback`, and POST `/auth/logout`.
+The official AuthKit SDK owns sealing, verification and refresh. Public origins
+must use HTTPS; cookie writes require a matching Origin. `/session` exposes only
+identity and expiry, never access/refresh tokens. CLI bearer authentication still
+works; browser login does not provision authority. Hosted startup
+(`SORREL_HUB_DEPLOY=saas`) requires operator grants and rejects demo bypasses.
+
+For an invited WorkOS subject, preview native Core grants and workspace metadata
+with `node scripts/provision-pilot.mjs --subject user_ID --organization org_ID
+--project proj_ID --repository repo_ID --metadata-dir <metadata-directory>
+--grants-file <grants-file>`. Stop Hub, repeat with `--write`, configure
+`SORREL_HUB_TRUSTED_GRANTS_FILE` and `SORREL_HUB_METADATA_DIR` to those paths,
+then restart. These grants do not include project creation or policy administration.
+Pending browser logins are bounded to 1,000 transactions for ten minutes in one
+API instance; a restart requires starting login again. Multiple API instances
+require a shared transaction store before hosting this flow.
 
 Every collaboration, metadata and sync read or write requires an authenticated
 session and a native Core allow decision. Without one, private endpoints return

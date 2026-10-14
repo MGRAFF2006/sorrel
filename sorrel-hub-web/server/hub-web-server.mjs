@@ -14,7 +14,10 @@ const CONTENT_TYPES = {
   '.map': 'application/json; charset=utf-8',
 };
 
-export function createHubWebServer({ root, hubApiUrl }) {
+export function createHubWebServer({ root, hubApiUrl, maxBodyBytes = 64 * 1024 * 1024, upstreamTimeoutMs = 30_000 }) {
+  for (const [name, value] of Object.entries({ maxBodyBytes, upstreamTimeoutMs })) {
+    if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} must be a positive safe integer`);
+  }
   root = resolve(root);
   const upstreamBaseUrl = hubApiUrl.replace(/\/$/, '');
 
@@ -87,10 +90,26 @@ export function createHubWebServer({ root, hubApiUrl }) {
     };
     request.once('close', requestClosed);
     response.once('close', responseClosed);
+    let timeout;
+
+    function rejectOversizedBody() {
+      response.writeHead(413, { 'content-type': 'application/json', connection: 'close' });
+      response.end(JSON.stringify({ error: { code: 'request_body_too_large', message: 'Request body exceeds the Hub safety limit' } }));
+    }
 
     try {
+      if (Number(request.headers['content-length']) > maxBodyBytes) {
+        rejectOversizedBody();
+        return;
+      }
       const chunks = [];
-      for await (const chunk of request) {
+      let size = 0;
+      for await (const chunk of request.iterator({ destroyOnReturn: false })) {
+        size += Buffer.byteLength(chunk);
+        if (size > maxBodyBytes) {
+          rejectOversizedBody();
+          return;
+        }
         chunks.push(chunk);
       }
       const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
@@ -104,36 +123,52 @@ export function createHubWebServer({ root, hubApiUrl }) {
       if (request.headers.authorization) {
         headers.authorization = request.headers.authorization;
       }
+      for (const name of ['cookie', 'origin', 'sec-fetch-site']) {
+        if (request.headers[name]) headers[name] = request.headers[name];
+      }
+
+      timeout = setTimeout(() => controller.abort(new Error('upstream timeout')), upstreamTimeoutMs);
+      timeout.unref();
 
       const upstream = await fetch(target, {
         method: request.method,
         headers,
         body: request.method === 'GET' || request.method === 'HEAD' ? undefined : body,
         signal: controller.signal,
+        redirect: 'manual',
       });
       const text = await upstream.text();
-      response.writeHead(upstream.status, {
+      const responseHeaders = {
         'content-type': upstream.headers.get('content-type') ?? 'application/json',
-      });
+        'cache-control': upstream.headers.get('cache-control') ?? 'no-store',
+      };
+      const cookies = upstream.headers.getSetCookie();
+      if (cookies.length) responseHeaders['set-cookie'] = cookies;
+      if (upstream.headers.has('location')) responseHeaders.location = upstream.headers.get('location');
+      for (const name of ['referrer-policy', 'x-content-type-options', 'x-frame-options']) {
+        if (upstream.headers.has(name)) responseHeaders[name] = upstream.headers.get(name);
+      }
+      response.writeHead(upstream.status, responseHeaders);
       response.end(text);
     } catch {
-      if (controller.signal.aborted || response.destroyed) return;
-      response.writeHead(502, { 'content-type': 'application/json' });
+      if (response.destroyed || (controller.signal.aborted && controller.signal.reason?.message !== 'upstream timeout')) return;
+      response.writeHead(controller.signal.aborted ? 504 : 502, { 'content-type': 'application/json', 'cache-control': 'no-store' });
       response.end(
         JSON.stringify({
           error: {
-            code: 'hub_api_unreachable',
-            message: 'Could not reach sorrel-hub API',
+            code: controller.signal.aborted ? 'hub_api_timeout' : 'hub_api_unreachable',
+            message: controller.signal.aborted ? 'Hub API request timed out' : 'Could not reach sorrel-hub API',
           },
         }),
       );
     } finally {
+      clearTimeout(timeout);
       request.off('close', requestClosed);
       response.off('close', responseClosed);
     }
   }
 
-  return http.createServer((request, response) => {
+  return http.createServer({ requestTimeout: 30_000, headersTimeout: 15_000 }, (request, response) => {
     let url;
     try {
       url = new URL(request.url ?? '/', 'http://localhost');

@@ -2,11 +2,14 @@ import { A, Route, Router, useParams, type RouteSectionProps } from '@solidjs/ro
 import { createEffect, createMemo, createResource, For, onCleanup, onMount, Show, type ParentProps } from 'solid-js';
 import {
   apiGet,
+  apiPost,
+  getApiBaseUrl,
   fetchCapabilities,
   fetchSession,
   setPrincipalProvider,
   unwrapList,
   useApiConnection,
+  useAuthenticationRequired,
   type HubCapabilities,
   type HubSessionInfo,
 } from './api.ts';
@@ -26,6 +29,7 @@ import { ProjectsHome } from './views/ProjectsView.tsx';
 import { ReviewsView } from './views/ReviewsView.tsx';
 import { SyncView } from './views/SyncView.tsx';
 import { WorkView } from './views/WorkView.tsx';
+import { createAction } from './action.ts';
 
 export type HubAppOptions = {
   platform: Platform;
@@ -39,11 +43,21 @@ function IdentityControl(props: {
   const principal = useEffectivePrincipal();
   const mode = () => props.capabilities?.auth.mode ?? props.hubSession?.auth.mode ?? 'dev';
   const value = () => `${principal().type}:${principal().id}`;
+  const signOut = createAction();
 
   return (
     <Show
       when={mode() === 'dev'}
-      fallback={<A href="/profile" class="avatar-link" title={value()}>{initials(principal().id)}</A>}
+      fallback={<>
+        <A href="/profile" class="avatar-link" title={value()}>{initials(principal().id)}</A>
+        <Show when={props.capabilities?.auth.browserLogin}>
+          <button type="button" class="ghost" disabled={signOut.pending()} onClick={() => void signOut.run(async () => {
+            const payload = await apiPost('/auth/logout', {}) as { data: { logoutUrl: string } };
+            window.location.assign(payload.data.logoutUrl);
+          })}>{signOut.pending() ? 'Signing out…' : 'Sign out'}</button>
+          <Show when={signOut.error()}><span role="alert">{signOut.error()}</span></Show>
+        </Show>
+      </>}
     >
       <label class="identity-control" title="Development acting principal">
         <span class="sr-only">Acting principal</span>
@@ -167,10 +181,13 @@ function ProjectLayout(props: RouteSectionProps) {
 }
 
 export function HubApp(props: HubAppOptions) {
-  const [capabilities] = createResource(fetchCapabilities);
+  const [capabilities, { refetch: refetchCapabilities }] = createResource(fetchCapabilities);
   const [hubSession, { refetch: refetchSession }] = createResource(fetchSession);
   const apiOk = useApiConnection();
   const effectivePrincipal = useEffectivePrincipal();
+  const authenticationRequired = useAuthenticationRequired();
+  const authorized = () => Boolean(capabilities() && hubSession()
+    && (capabilities()?.auth.mode === 'dev' || (hubSession()?.session && !authenticationRequired())));
 
   createEffect(() => {
     const resolved = hubSession();
@@ -182,13 +199,12 @@ export function HubApp(props: HubAppOptions) {
   });
   onMount(() => setPrincipalProvider(effectivePrincipal));
 
-  const openCount = useOpenProposalsCountFromHub(() => true);
+  const openCount = useOpenProposalsCountFromHub(authorized);
 
   onMount(() => {
     void (async () => {
       try {
         await apiGet('/healthz');
-        void refetchSession();
       } catch {
         // apiRequest records the failed connection for the shell.
       }
@@ -196,6 +212,31 @@ export function HubApp(props: HubAppOptions) {
   });
 
   return (
+    <Show when={!capabilities.loading && !hubSession.loading} fallback={<main class="auth-stage"><Loading text="Connecting to Sorrel Hub…" /></main>}>
+    <Show when={capabilities() && hubSession()} fallback={
+      <main class="auth-stage"><section class="auth-panel">
+        <img src="/favicon.svg" alt="" /><h1>Hub could not be reached</h1>
+        <p>Your projects will load when the connection is restored.</p>
+        <button type="button" onClick={() => { void refetchCapabilities(); void refetchSession(); }}>Retry connection</button>
+      </section></main>
+    }>
+    <Show when={authorized()} fallback={
+      <main class="auth-stage"><section class="auth-panel">
+        <img src="/favicon.svg" alt="" /><h1>Sign in to Sorrel Hub</h1>
+        <p>Review agent work and collaborate with your team.</p>
+        <Show when={new URLSearchParams(window.location.search).has('auth')}>
+          <p role="status">{new URLSearchParams(window.location.search).get('auth') === 'logout-incomplete'
+            ? 'You are signed out of this Hub. Identity provider sign-out could not complete.'
+            : 'Sign-in was not completed. You can try again.'}</p>
+        </Show>
+        <Show when={capabilities()?.auth.browserLogin && props.platform.kind === 'web'} fallback={
+          <p>Browser sign-in is not configured for this connection. Contact your Hub operator.</p>
+        }>
+          <a class="button primary" href={`${getApiBaseUrl()}/auth/login`}>Sign in</a>
+        </Show>
+        <p class="muted">Access is by invitation. Signing in gives you access only to projects your team has shared with you.</p>
+      </section></main>
+    }>
     <Router base={props.base}>
       <Route
         path="/"
@@ -210,7 +251,7 @@ export function HubApp(props: HubAppOptions) {
         )}
       >
         <Route path="/" component={GlobalPage}>
-          <Route path="/" component={ProjectsHome} />
+          <Route path="/" component={() => <ProjectsHome inviteOnly={capabilities()?.deploy === 'saas'} />} />
           <Route path="/inbox" component={InboxView} />
           <Route path="/orgs" component={OrganizationsView} />
           <Route path="/orgs/:orgId" component={OrganizationsView} />
@@ -224,5 +265,8 @@ export function HubApp(props: HubAppOptions) {
         </Route>
       </Route>
     </Router>
+    </Show>
+    </Show>
+    </Show>
   );
 }

@@ -16,7 +16,10 @@ const port = Number.parseInt(process.env.PORT ?? '5180', 10);
 const host = process.env.HOST ?? '0.0.0.0';
 const hubApiUrl = process.env.HUB_API_URL ?? 'http://localhost:3000';
 
-const server = createHubWebServer({ root, hubApiUrl });
+const server = createHubWebServer({ root, hubApiUrl,
+  maxBodyBytes: Number(process.env.SORREL_HUB_MAX_BODY_BYTES ?? 64 * 1024 * 1024),
+  upstreamTimeoutMs: Number(process.env.SORREL_HUB_WEB_TIMEOUT_MS ?? 30_000),
+});
 
 server.listen(port, host, () => {
   const address = server.address();
