@@ -103,3 +103,44 @@ fn git_import_respects_limit() {
     assert_eq!(imported["importedCommits"], 1);
     assert_eq!(imported["commits"][0]["message"], "update readme");
 }
+
+#[test]
+fn first_import_preserves_uncommitted_git_edits_and_can_retry() {
+    let git_dir = make_git_repo();
+    let root = git_dir.path();
+    let path = root.join("readme.txt");
+    std::fs::write(&path, b"uncommitted work\n").unwrap();
+    Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .args(["git", "import"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read(&path).unwrap(), b"uncommitted work\n");
+    assert!(!root.join(".sorrel/git-map.json").exists());
+    let head = std::fs::read(root.join(".sorrel/HEAD")).unwrap();
+    Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .args(["git", "import"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read(root.join(".sorrel/HEAD")).unwrap(), head);
+    assert_eq!(std::fs::read(&path).unwrap(), b"uncommitted work\n");
+    git(root, &["add", "readme.txt"]);
+    git(root, &["commit", "-m", "save work"]);
+    command_json(root, &["git", "import", "--json"]);
+    assert_eq!(std::fs::read(&path).unwrap(), b"uncommitted work\n");
+}
+
+#[test]
+fn first_import_requires_explicit_force_to_discard_work() {
+    let git_dir = make_git_repo();
+    let root = git_dir.path();
+    std::fs::write(root.join("readme.txt"), b"uncommitted work\n").unwrap();
+    command_json(root, &["git", "import", "--force", "--json"]);
+    assert_eq!(
+        std::fs::read(root.join("readme.txt")).unwrap(),
+        b"hello world\n"
+    );
+}

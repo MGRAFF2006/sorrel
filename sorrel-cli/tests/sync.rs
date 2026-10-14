@@ -222,6 +222,53 @@ fn cli_push_pull_restores_working_tree_via_live_hub() {
 
     let content = std::fs::read_to_string(pull_path.join("hello.txt")).expect("pulled file");
     assert_eq!(content, "from-push\n");
+
+    let head_path = pull_path.join(".sorrel/HEAD");
+    let head = std::fs::read(&head_path).unwrap();
+    std::fs::write(pull_path.join("hello.txt"), b"uncommitted\n").unwrap();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .args(["pull", "origin"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read(&head_path).unwrap(), head);
+    assert_eq!(
+        std::fs::read(pull_path.join("hello.txt")).unwrap(),
+        b"uncommitted\n"
+    );
+
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .args(["change", "create", "-m", "local history"])
+        .assert()
+        .success();
+    let local_head = std::fs::read(&head_path).unwrap();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .args(["pull", "origin"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read(&head_path).unwrap(), local_head);
+    assert_eq!(
+        std::fs::read(pull_path.join("hello.txt")).unwrap(),
+        b"uncommitted\n"
+    );
+
+    std::fs::write(pull_path.join(".sorrel/MERGE_STATE"), "pending").unwrap();
+    AssertCommand::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(pull_path)
+        .args(["pull", "origin"])
+        .assert()
+        .failure();
+    assert_eq!(std::fs::read(&head_path).unwrap(), local_head);
+    assert_eq!(
+        std::fs::read(pull_path.join(".sorrel/MERGE_STATE")).unwrap(),
+        b"pending"
+    );
 }
 
 fn init_empty_local_repo(repo_id: &str) {

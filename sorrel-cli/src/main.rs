@@ -15,11 +15,11 @@ use sorrel_core::{
     create_change, create_lane, create_stack, git_export, git_export_with_force, git_import,
     is_descendant, materialize_workspace_snapshot, merge_base, merge_snapshots_with_worktree,
     parse_object_id_hex, read_conflict, read_merge_result, read_snapshot, read_snapshot_files,
-    read_stack, read_tree, restore_snapshot_to_directory, snapshot_diff, write_snapshot,
-    write_tree, ChangeOptions, ConflictType, EntryMode, FileObjectStore, GitExportOptions,
-    GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions, ObjectId,
-    ObjectKind, ObjectRef, ObjectStore, ObjectStoreError, ObjectStoreResult, PathChangeKind,
-    Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
+    read_stack, read_tree, restore_snapshot_to_directory, snapshot_diff, validate_snapshot_restore,
+    write_snapshot, write_tree, ChangeOptions, ConflictType, EntryMode, FileObjectStore,
+    GitExportOptions, GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions,
+    ObjectId, ObjectKind, ObjectRef, ObjectStore, ObjectStoreError, ObjectStoreResult,
+    PathChangeKind, Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, CommandOutput};
@@ -1731,6 +1731,8 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
         args.path.clone()
     };
 
+    let colocated = fs::canonicalize(&git_path)? == fs::canonicalize(".")?;
+
     let created_workspace = if !repo::is_initialized() {
         let _ = init_output()?;
         true
@@ -1756,7 +1758,9 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
         // existed (unrelated uncommitted Sorrel edits).
         if !created_workspace {
             if let Some(base) = head_snapshot_id(&head)? {
-                if worktree_is_dirty(&store, &repo_id, &base)? {
+                if !(colocated && snapshot_is_empty_root(&store, &base)?)
+                    && worktree_is_dirty(&store, &repo_id, &base)?
+                {
                     return Err(io::Error::other(
                         "working tree has uncommitted changes; commit, discard, or pass --force",
                     ));
@@ -1771,6 +1775,34 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
 
     let imported = to_io(git_import(&store, options))?;
     let head_hex = imported.head_snapshot.to_hex();
+
+    // A first colocated import must compare against Git's committed tree, not
+    // the empty Sorrel HEAD. Newly initialized metadata does not authorize
+    // overwriting the checkout's uncommitted work.
+    let empty_workspace = head_snapshot_id(&head)?
+        .map(|base| snapshot_is_empty_root(&store, &base))
+        .transpose()?
+        .unwrap_or(true);
+    let previous = if empty_workspace && colocated {
+        let current = to_io(materialize_workspace_snapshot(
+            &store,
+            ".",
+            Some(&imported.head_snapshot),
+            None,
+            SnapshotOptions::new(repo_id.clone()),
+        ))?;
+        if !args.force
+            && !to_io(snapshot_diff(&store, &imported.head_snapshot, &current.id))?.is_empty()
+        {
+            return Err(io::Error::other(
+                "Git working tree differs from the imported ref; commit or back up your changes before importing (or explicitly pass --force)",
+            ));
+        }
+        current.id
+    } else {
+        head_snapshot_id(&head)?.unwrap_or(imported.empty_base_snapshot)
+    };
+    restore_worktree_to_snapshot(&store, &previous, &imported.head_snapshot)?;
 
     for commit in &imported.commits {
         repo::append_changes_index(&repo::ChangesIndexEntry {
@@ -1802,9 +1834,6 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
             .collect::<serde_json::Map<String, Value>>(),
     });
     repo::write_json_atomic(&repo::git_map_path(), &map_value)?;
-
-    let previous = head_snapshot_id(&head)?.unwrap_or(imported.empty_base_snapshot);
-    restore_worktree_to_snapshot(&store, &previous, &imported.head_snapshot)?;
 
     let lane = head.lane;
     repo::write_head(&repo::Head {
@@ -2980,8 +3009,90 @@ fn restore_worktree_to_snapshot(
     current: &ObjectId,
     target: &ObjectId,
 ) -> io::Result<()> {
+    // Validate the complete object graph before removing any existing file.
+    to_io(validate_snapshot_restore(store, current))?;
+    let target_paths = to_io(validate_snapshot_restore(store, target))?;
     let current_files = to_io(read_snapshot_files(store, current))?;
     let target_files = to_io(read_snapshot_files(store, target))?;
+    let removed: std::collections::BTreeSet<_> = current_files
+        .keys()
+        .filter(|path| !target_files.contains_key(*path))
+        .cloned()
+        .collect();
+    let mut replaced_directories = Vec::new();
+    for path in current_files.keys().chain(target_paths.iter()) {
+        for ancestor in path.ancestors().filter(|path| !path.as_os_str().is_empty()) {
+            match fs::symlink_metadata(ancestor) {
+                Ok(metadata) if metadata.file_type().is_symlink() => {
+                    return Err(io::Error::other(format!(
+                        "refusing to restore through symlink {}",
+                        ancestor.display()
+                    )));
+                }
+                Ok(metadata)
+                    if !metadata.is_dir() && ancestor != path && !removed.contains(ancestor) =>
+                {
+                    return Err(io::Error::other(format!(
+                        "restore path is blocked by {}",
+                        ancestor.display()
+                    )));
+                }
+                Ok(metadata)
+                    if ancestor == path
+                        && target_paths.contains(path)
+                        && !target_files.contains_key(path)
+                        && !metadata.is_dir()
+                        && !removed.contains(path) =>
+                {
+                    return Err(io::Error::other(format!(
+                        "restore directory is blocked by an untracked or ignored path: {}",
+                        path.display()
+                    )));
+                }
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                    ) => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    for path in target_files.keys() {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_dir() => {
+                validate_directory_replacement(path, &removed)?;
+                replaced_directories.push(path.clone());
+            }
+            Ok(metadata) if !metadata.is_file() || !current_files.contains_key(path) => {
+                return Err(io::Error::other(format!(
+                    "restore would overwrite an untracked or ignored path: {}",
+                    path.display()
+                )));
+            }
+            Ok(metadata) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::MetadataExt;
+                    if metadata.nlink() > 1 {
+                        return Err(io::Error::other(format!(
+                            "restore would modify a hard-linked file: {}",
+                            path.display()
+                        )));
+                    }
+                }
+                #[cfg(not(unix))]
+                let _ = metadata;
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                ) => {}
+            Err(error) => return Err(error),
+        }
+    }
 
     for path in current_files.keys() {
         if !target_files.contains_key(path) {
@@ -2994,8 +3105,41 @@ fn restore_worktree_to_snapshot(
         }
     }
 
+    for path in replaced_directories {
+        remove_empty_directory_tree(&path)?;
+    }
+
     to_io(restore_snapshot_to_directory(store, target, Path::new(".")))?;
     Ok(())
+}
+
+fn validate_directory_replacement(
+    path: &Path,
+    removed: &std::collections::BTreeSet<PathBuf>,
+) -> io::Result<()> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let child = entry.path();
+        if entry.file_type()?.is_dir() {
+            validate_directory_replacement(&child, removed)?;
+        } else if !entry.file_type()?.is_file() || !removed.contains(&child) {
+            return Err(io::Error::other(format!(
+                "restore would overwrite an untracked or ignored path: {}",
+                child.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn remove_empty_directory_tree(path: &Path) -> io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(path)? {
+        remove_empty_directory_tree(&entry?.path())?;
+    }
+    fs::remove_dir(path)
 }
 
 /// Removes empty parent directories of `path` up to (but not including) `.`.
@@ -3499,7 +3643,11 @@ fn push_output(args: PushArgs) -> io::Result<CommandOutput> {
 }
 
 fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
-    let store = to_io(FileObjectStore::new(repo::object_store_root()))?;
+    let RepoContext {
+        store,
+        repo_id,
+        head: before,
+    } = open_repo()?;
     if !repo::is_initialized() {
         return Err(io::Error::other(
             "workspace is not initialized; run `sorrel init`",
@@ -3508,14 +3656,32 @@ fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
 
     let remotes = repo::load_remotes()?;
     let (remote_name, remote) = remotes.resolve(args.remote.as_deref())?;
-    let before = repo::load_head()?.ok_or_else(|| io::Error::other("missing HEAD pointer"))?;
+    if repo::merge_in_progress() {
+        return Err(io::Error::other(
+            "a merge is in progress; resolve it or run `sorrel merge --abort` before pulling",
+        ));
+    }
     let before_snapshot = parse_object_id_hex(&before.snapshot)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
-    let result = sync::pull(&store, &remote, &remote_name, &args.r#ref, None)?;
+    if worktree_is_dirty(&store, &repo_id, &before_snapshot)? {
+        return Err(io::Error::other(
+            "working tree has uncommitted changes; record them before pulling",
+        ));
+    }
+    let result = sync::fetch(&store, &remote, &remote_name, &args.r#ref, None)?;
     let after_snapshot = parse_object_id_hex(&result.snapshot)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
     if before_snapshot != after_snapshot {
+        if !snapshot_is_empty_root(&store, &before_snapshot)?
+            && !to_io(is_descendant(&store, before_snapshot, after_snapshot))?
+        {
+            return Err(io::Error::other("remote history is not a fast-forward of the active lane; local history is preserved (pull does not merge divergent histories)"));
+        }
         restore_worktree_to_snapshot(&store, &before_snapshot, &after_snapshot)?;
+        repo::write_head(&repo::Head {
+            lane: before.lane,
+            snapshot: result.snapshot.clone(),
+        })?;
     }
 
     Ok(CommandOutput {

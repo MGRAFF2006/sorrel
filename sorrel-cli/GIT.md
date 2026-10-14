@@ -44,6 +44,13 @@ Flags:
 Refuse without `--force` when the working tree is dirty relative to HEAD, or when
 `.sorrel/git-map.json` already exists.
 
+Current source also checks a first colocated import against the selected Git
+commit, so creating Sorrel metadata does not authorize overwriting Git edits.
+An empty workspace left after rejection can be retried after recording those
+edits. Protected `.env` paths and provider files configured in the source
+checkout are rejected anywhere in selected history before any blobs are copied.
+This is not a credential scanner; audit other committed files before uploading.
+
 ## Export
 
 Export the current HEAD (or `--snapshot`) into a Git repository:

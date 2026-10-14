@@ -41,7 +41,7 @@ SORREL=target/debug/sorrel
 From the monorepo root:
 
 ```bash
-cd sorrel-hub && npm start
+cd sorrel-hub && SORREL_HUB_LOCAL_DEMO=1 SORREL_HUB_BOOTSTRAP_GRANTS=1 npm start
 # listening on http://127.0.0.1:3000
 ```
 
@@ -106,20 +106,12 @@ Push flow (per sync-transport spec):
 3. `POST /{repoId}/objects` — upload missing objects from `.sorrel/objects/`
 4. `POST /{repoId}/refs/HEAD` — advance remote ref
 
-Mutating calls include `x-sorrel-acting-principal: {"type":"user","id":"local"}`
-and `grantRefs` for Hub's local bootstrap grants:
+Current CLI mutating calls send an empty `grantRefs` list and rely on the Hub's
+configured effective Core grants. They do not require local-demo grant IDs.
+Development acting-principal headers are accepted only in explicit demo mode;
+hosted calls require `SORREL_HUB_TOKEN`. Bootstrap grants are disabled by default.
 
-```json
-"grantRefs": [{ "id": "grant_local_object_write", "source": "core" }]
-```
-
-(object upload) / `grant_local_ref_write` (ref advance). Hub enables these
-bootstrap grants by default (`SORREL_HUB_BOOTSTRAP_GRANTS`, see sorrel-hub
-README). Disabling bootstrap grants without supplying a
-`SORREL_HUB_TRUSTED_GRANTS_FILE` will cause push to return 403.
-
-Before pushing specialized workflow/secret grants, ensure local grants are
-recorded and their objects are in the object closure:
+Local workflow and secret permissions can be recorded separately:
 
 ```bash
 $SORREL grant create \
@@ -132,10 +124,10 @@ $SORREL grant create \
   --reason "CI read access"
 ```
 
-The CLI uploads grant objects as part of the missing-object closure when the
-hub requests them. If push is denied for missing grant authority, create the
-required grants locally and push again so `grantRefs` on the hub match your
-workspace policy state.
+Creating or uploading a local grant does not authorize a hosted Hub action.
+If the Hub denies an upload, its operator must inspect the authenticated
+principal and trusted Core grants for the intended repository. Hosted access
+comes from operator-provisioned authority, not client-supplied grant objects.
 
 ## 5. Pull from the hub
 
@@ -147,8 +139,12 @@ $SORREL pull
 # Pulled origin/HEAD to <snapshot> (N object(s))
 ```
 
-Pull downloads any objects missing locally, then updates `.sorrel/HEAD` to the
-remote snapshot without deleting unrelated local-only objects.
+Current source refuses pull while a merge is pending or the worktree is dirty.
+It downloads and verifies the snapshot closure, requires a fast-forward (or an
+empty initial workspace), and restores files before publishing the new HEAD.
+Diverged history is preserved and rejected; pull does not merge it automatically.
+Ignored/untracked collisions and unsupported restore paths are rejected before
+deletions. Downloaded immutable objects can remain after a rejected pull.
 
 ## Example session
 

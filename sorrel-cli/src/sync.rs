@@ -149,10 +149,7 @@ impl SyncClient {
             "objects",
             &json!({
                 "objects": objects,
-                "grantRefs": [{
-                    "id": BOOTSTRAP_OBJECT_WRITE_GRANT_ID,
-                    "source": "core",
-                }],
+                "grantRefs": [],
             }),
         )?;
         Ok(())
@@ -192,10 +189,7 @@ impl SyncClient {
         let body = json!({
             "snapshot": snapshot.to_hex(),
             "force": force,
-            "grantRefs": [{
-                "id": BOOTSTRAP_REF_WRITE_GRANT_ID,
-                "source": "core",
-            }],
+            "grantRefs": [],
         });
         let encoded_name = ref_name.replace('/', "%2F");
         self.post_json(&format!("refs/{encoded_name}"), &body)
@@ -321,8 +315,8 @@ fn upload_object_ids(
     Ok(upload_items.len())
 }
 
-/// Pulls `ref_name` from `remote` and updates local HEAD to the remote snapshot.
-pub fn pull(
+/// Downloads and verifies a remote snapshot without changing local refs or files.
+pub fn fetch(
     store: &FileObjectStore,
     remote: &Remote,
     remote_name: &str,
@@ -368,11 +362,8 @@ pub fn pull(
         downloaded += 1;
     }
 
-    let lane = head.lane;
-    repo::write_head(&Head {
-        lane,
-        snapshot: remote_snapshot.to_hex(),
-    })?;
+    // Verify the downloaded closure even when the server reports no missing ids.
+    local_closure(store, &remote_snapshot)?;
 
     Ok(PullResult {
         remote: remote_name.to_owned(),
@@ -380,6 +371,40 @@ pub fn pull(
         snapshot: remote_snapshot.to_hex(),
         downloaded,
     })
+}
+
+/// Fetches a remote snapshot and advances metadata only, without restoring files.
+/// Workspace callers should use `fetch`, validate and restore, then publish HEAD.
+pub fn pull(
+    store: &FileObjectStore,
+    remote: &Remote,
+    remote_name: &str,
+    ref_name: &str,
+    principal_header: Option<&str>,
+) -> io::Result<PullResult> {
+    let result = fetch(store, remote, remote_name, ref_name, principal_header)?;
+    let head = repo::load_head()?.ok_or_else(|| io::Error::other("missing HEAD pointer"))?;
+    let target = parse_object_id(&result.snapshot)?;
+    if let Some(local) = head_snapshot_id(&head)? {
+        let snapshot = sorrel_core::read_snapshot(store, &local).map_err(io::Error::other)?;
+        let empty_root = snapshot.parents.is_empty()
+            && sorrel_core::read_tree(store, &snapshot.root_tree.id)
+                .map_err(io::Error::other)?
+                .entries
+                .is_empty();
+        if !empty_root
+            && !sorrel_core::is_descendant(store, local, target).map_err(io::Error::other)?
+        {
+            return Err(io::Error::other(
+                "remote history is not a fast-forward; local HEAD is preserved",
+            ));
+        }
+    }
+    repo::write_head(&Head {
+        lane: head.lane,
+        snapshot: result.snapshot.clone(),
+    })?;
+    Ok(result)
 }
 
 /// Collects the object closure for a snapshot id in the local store.

@@ -171,7 +171,7 @@ pub(crate) struct WorkspaceSelection {
 }
 
 impl WorkspaceSelection {
-    fn load(
+    pub(crate) fn load(
         store: &impl ObjectStore,
         root: &Path,
         baseline: Option<&ObjectId>,
@@ -201,16 +201,12 @@ impl WorkspaceSelection {
         Ok(())
     }
 
-    fn is_protected(&self, path: &Path) -> bool {
+    pub(crate) fn is_protected(&self, path: &Path) -> bool {
         // Match conservatively on case-sensitive hosts too, so a workspace
         // cannot expose credentials when moved to a case-insensitive filesystem.
         let lowercase = path.to_string_lossy().to_ascii_lowercase();
         let path = Path::new(&lowercase);
-        path.file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| {
-                name == ".env" || (name.starts_with(".env.") && name != ".env.example")
-            })
+        is_protected_environment_path(path)
             || self
                 .protected
                 .iter()
@@ -395,6 +391,15 @@ impl WorkspaceSelection {
         }
         Ok(())
     }
+}
+
+pub(crate) fn is_protected_environment_path(path: &Path) -> bool {
+    path.components().any(|component| {
+        component.as_os_str().to_str().is_some_and(|name| {
+            let name = name.to_ascii_lowercase();
+            name == ".env" || (name.starts_with(".env.") && name != ".env.example")
+        })
+    })
 }
 
 fn collect_tracked(
