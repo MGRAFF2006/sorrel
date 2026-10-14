@@ -55,7 +55,7 @@ export function decodeJwt(token) {
 /**
  * @param {string} token
  * @param {{
- *   issuer: string,
+ *   issuer: string | string[],
  *   audience?: string,
  *   clientId?: string,
  *   jwksUri?: string,
@@ -71,8 +71,9 @@ export async function verifyOidcAccessToken(token, options) {
     throw new Error(`unsupported jwt alg: ${alg || 'missing'}`);
   }
 
-  const issuer = options.issuer.replace(/\/$/, '');
-  if (payload.iss !== issuer && payload.iss !== `${issuer}/`) {
+  const issuers = (Array.isArray(options.issuer) ? options.issuer : [options.issuer])
+    .map(issuer => issuer.replace(/\/$/, ''));
+  if (!issuers.some(issuer => payload.iss === issuer || payload.iss === `${issuer}/`)) {
     throw new Error('jwt iss mismatch');
   }
 
@@ -115,7 +116,7 @@ export async function verifyOidcAccessToken(token, options) {
     throw new Error('jwt not yet valid');
   }
 
-  const jwksUri = options.jwksUri ?? `${issuer}/.well-known/jwks.json`;
+  const jwksUri = options.jwksUri ?? `${issuers[0]}/.well-known/jwks.json`;
   const kid = typeof header.kid === 'string' ? header.kid : undefined;
   const keys =
     (await options.fetchJwks?.(jwksUri)) ?? (await fetchJwksCached(jwksUri, kid));

@@ -9,6 +9,7 @@ import { createConvexMirror } from './convex-mirror.js';
 import { createFsMetadataStore } from './fs-metadata-store.js';
 import { createFsRepoSyncStore } from './fs-sync-store.js';
 import { createInMemoryStore } from './store.js';
+import { assertHostedConfiguration } from './hosted-config.js';
 
 const port = Number.parseInt(process.env.PORT ?? '3000', 10);
 const host = process.env.HOST ?? '127.0.0.1';
@@ -34,6 +35,7 @@ const store =
 const trustedGrantsById = resolveTrustedGrants();
 const trustedPoliciesById = resolveTrustedPolicies();
 const authAdapter = createAuthAdapterFromEnv();
+assertHostedConfiguration(process.env, trustedGrantsById);
 const bootstrapGrantsEnabled =
   process.env.SORREL_HUB_BOOTSTRAP_GRANTS === '1' ||
   process.env.SORREL_HUB_BOOTSTRAP_GRANTS === 'true';

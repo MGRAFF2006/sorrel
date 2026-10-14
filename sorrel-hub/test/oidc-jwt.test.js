@@ -189,7 +189,7 @@ test('WorkOS verifies AuthKit client_id and retains expiry and optional audience
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const issuer = `http://127.0.0.1:${server.address().port}`;
-  const options = { issuer, apiKey: 'synthetic-fixture', clientId: 'fixture-client' };
+  const options = { issuer, jwksUri: `${issuer}/sso/jwks/fixture-client`, apiKey: 'synthetic-fixture', clientId: 'fixture-client' };
   const payload = { sub: 'alice', iss: issuer, client_id: 'fixture-client', exp: Math.floor(Date.now() / 1000) + 600 };
   const sessionFor = (adapter, claims) => adapter.resolveSession({
     headers: { authorization: `Bearer ${signRs256Jwt(privateKey, { alg: 'RS256' }, claims)}` },
@@ -255,6 +255,7 @@ test('default WorkOS environment verifies documented tokens using the client-spe
   assert.deepEqual(fetchUris, ['https://api.workos.com/sso/jwks/client_fixture']);
   assert.deepEqual(requests, ['/sso/jwks/client_fixture']);
   assert.equal(await sessionFor({ ...payload, client_id: 'client_other', aud: 'client_fixture' }), null);
+  assert.equal(await sessionFor({ ...payload, iss: 'https://api.workos.com/user_management/client_other' }), null);
   assert.deepEqual(requests, ['/sso/jwks/client_fixture']);
 });
 
