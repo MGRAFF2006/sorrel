@@ -12,7 +12,7 @@ Requirements:
 
 - Git
 - Rust 1.92+ with `clippy` and `rustfmt`
-- Node.js 22+
+- Node.js 22.11+ for the Hub's AuthKit SDK (current Node 22 LTS recommended)
 - Docker or Podman only for container-runner/Compose work
 
 ```sh

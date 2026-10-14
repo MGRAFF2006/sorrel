@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Sorrel pilot backup
+
+[Timer]
+OnCalendar=*-*-* 00:30:00 Europe/Berlin
+Persistent=true
+Unit=sorrel-backup.service
+
+[Install]
+WantedBy=timers.target
