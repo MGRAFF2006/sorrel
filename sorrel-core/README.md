@@ -83,7 +83,13 @@ Two variants matter in practice:
 identical content yields identical snapshot IDs; set `created_at`/`author`
 explicitly for wall-clock attribution. Read back with `read_snapshot_files`
 (into memory) or `restore_snapshot_to_directory` (overwrites files present in
-the snapshot, leaves other files untouched).
+the snapshot, leaves other files untouched). Restoration preflights the complete
+snapshot tree and blobs, rejects reserved metadata paths and inconsistent tree
+entries, and refuses existing symlinks, hard-linked file destinations (on Unix),
+and incompatible filesystem entries. `validate_snapshot_restore` exposes the
+object/path preflight for callers that remove obsolete tracked files first.
+These checks do not provide rollback for I/O failures or protection against
+concurrent filesystem swaps.
 
 ## Changes and diff
 

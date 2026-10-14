@@ -8,7 +8,8 @@ use std::io;
 
 use serde_json::{json, Value};
 use sorrel_core::{
-    collect_closure, parse_object_id_hex, FileObjectStore, ObjectId, ObjectStore, ObjectStoreError,
+    collect_closure, parse_object_id_hex, read_blob, read_snapshot, read_tree, EntryType,
+    FileObjectStore, ObjectId, ObjectKind, ObjectStore, ObjectStoreError,
 };
 
 use crate::repo::{self, Head, Remote};
@@ -45,7 +46,7 @@ pub struct PullResult {
     pub remote: String,
     /// Ref name read on the remote.
     pub ref_name: String,
-    /// Snapshot id now at local HEAD.
+    /// Validated remote snapshot id for the caller to check out.
     pub snapshot: String,
     /// Number of objects downloaded.
     pub downloaded: usize,
@@ -149,10 +150,7 @@ impl SyncClient {
             "objects",
             &json!({
                 "objects": objects,
-                "grantRefs": [{
-                    "id": BOOTSTRAP_OBJECT_WRITE_GRANT_ID,
-                    "source": "core",
-                }],
+                "grantRefs": [],
             }),
         )?;
         Ok(())
@@ -192,10 +190,7 @@ impl SyncClient {
         let body = json!({
             "snapshot": snapshot.to_hex(),
             "force": force,
-            "grantRefs": [{
-                "id": BOOTSTRAP_REF_WRITE_GRANT_ID,
-                "source": "core",
-            }],
+            "grantRefs": [],
         });
         let encoded_name = ref_name.replace('/', "%2F");
         self.post_json(&format!("refs/{encoded_name}"), &body)
@@ -321,8 +316,8 @@ fn upload_object_ids(
     Ok(upload_items.len())
 }
 
-/// Pulls `ref_name` from `remote` and updates local HEAD to the remote snapshot.
-pub fn pull(
+/// Downloads and verifies a remote snapshot without changing local refs or files.
+pub fn fetch(
     store: &FileObjectStore,
     remote: &Remote,
     remote_name: &str,
@@ -368,11 +363,24 @@ pub fn pull(
         downloaded += 1;
     }
 
-    let lane = head.lane;
-    repo::write_head(&Head {
-        lane,
-        snapshot: remote_snapshot.to_hex(),
-    })?;
+    // Verify the downloaded closure even when the server reports no missing ids.
+    validate_pull_snapshot(store, remote_snapshot)?;
+    if let Some(local) = head_snapshot_id(&head)? {
+        let initial = sorrel_core::read_snapshot(store, &local).map_err(io::Error::other)?;
+        let empty_initial = initial.parents.is_empty()
+            && sorrel_core::read_tree(store, &initial.root_tree.id)
+                .map_err(io::Error::other)?
+                .entries
+                .is_empty();
+        if !empty_initial
+            && !sorrel_core::is_descendant(store, local, remote_snapshot)
+                .map_err(io::Error::other)?
+        {
+            return Err(io::Error::other(
+                "remote history is not a fast-forward; local HEAD is preserved",
+            ));
+        }
+    }
 
     Ok(PullResult {
         remote: remote_name.to_owned(),
@@ -380,6 +388,71 @@ pub fn pull(
         snapshot: remote_snapshot.to_hex(),
         downloaded,
     })
+}
+
+/// Downloads and validates without changing HEAD or the working tree.
+/// The caller must restore successfully before publishing the returned snapshot.
+pub fn pull(
+    store: &FileObjectStore,
+    remote: &Remote,
+    remote_name: &str,
+    ref_name: &str,
+    principal_header: Option<&str>,
+) -> io::Result<PullResult> {
+    fetch(store, remote, remote_name, ref_name, principal_header)
+}
+
+fn validate_pull_snapshot(store: &FileObjectStore, root: ObjectId) -> io::Result<()> {
+    let mut snapshots = vec![root];
+    let mut trees = Vec::new();
+    let mut seen_snapshots = std::collections::BTreeSet::new();
+    let mut seen_trees = std::collections::BTreeSet::new();
+    let mut seen_blobs = std::collections::BTreeSet::new();
+    while let Some(id) = snapshots.pop() {
+        if !seen_snapshots.insert(id) {
+            continue;
+        }
+        let snapshot = read_snapshot(store, &id).map_err(snapshot_io)?;
+        if snapshot.root_tree.kind != ObjectKind::Tree
+            || snapshot
+                .parents
+                .iter()
+                .any(|parent| parent.kind != ObjectKind::Snapshot)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid snapshot object reference kind",
+            ));
+        }
+        trees.push(snapshot.root_tree.id);
+        snapshots.extend(snapshot.parents.into_iter().map(|parent| parent.id));
+    }
+    while let Some(id) = trees.pop() {
+        if !seen_trees.insert(id) {
+            continue;
+        }
+        for entry in read_tree(store, &id).map_err(snapshot_io)?.entries {
+            match (entry.entry_type, entry.object.kind) {
+                (EntryType::Directory, ObjectKind::Tree) => trees.push(entry.object.id),
+                (EntryType::File, ObjectKind::Blob) => {
+                    if seen_blobs.insert(entry.object.id) {
+                        read_blob(store, &entry.object.id).map_err(snapshot_io)?;
+                    }
+                }
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "invalid tree object reference kind",
+                    ))
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn snapshot_io(error: sorrel_core::SnapshotError) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, error.to_string())
 }
 
 /// Collects the object closure for a snapshot id in the local store.
@@ -534,6 +607,111 @@ mod tests {
     use std::thread;
 
     #[test]
+    fn pull_validation_rejects_incomplete_and_invalid_object_closures() {
+        use sorrel_core::{
+            write_snapshot, write_tree, EntryMode, ObjectRef, SnapshotOptions, TreeEntry,
+        };
+
+        for invalid in [
+            "root",
+            "tree",
+            "blob",
+            "blob_kind",
+            "ancestor",
+            "corrupt_blob",
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let store = FileObjectStore::new(directory.path()).unwrap();
+            let missing = ObjectId::for_bytes(b"missing object");
+            if invalid == "root" {
+                assert!(validate_pull_snapshot(&store, missing).is_err());
+                continue;
+            }
+            let blob = sorrel_core::write_blob(&store, b"file content").unwrap();
+            let blob_id = match invalid {
+                "blob" => missing,
+                "blob_kind" => store.write(b"not a Sorrel blob").unwrap(),
+                _ => blob.id,
+            };
+            let tree = write_tree(
+                &store,
+                vec![TreeEntry {
+                    name: "file".to_owned(),
+                    path: "file".into(),
+                    entry_type: EntryType::File,
+                    object: ObjectRef::new(ObjectKind::Blob, blob_id),
+                    mode: EntryMode::Normal,
+                    size: Some(blob.size()),
+                    content_hash: Some(blob.content_hash),
+                }],
+            )
+            .unwrap();
+            let mut options = SnapshotOptions::new("repo_pull_validation");
+            if invalid == "ancestor" {
+                options
+                    .parents
+                    .push(ObjectRef::new(ObjectKind::Snapshot, missing));
+            }
+            let snapshot = write_snapshot(
+                &store,
+                if invalid == "tree" { missing } else { tree.id },
+                options,
+            )
+            .unwrap();
+            if invalid == "corrupt_blob" {
+                let hex = blob.id.to_hex();
+                std::fs::write(
+                    directory
+                        .path()
+                        .join("objects")
+                        .join(&hex[..2])
+                        .join(&hex[2..]),
+                    b"corrupt",
+                )
+                .unwrap();
+            }
+            assert!(
+                validate_pull_snapshot(&store, snapshot.id).is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn pull_validation_checks_typed_refs_and_ancestor_blobs() {
+        use sorrel_core::{
+            write_snapshot, write_tree, EntryMode, ObjectRef, SnapshotOptions, TreeEntry,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let store = FileObjectStore::new(directory.path()).unwrap();
+        let missing = ObjectId::for_bytes(b"missing ancestor blob");
+        for kind in [ObjectKind::Blob, ObjectKind::Tree] {
+            let tree = write_tree(
+                &store,
+                vec![TreeEntry {
+                    name: "file".to_owned(),
+                    path: "file".into(),
+                    entry_type: EntryType::File,
+                    object: ObjectRef::new(kind, missing),
+                    mode: EntryMode::Normal,
+                    size: None,
+                    content_hash: None,
+                }],
+            )
+            .unwrap();
+            let ancestor = write_snapshot(&store, tree.id, SnapshotOptions::new("repo")).unwrap();
+            let mut options = SnapshotOptions::new("repo");
+            options
+                .parents
+                .push(ObjectRef::new(ObjectKind::Snapshot, ancestor.id));
+            let tip =
+                write_snapshot(&store, write_tree(&store, vec![]).unwrap().id, options).unwrap();
+            assert!(validate_pull_snapshot(&store, tip.id).is_err());
+        }
+    }
+
+    #[test]
     fn base64_roundtrip_length() {
         let encoded = base64_encode(b"hello");
         assert_eq!(encoded, "aGVsbG8=");
@@ -564,6 +742,60 @@ mod tests {
             let request = apply_hub_authorization(ureq::get("http://localhost"), token);
             assert_eq!(request.header("Authorization"), expected);
         }
+    }
+
+    #[test]
+    fn sync_writes_do_not_send_local_bootstrap_grants_to_hosted_hubs() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                let mut chunk = [0_u8; 1024];
+                loop {
+                    let count = stream.read(&mut chunk).unwrap();
+                    assert!(count > 0, "request ended before its body");
+                    request.extend_from_slice(&chunk[..count]);
+                    let Some(start) = request.windows(4).position(|part| part == b"\r\n\r\n")
+                    else {
+                        continue;
+                    };
+                    let header = String::from_utf8_lossy(&request[..start]).to_ascii_lowercase();
+                    let length: usize = header
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .unwrap()
+                        .trim()
+                        .parse()
+                        .unwrap();
+                    if request.len() < start + 4 + length {
+                        continue;
+                    }
+                    let body: Value =
+                        serde_json::from_slice(&request[start + 4..start + 4 + length]).unwrap();
+                    assert_eq!(body["grantRefs"], json!([]));
+                    break;
+                }
+                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").unwrap();
+            }
+        });
+        let remote = Remote {
+            url: format!("http://{address}"),
+            repo_id: "repo_hosted".to_owned(),
+        };
+        let client = SyncClient::with_auth(
+            &remote,
+            DEFAULT_ACTING_PRINCIPAL,
+            Some("synthetic-test-token"),
+        );
+        let id = ObjectId::for_bytes(b"fixture");
+        client.upload_objects(&[(&id, b"fixture")]).unwrap();
+        client.advance_ref("HEAD", &id, false).unwrap();
+        server.join().unwrap();
     }
 
     #[test]

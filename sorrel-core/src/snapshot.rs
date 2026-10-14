@@ -603,6 +603,7 @@ pub fn read_snapshot_files(
 /// Existing files are overwritten when their paths are present in the snapshot.
 /// Files that are not present in the snapshot are left untouched.
 /// Top-level `.sorrel` and `.git` paths are rejected before any files are written.
+/// Existing symlinks and incompatible filesystem entries are also rejected.
 pub fn restore_snapshot_to_directory(
     store: &impl ObjectStore,
     snapshot_id: &ObjectId,
@@ -610,9 +611,38 @@ pub fn restore_snapshot_to_directory(
 ) -> SnapshotResult<()> {
     let target = target.as_ref();
     let snapshot = read_snapshot(store, snapshot_id)?;
-    validate_restore_tree(store, &snapshot.root_tree.id, target)?;
+    validate_snapshot_restore(store, snapshot_id)?;
+    validate_restore_destination(store, &snapshot.root_tree.id, target)?;
     fs::create_dir_all(target).map_err(|source| SnapshotError::io(target, source))?;
     restore_tree(store, &snapshot.root_tree.id, target)
+}
+
+/// Checks every restore path and blob without changing the filesystem.
+/// Call before deleting old workspace files to prepare a snapshot transition.
+pub fn validate_snapshot_restore(
+    store: &impl ObjectStore,
+    snapshot_id: &ObjectId,
+) -> SnapshotResult<BTreeSet<PathBuf>> {
+    let snapshot = read_snapshot(store, snapshot_id)?;
+    if snapshot.root_tree.kind != ObjectKind::Tree
+        || snapshot
+            .parents
+            .iter()
+            .any(|parent| parent.kind != ObjectKind::Snapshot)
+    {
+        return Err(SnapshotError::InvalidPath {
+            path: PathBuf::new(),
+        });
+    }
+    let mut paths = BTreeSet::new();
+    validate_restore_tree(
+        store,
+        &snapshot.root_tree.id,
+        Path::new(""),
+        Path::new(""),
+        &mut paths,
+    )?;
+    Ok(paths)
 }
 
 fn write_file_blob(
@@ -797,11 +827,72 @@ fn validate_restore_tree(
     store: &impl ObjectStore,
     tree_id: &ObjectId,
     target: &Path,
+    parent: &Path,
+    seen: &mut BTreeSet<PathBuf>,
 ) -> SnapshotResult<()> {
     for entry in read_tree(store, tree_id)?.entries {
         safe_target_path(target, &entry.path)?;
+        if entry.path.parent() != Some(parent)
+            || entry.path.file_name().and_then(OsStr::to_str) != Some(entry.name.as_str())
+            || !seen.insert(entry.path.clone())
+        {
+            return Err(SnapshotError::InvalidPath { path: entry.path });
+        }
+        match entry.entry_type {
+            EntryType::Directory
+                if entry.mode == EntryMode::Directory && entry.object.kind == ObjectKind::Tree =>
+            {
+                validate_restore_tree(store, &entry.object.id, target, &entry.path, seen)?;
+            }
+            EntryType::File
+                if entry.mode != EntryMode::Directory && entry.object.kind == ObjectKind::Blob =>
+            {
+                read_blob(store, &entry.object.id)?;
+            }
+            _ => return Err(SnapshotError::InvalidPath { path: entry.path }),
+        }
+    }
+    Ok(())
+}
+
+fn validate_restore_destination(
+    store: &impl ObjectStore,
+    tree_id: &ObjectId,
+    target: &Path,
+) -> SnapshotResult<()> {
+    for entry in read_tree(store, tree_id)?.entries {
+        let output = safe_target_path(target, &entry.path)?;
+        for path in output.ancestors() {
+            match fs::symlink_metadata(path) {
+                Ok(metadata) => {
+                    let file = path == output && entry.entry_type == EntryType::File;
+                    #[cfg(unix)]
+                    if file {
+                        use std::os::unix::fs::MetadataExt;
+                        if metadata.nlink() > 1 {
+                            return Err(SnapshotError::UnsupportedFileType {
+                                path: path.to_owned(),
+                            });
+                        }
+                    }
+                    if metadata.file_type().is_symlink()
+                        || (file && !metadata.is_file())
+                        || (!file && !metadata.is_dir())
+                    {
+                        return Err(SnapshotError::UnsupportedFileType {
+                            path: path.to_owned(),
+                        });
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(SnapshotError::io(path, error)),
+            }
+            if path == target {
+                break;
+            }
+        }
         if entry.entry_type == EntryType::Directory {
-            validate_restore_tree(store, &entry.object.id, target)?;
+            validate_restore_destination(store, &entry.object.id, target)?;
         }
     }
     Ok(())
@@ -1380,6 +1471,69 @@ mod tests {
             fs::read(target.path().join("src/.sorrel/example")).unwrap(),
             b"ordinary-content"
         );
+    }
+
+    #[test]
+    fn restore_checks_all_blobs_before_overwriting_files() {
+        let store = InMemoryObjectStore::new();
+        let valid = write_blob(&store, b"replacement").unwrap();
+        let entry = |name: &str, id| TreeEntry {
+            name: name.to_owned(),
+            path: PathBuf::from(name),
+            entry_type: EntryType::File,
+            object: ObjectRef::new(ObjectKind::Blob, id),
+            mode: EntryMode::Normal,
+            size: None,
+            content_hash: None,
+        };
+        let tree = write_tree(
+            &store,
+            vec![
+                entry("a.txt", valid.id),
+                entry("z.txt", ObjectId::for_bytes(b"missing")),
+            ],
+        )
+        .unwrap();
+        let snapshot = write_snapshot(&store, tree.id, SnapshotOptions::new("repo_test")).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        write_file(target.path().join("a.txt"), b"original");
+        assert!(restore_snapshot_to_directory(&store, &snapshot.id, target.path()).is_err());
+        assert_eq!(fs::read(target.path().join("a.txt")).unwrap(), b"original");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restore_rejects_symlink_leaves_and_ancestors_before_writing() {
+        let source = tempfile::tempdir().unwrap();
+        write_file(source.path().join("a.txt"), b"replacement");
+        fs::create_dir(source.path().join("data")).unwrap();
+        write_file(source.path().join("data/z.txt"), b"replacement");
+        let store = InMemoryObjectStore::new();
+        let snapshot =
+            materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test")).unwrap();
+        for leaf in [false, true] {
+            let target = tempfile::tempdir().unwrap();
+            let external = tempfile::tempdir().unwrap();
+            write_file(external.path().join("z.txt"), b"valuable");
+            if leaf {
+                std::os::unix::fs::symlink(
+                    external.path().join("z.txt"),
+                    target.path().join("a.txt"),
+                )
+                .unwrap();
+            } else {
+                write_file(target.path().join("a.txt"), b"original");
+                std::os::unix::fs::symlink(external.path(), target.path().join("data")).unwrap();
+            }
+            assert!(restore_snapshot_to_directory(&store, &snapshot.id, target.path()).is_err());
+            assert_eq!(
+                fs::read(external.path().join("z.txt")).unwrap(),
+                b"valuable"
+            );
+            if !leaf {
+                assert_eq!(fs::read(target.path().join("a.txt")).unwrap(), b"original");
+            }
+        }
     }
 
     #[test]

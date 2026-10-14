@@ -28,9 +28,9 @@ What happens:
 1. Creates `.sorrel/` if missing (`sorrel init`)
 2. Walks commits reachable from `--ref` (default `HEAD`) via libgit2
 3. Writes Sorrel blobs/trees/snapshots and Change objects
-4. Advances HEAD to the tip snapshot and restores the working tree
-5. Writes `.sorrel/git-map.json` (Git SHA → snapshot/change ids)
-6. Appends `.sorrel/changes.index` so `sorrel log` shows imported history
+4. Preflights and restores the working tree
+5. Appends `.sorrel/changes.index` and writes `.sorrel/git-map.json`
+6. Advances HEAD to the imported tip after restoration succeeds
 
 Flags:
 
@@ -43,6 +43,14 @@ Flags:
 
 Refuse without `--force` when the working tree is dirty relative to HEAD, or when
 `.sorrel/git-map.json` already exists.
+
+Current source also checks a first colocated import against the selected Git
+commit, so creating Sorrel metadata does not authorize overwriting Git edits.
+An empty workspace left after rejection can be retried after recording those
+edits. Protected `.env` paths and provider files configured in the source
+checkout or in each selected commit are rejected before any blobs are copied,
+including when importing a bare repository or an older ref.
+This is not a credential scanner; audit other committed files before uploading.
 
 ## Export
 
