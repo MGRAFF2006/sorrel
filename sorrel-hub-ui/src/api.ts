@@ -16,6 +16,7 @@ export type HubCapabilities = {
     mode: 'dev' | 'workos' | 'oidc';
     /** Present when sessions are established (never WorkOS on hot path). */
     session?: 'cookie' | 'bearer' | 'none';
+    browserLogin?: boolean;
   };
   convex: {
     enabled: boolean;
@@ -28,6 +29,7 @@ export type HubSessionInfo = {
   auth: {
     mode: 'dev' | 'workos' | 'oidc';
     session: 'cookie' | 'bearer' | 'none';
+    browserLogin?: boolean;
   };
   session: {
     sessionId: string;
@@ -42,6 +44,8 @@ export type ApiFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise
 
 const [apiConnected, setApiConnected] = createSignal<boolean | null>(null);
 export const useApiConnection = () => apiConnected;
+const [authenticationRequired, setAuthenticationRequired] = createSignal(false);
+export const useAuthenticationRequired = () => authenticationRequired;
 
 let apiBase = '/api';
 const browserFetch: ApiFetch = (input, init) => globalThis.fetch(input, init);
@@ -56,6 +60,7 @@ export type ApiClientOptions = {
 export function configureApiClient(options: ApiClientOptions = {}) {
   apiBase = (options.baseUrl ?? '/api').replace(/\/$/, '');
   apiFetch = options.fetch ?? browserFetch;
+  setAuthenticationRequired(false);
 }
 
 /** Optional override for hosts/tests — defaults to session store principal. */
@@ -72,7 +77,7 @@ function currentPrincipal(): Principal {
 
 export async function apiRequest(method: string, path: string, body?: unknown) {
   const headers: Record<string, string> = { accept: 'application/json' };
-  const init: RequestInit = { method, headers };
+  const init: RequestInit = { method, headers, credentials: 'same-origin' };
   if (method !== 'GET' && method !== 'HEAD') {
     headers['x-sorrel-acting-principal'] = JSON.stringify(currentPrincipal());
   }
@@ -84,6 +89,7 @@ export async function apiRequest(method: string, path: string, body?: unknown) {
   try {
     response = await apiFetch(`${apiBase}${path}`, init);
     setApiConnected(response.status < 500);
+    if (response.status === 401) setAuthenticationRequired(true);
   } catch (error) {
     setApiConnected(false);
     throw error;
@@ -101,6 +107,7 @@ export async function apiRequest(method: string, path: string, body?: unknown) {
       `request failed (${response.status})`;
     throw new Error(message);
   }
+  if (path === '/session') setAuthenticationRequired(false);
   return payload;
 }
 

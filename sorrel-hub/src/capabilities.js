@@ -65,7 +65,8 @@ export function resolveCapabilities(options = {}) {
     },
     auth: {
       mode: authMode === 'workos' || authMode === 'oidc' ? authMode : 'dev',
-      session: authMode === 'dev' ? 'none' : 'bearer',
+      session: options.browserLogin === true ? 'cookie' : authMode === 'dev' ? 'none' : 'bearer',
+      browserLogin: options.browserLogin === true,
     },
     convex: {
       enabled: options.convexEnabled ?? isConvexMirrorEnabled(env),

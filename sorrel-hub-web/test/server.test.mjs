@@ -166,3 +166,96 @@ test('unreachable upstream errors do not disclose URL credentials', async () => 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('proxy preserves browser auth cookies, origins and redirects without following them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sorrel-hub-web-login-'));
+  const requests = [];
+  const upstream = http.createServer((request, response) => {
+    requests.push({ path: request.url, cookie: request.headers.cookie, origin: request.headers.origin });
+    response.writeHead(302, {
+      location: '/api/auth/callback',
+      'set-cookie': ['session=fixture; HttpOnly; Secure; SameSite=Lax', 'state=fixture; HttpOnly; Secure; SameSite=Lax'],
+      'cache-control': 'no-store',
+    }).end();
+  });
+  let proxy;
+  try {
+    proxy = createHubWebServer({ root, hubApiUrl: await listen(upstream) });
+    const url = await listen(proxy);
+    const response = await fetch(`${url}/api/auth/login`, {
+      headers: { cookie: 'session=existing', origin: 'https://hub.example.com' }, redirect: 'manual',
+    });
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get('location'), '/api/auth/callback');
+    assert.deepEqual(response.headers.getSetCookie(), ['session=fixture; HttpOnly; Secure; SameSite=Lax', 'state=fixture; HttpOnly; Secure; SameSite=Lax']);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(requests, [{ path: '/auth/login', cookie: 'session=existing', origin: 'https://hub.example.com' }]);
+  } finally {
+    if (proxy) await close(proxy);
+    if (upstream.listening) await close(upstream);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('proxy limits bodies before forwarding and times out stalled upstreams', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sorrel-hub-web-limits-'));
+  let forwarded = 0;
+  const upstream = http.createServer(() => { forwarded++; });
+  let proxy;
+  try {
+    proxy = createHubWebServer({ root, hubApiUrl: await listen(upstream), maxBodyBytes: 8, upstreamTimeoutMs: 50 });
+    const url = await listen(proxy);
+    const oversized = await fetch(`${url}/api/projects`, { method: 'POST', body: '123456789' });
+    assert.equal(oversized.status, 413);
+    assert.equal(forwarded, 0);
+    const response = await fetch(`${url}/api/session`);
+    assert.equal(response.status, 504);
+    assert.equal((await response.json()).error.code, 'hub_api_timeout');
+    assert.equal(forwarded, 1);
+  } finally {
+    if (proxy) await close(proxy);
+    if (upstream.listening) await close(upstream);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('proxy rejects chunked oversized bodies and cancels upstream work on client disconnect', { timeout: 5_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sorrel-hub-web-cancel-'));
+  let started;
+  const upstreamStarted = new Promise(resolve => { started = resolve; });
+  let cancelled;
+  const upstreamCancelled = new Promise(resolve => { cancelled = resolve; });
+  let forwarded = 0;
+  const upstream = http.createServer((_request, response) => {
+    forwarded++;
+    response.once('close', cancelled);
+    started();
+  });
+  let proxy;
+  try {
+    proxy = createHubWebServer({ root, hubApiUrl: await listen(upstream), maxBodyBytes: 8 });
+    const url = await listen(proxy);
+    const status = await new Promise((resolve, reject) => {
+      const request = http.request(`${url}/api/projects`, { method: 'POST' }, response => {
+        response.resume();
+        response.once('end', () => resolve(response.statusCode));
+      });
+      request.once('error', reject);
+      request.write('12345');
+      request.end('6789');
+    });
+    assert.equal(status, 413);
+    assert.equal(forwarded, 0);
+    const controller = new AbortController();
+    const request = fetch(`${url}/api/session`, { signal: controller.signal });
+    await upstreamStarted;
+    controller.abort();
+    await assert.rejects(request, /abort/i);
+    await upstreamCancelled;
+    assert.equal(forwarded, 1);
+  } finally {
+    if (proxy) { proxy.closeAllConnections(); await close(proxy); }
+    if (upstream.listening) { upstream.closeAllConnections(); await close(upstream); }
+    await rm(root, { recursive: true, force: true });
+  }
+});

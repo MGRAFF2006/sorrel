@@ -19,7 +19,9 @@ LABEL org.opencontainers.image.title="Sorrel Hub API" \
 
 COPY --chown=node:node sorrel-hub/package.json ./
 COPY --chown=node:node sorrel-hub/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --chown=node:node sorrel-hub/src ./src
+COPY --chown=node:node sorrel-hub/scripts ./scripts
 COPY --from=core-policy /build/target/release/sorrel-core-policy /usr/local/bin/sorrel-core-policy
 RUN apk add --no-cache libgcc libstdc++ libssl3 libcrypto3
 
