@@ -2117,3 +2117,43 @@ fn mock_policy_decision(expected: ExpectedDecision<'_>) -> Value {
         }
     })
 }
+
+#[test]
+fn local_operation_checkpoint_and_recovery_json_contracts() {
+    let workspace = TempDir::new().unwrap();
+    let root = workspace.path();
+    command_json(root, &["init", "--json"]);
+    let log = command_json(root, &["operation", "log", "--json"]);
+    assert_eq!(log["command"], "operation log");
+    assert_eq!(log["mocked"], false);
+    assert_eq!(log["count"], 1);
+    assert_content_id(&log["operations"][0]["id"]);
+    let operation = &log["operations"][0]["operation"];
+    assert_eq!(operation["version"], 1);
+    assert_eq!(operation["sequence"], 1);
+    assert_eq!(operation["action"], "init");
+    assert_eq!(operation["previous"], Value::Null);
+    assert_eq!(operation["before"]["head"], Value::Null);
+    assert_nonempty_str(&operation["createdAt"]);
+    assert_content_id(&operation["after"]["head"]["snapshot"]);
+    let created = command_json(root, &["checkpoint", "create", "empty", "--json"]);
+    assert_eq!(created["command"], "checkpoint create");
+    assert_eq!(created["status"], "created");
+    assert_eq!(created["checkpoint"]["name"], "empty");
+    assert_eq!(created["checkpoint"]["version"], 1);
+    assert_nonempty_str(&created["checkpoint"]["createdAt"]);
+    std::fs::write(root.join("recorded.txt"), "recorded").unwrap();
+    command_json(root, &["change", "create", "-m", "recorded", "--json"]);
+    let restored = command_json(root, &["checkpoint", "restore", "empty", "--json"]);
+    assert_eq!(restored["command"], "checkpoint restore");
+    assert_eq!(restored["status"], "restored");
+    assert_eq!(restored["checkpoint"], "empty");
+    assert_content_id(&restored["operationId"]);
+    assert_eq!(restored["after"], created["checkpoint"]["head"]);
+    let undo = command_json(root, &["undo", "--json"]);
+    assert_eq!(undo["command"], "undo");
+    assert_eq!(undo["checkpoint"], Value::Null);
+    assert_eq!(undo["before"], restored["after"]);
+    assert_eq!(undo["after"], restored["before"]);
+    assert_content_id(&undo["operationId"]);
+}
