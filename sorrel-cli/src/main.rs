@@ -60,6 +60,18 @@ enum Commands {
     Diff(DiffArgs),
     /// Show the change history reachable from HEAD.
     Log(LogArgs),
+    /// Inspect durable local ref operation history.
+    Operation {
+        #[command(subcommand)]
+        command: OperationCommand,
+    },
+    /// Name and restore recorded snapshots (requires a clean working tree).
+    Checkpoint {
+        #[command(subcommand)]
+        command: CheckpointCommand,
+    },
+    /// Undo the latest local HEAD transition, retaining all recorded history.
+    Undo,
     /// Work with Sorrel Change objects.
     Change {
         #[command(subcommand)]
@@ -126,6 +138,22 @@ enum Commands {
         #[command(subcommand)]
         command: GitCommand,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum OperationCommand {
+    /// List local ref publications, newest first.
+    Log,
+}
+
+#[derive(Debug, Subcommand)]
+enum CheckpointCommand {
+    /// Name the current recorded snapshot; never saves unfinished or ignored files.
+    Create { name: String },
+    /// List named recorded snapshots.
+    List,
+    /// Restore a named snapshot onto the current lane, preserving other lanes.
+    Restore { name: String },
 }
 
 #[derive(Debug, Args)]
@@ -604,6 +632,11 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
         } => path_explain_output(&path),
         Commands::Diff(args) => diff_output(args),
         Commands::Log(args) => log_output(args),
+        Commands::Operation {
+            command: OperationCommand::Log,
+        } => operation_log_output(),
+        Commands::Checkpoint { command } => checkpoint_output(command),
+        Commands::Undo => recovery_output(None),
         Commands::Change { command } => match command {
             ChangeCommand::Create(args) => change_create_output(args),
             ChangeCommand::List => change_list_output(),
@@ -654,6 +687,127 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
     }
 }
 
+fn operation_log_output() -> io::Result<CommandOutput> {
+    let context = open_repo()?;
+    let operations: Vec<_> = repo::load_operations()?
+        .into_iter()
+        .rev()
+        .map(|(id, operation)| json!({"id": id, "operation": operation}))
+        .collect();
+    let human = if operations.is_empty() {
+        "No local operations recorded".to_owned()
+    } else {
+        operations
+            .iter()
+            .map(|value| {
+                format!(
+                    "{}  {}  {}",
+                    value["id"].as_str().unwrap(),
+                    value["operation"]["createdAt"].as_str().unwrap(),
+                    value["operation"]["action"].as_str().unwrap()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    Ok(CommandOutput {
+        json: json!({"command": "operation log", "mocked": false,
+        "repoId": context.repo_id, "count": operations.len(), "operations": operations}),
+        human,
+    })
+}
+
+fn require_clean_recovery(context: &RepoContext) -> io::Result<ObjectId> {
+    if repo::merge_state_path().exists() {
+        return Err(io::Error::other(
+            "pending merge; continue or abort it before checkpoint/recovery commands",
+        ));
+    }
+    let current = head_snapshot_id(&context.head)?
+        .ok_or_else(|| io::Error::other("HEAD has no recorded snapshot"))?;
+    // Validate paths and graph before the dirty check reads tracked files.
+    to_io(validate_snapshot_restore(&context.store, &current))?;
+    if worktree_is_dirty(&context.store, &context.repo_id, &current)? {
+        return Err(io::Error::other(
+            "working tree has uncommitted changes; record them before checkpoint/recovery commands",
+        ));
+    }
+    Ok(current)
+}
+
+fn checkpoint_output(command: CheckpointCommand) -> io::Result<CommandOutput> {
+    if let CheckpointCommand::Restore { name } = command {
+        return recovery_output(Some(name));
+    }
+    let context = open_repo()?;
+    match command {
+        CheckpointCommand::Create { name } => {
+            require_clean_recovery(&context)?;
+            let checkpoint = repo::create_checkpoint(&name, &context.head)?;
+            Ok(CommandOutput {
+                json: json!({"command": "checkpoint create", "mocked": false,
+                "repoId": context.repo_id, "status": "created", "checkpoint": checkpoint}),
+                human: format!(
+                    "Checkpoint {name} references recorded snapshot {}",
+                    context.head.snapshot
+                ),
+            })
+        }
+        CheckpointCommand::List => {
+            let checkpoints = repo::load_checkpoints()?;
+            let human = if checkpoints.is_empty() {
+                "No checkpoints recorded".to_owned()
+            } else {
+                checkpoints
+                    .iter()
+                    .map(|c| format!("{}  {}  {}", c.name, c.head.lane, c.head.snapshot))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            Ok(CommandOutput {
+                json: json!({"command": "checkpoint list", "mocked": false,
+                "repoId": context.repo_id, "count": checkpoints.len(), "checkpoints": checkpoints}),
+                human,
+            })
+        }
+        CheckpointCommand::Restore { .. } => unreachable!(),
+    }
+}
+
+fn recovery_output(checkpoint_name: Option<String>) -> io::Result<CommandOutput> {
+    let context = open_repo()?;
+    let current = require_clean_recovery(&context)?;
+    let (target, prepared, command) = if let Some(name) = &checkpoint_name {
+        let checkpoint = repo::load_checkpoints()?
+            .into_iter()
+            .find(|c| &c.name == name)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "checkpoint does not exist"))?;
+        let target = repo::Head {
+            lane: context.head.lane.clone(),
+            snapshot: checkpoint.head.snapshot,
+        };
+        let prepared = repo::prepare_head_transition(&target, None, "checkpoint restore", None)?;
+        (target, prepared, "checkpoint restore")
+    } else {
+        let (target, prepared) = repo::prepare_undo()?;
+        (target, prepared, "undo")
+    };
+    let target_id = to_io(parse_object_id_hex(&target.snapshot))?;
+    let operation_id = prepared.operation_id.clone();
+    restore_worktree_to_snapshot(&context.store, &current, &target_id)?;
+    // Compare again after restore, then journal the record and refs together.
+    repo::publish_prepared(prepared)?;
+    Ok(CommandOutput {
+        json: json!({"command": command, "mocked": false, "status": "restored",
+        "repoId": context.repo_id, "checkpoint": checkpoint_name, "operationId": operation_id,
+        "before": context.head, "after": target}),
+        human: format!(
+            "Restored recorded snapshot {} on lane {} (operation {operation_id})",
+            target.snapshot, target.lane
+        ),
+    })
+}
+
 fn init_output() -> io::Result<CommandOutput> {
     // Idempotent-safe: never clobber an existing repository's history.
     if repo::is_initialized() {
@@ -698,10 +852,13 @@ fn init_output() -> io::Result<CommandOutput> {
     let manifest = repo::build_manifest(&repo_id, &created_at);
     repo::write_manifest(&manifest)?;
     // write_head also seeds `.sorrel/heads/<default-lane>`.
-    repo::write_head(&repo::Head {
-        lane: repo::DEFAULT_LANE_ID.to_owned(),
-        snapshot: head_snapshot.clone(),
-    })?;
+    repo::write_head_action(
+        &repo::Head {
+            lane: repo::DEFAULT_LANE_ID.to_owned(),
+            snapshot: head_snapshot.clone(),
+        },
+        "init",
+    )?;
     // Register the default lane so `lane list` has an entry after init.
     let default_lane = json!({
         "kind": "Lane",
@@ -890,7 +1047,7 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
     }))?;
 
     let change_id = change.id.to_hex();
-    repo::write_head_and_change(
+    repo::write_head_and_change_action(
         &repo::Head {
             lane: head.lane,
             snapshot: new_snapshot.to_hex(),
@@ -899,6 +1056,7 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
             snapshot: new_snapshot.to_hex(),
             change: change_id.clone(),
         },
+        "change create",
     )?;
 
     let (changes, total) = diff_json(&change.diff);
@@ -1399,7 +1557,7 @@ fn lane_create_output(args: LaneCreateArgs) -> io::Result<CommandOutput> {
     repo::write_registry_entry(repo::LANES_DIR, &lane_id, &entry)?;
     // Seed the new lane's independent head pointer at the current HEAD snapshot.
     repo::ensure_heads_migrated()?;
-    repo::write_lane_head(&lane_id, &head_snapshot)?;
+    repo::write_lane_head_action(&lane_id, &head_snapshot, "lane create")?;
 
     Ok(CommandOutput {
         json: json!({
@@ -1619,10 +1777,13 @@ fn lane_switch_output(args: LaneSwitchArgs) -> io::Result<CommandOutput> {
     // remove paths present in the current HEAD that are absent from the target.
     restore_worktree_to_snapshot(&store, &current_snapshot, &target_snapshot)?;
 
-    repo::write_head(&repo::Head {
-        lane: args.lane_id.clone(),
-        snapshot: target_snapshot_hex.clone(),
-    })?;
+    repo::write_head_action(
+        &repo::Head {
+            lane: args.lane_id.clone(),
+            snapshot: target_snapshot_hex.clone(),
+        },
+        "lane switch",
+    )?;
 
     Ok(CommandOutput {
         json: json!({
@@ -1836,10 +1997,13 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
     repo::write_json_atomic(&repo::git_map_path(), &map_value)?;
 
     let lane = head.lane;
-    repo::write_head(&repo::Head {
-        lane,
-        snapshot: head_hex.clone(),
-    })?;
+    repo::write_head_action(
+        &repo::Head {
+            lane,
+            snapshot: head_hex.clone(),
+        },
+        "git import",
+    )?;
 
     let count = imported.commits.len();
     Ok(CommandOutput {
@@ -2205,10 +2369,13 @@ fn git_sync_finish_pull(
         }
         restore_worktree_to_snapshot(store, &current, &target)?;
     }
-    repo::write_head(&repo::Head {
-        lane: head.lane.clone(),
-        snapshot: target.to_hex(),
-    })
+    repo::write_head_action(
+        &repo::Head {
+            lane: head.lane.clone(),
+            snapshot: target.to_hex(),
+        },
+        "git sync",
+    )
 }
 
 /// Exports Sorrel history onto the mirrored Git branch and refreshes the map.
@@ -2347,7 +2514,7 @@ fn park_git_lane(
                 let mut updated = entry;
                 updated["headSnapshot"] = json!({ "kind": "Snapshot", "id": theirs_hex });
                 repo::write_registry_entry(repo::LANES_DIR, &id, &updated)?;
-                repo::write_lane_head(&id, &theirs_hex)?;
+                repo::write_lane_head_action(&id, &theirs_hex, "git sync")?;
                 return Ok((id, name));
             }
         }
@@ -2372,7 +2539,7 @@ fn park_git_lane(
         "createdAt": lane.created_at,
     });
     repo::write_registry_entry(repo::LANES_DIR, &lane_id, &entry)?;
-    repo::write_lane_head(&lane_id, &theirs_hex)?;
+    repo::write_lane_head_action(&lane_id, &theirs_hex, "git sync")?;
     Ok((lane_id, name))
 }
 
@@ -2674,7 +2841,7 @@ fn merge_continue_output(resolved: &[PathBuf]) -> io::Result<CommandOutput> {
 
     let result_hex = result_snapshot.to_hex();
     let change_id = change.id.to_hex();
-    repo::write_head_and_change(
+    repo::write_head_and_change_action(
         &repo::Head {
             lane: head.lane,
             snapshot: result_hex.clone(),
@@ -2683,6 +2850,7 @@ fn merge_continue_output(resolved: &[PathBuf]) -> io::Result<CommandOutput> {
             snapshot: result_hex.clone(),
             change: change_id.clone(),
         },
+        "merge continue",
     )?;
     repo::clear_merge_state()?;
 
@@ -2816,10 +2984,13 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
     // Fast-forward: active lane has not diverged; just advance to theirs.
     if base_id == ours_id {
         restore_worktree_to_snapshot(&store, &ours_id, &theirs_id)?;
-        repo::write_head(&repo::Head {
-            lane: head.lane,
-            snapshot: theirs_hex.clone(),
-        })?;
+        repo::write_head_action(
+            &repo::Head {
+                lane: head.lane,
+                snapshot: theirs_hex.clone(),
+            },
+            "merge",
+        )?;
 
         return Ok(CommandOutput {
             json: json!({
@@ -2886,7 +3057,7 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
 
     let result_hex = result_snapshot.to_hex();
     let change_id = change.id.to_hex();
-    repo::write_head_and_change(
+    repo::write_head_and_change_action(
         &repo::Head {
             lane: head.lane,
             snapshot: result_hex.clone(),
@@ -2895,6 +3066,7 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
             snapshot: result_hex.clone(),
             change: change_id.clone(),
         },
+        "merge",
     )?;
 
     let (changes, total) = diff_json(&change.diff);
@@ -3691,10 +3863,13 @@ fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
     if before_snapshot != after_snapshot {
         restore_worktree_to_snapshot(&store, &before_snapshot, &after_snapshot)?;
-        repo::write_head(&repo::Head {
-            lane: before.lane,
-            snapshot: result.snapshot.clone(),
-        })?;
+        repo::write_head_action(
+            &repo::Head {
+                lane: before.lane,
+                snapshot: result.snapshot.clone(),
+            },
+            "pull",
+        )?;
     }
 
     Ok(CommandOutput {

@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 /// Name of the workspace metadata directory.
@@ -96,6 +97,9 @@ pub struct WorkspaceLock {
 impl WorkspaceLock {
     /// Acquire the workspace guard and finish any interrupted metadata commit.
     pub fn acquire(root: &Path) -> io::Result<Self> {
+        if root.exists() {
+            validate_metadata_path(root, Path::new("write.lock"))?;
+        }
         let _ = load_manifest_at(&root.join(MANIFEST_FILE))?;
         fs::create_dir_all(root)?;
         let path = root.join("write.lock");
@@ -261,6 +265,10 @@ fn metadata_transaction_with_flush(
     let mut staged = Vec::new();
     let preparation = (|| {
         for (target, bytes) in updates {
+            let relative = target
+                .strip_prefix(root)
+                .map_err(|_| invalid_record("metadata target outside root"))?;
+            validate_metadata_path(root, relative)?;
             // Refuse known invalid targets before any visible metadata changes.
             if target.exists() && !target.is_file() {
                 return Err(io::Error::other(format!(
@@ -299,20 +307,40 @@ fn recover_metadata_transaction_with_flush(
     flush: &dyn Fn(&Path, &Path) -> io::Result<()>,
 ) -> io::Result<()> {
     let journal = root.join(TRANSACTION_FILE);
+    validate_metadata_path(root, Path::new(TRANSACTION_FILE))?;
     let bytes = match fs::read(&journal) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
     };
     let entries: Vec<(PathBuf, PathBuf, String)> = serde_json::from_slice(&bytes)?;
-    for (target, temporary, _) in &entries {
+    let mut destinations = std::collections::BTreeSet::new();
+    let mut temporaries = std::collections::BTreeSet::new();
+    for (target, temporary, digest) in &entries {
+        let operation_target = target.parent() == Some(Path::new(OPERATIONS_DIR))
+            && target
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name.is_ascii()
+                        && name.len() == 90
+                        && name[..20].bytes().all(|c| c.is_ascii_digit())
+                        && name.as_bytes()[20] == b'-'
+                        && valid_digest(&name[21..85])
+                        && name.ends_with(".json")
+                });
         let valid_target = target == Path::new(HEAD_FILE)
             || target == Path::new(CHANGES_INDEX_FILE)
+            || operation_target
             || (target.parent() == Some(Path::new(HEADS_DIR))
                 && target
                     .file_name()
-                    .is_some_and(|name| name != "." && name != ".."));
+                    .and_then(|name| name.to_str())
+                    .is_some_and(valid_component));
         if !valid_target
+            || !destinations.insert(target.clone())
+            || !temporaries.insert(temporary.clone())
+            || !valid_digest(digest)
             || temporary.parent() != target.parent()
             || !temporary.file_name().is_some_and(|name| {
                 name.to_string_lossy().starts_with(".sorrel-")
@@ -324,6 +352,8 @@ fn recover_metadata_transaction_with_flush(
                 "invalid metadata transaction path",
             ));
         }
+        validate_metadata_path(root, target)?;
+        validate_metadata_path(root, temporary)?;
     }
     // A journal rename may have succeeded before its barrier failed.
     flush(root, root).map_err(|source| publication_uncertain(&journal, source))?;
@@ -342,6 +372,37 @@ fn recover_metadata_transaction_with_flush(
                 io::ErrorKind::InvalidData,
                 "metadata transaction is missing staged data",
             ));
+        }
+        if target.parent() == Some(root.join(OPERATIONS_DIR).as_path()) {
+            let operation: Operation = serde_json::from_slice(&data)?;
+            validate_operation(&operation)?;
+            if target.file_name().and_then(|name| name.to_str())
+                != Some(operation_filename(&operation, digest).as_str())
+            {
+                return Err(invalid_record("invalid journal operation filename"));
+            }
+            // Existing immutable records may only be replayed byte-for-byte.
+            if temporary.is_file() && target.exists() && fs::read(&target)? != data {
+                return Err(invalid_record("refusing to overwrite operation history"));
+            }
+            let history = load_operations_at(root)?;
+            let already_published = history.last().is_some_and(|(id, _)| id == digest);
+            let prior = if already_published {
+                &history[..history.len() - 1]
+            } else {
+                &history[..]
+            };
+            if operation.sequence != prior.len() as u64 + 1
+                || operation.previous != prior.last().map(|(id, _)| id.clone())
+            {
+                return Err(invalid_record(
+                    "journal operation does not extend local history",
+                ));
+            }
+            for state in [&operation.before, &operation.after] {
+                snapshots.extend(state.head.iter().map(|head| head.snapshot.clone()));
+                snapshots.extend(state.lane_heads.values().filter_map(Clone::clone));
+            }
         }
         if target.file_name().is_some_and(|name| name == HEAD_FILE)
             || target.parent() == Some(root.join(HEADS_DIR).as_path())
@@ -691,7 +752,8 @@ pub fn is_initialized() -> bool {
 }
 
 /// Persisted HEAD pointer (current lane + head snapshot id).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Head {
     /// Active lane id.
     pub lane: String,
@@ -816,13 +878,13 @@ pub fn load_head() -> io::Result<Option<Head>> {
 /// Writes the HEAD pointer atomically and mirrors the snapshot into the active
 /// lane's per-lane head file under `.sorrel/heads/`.
 pub fn write_head(head: &Head) -> io::Result<()> {
-    commit_head(head, None)
+    write_head_action(head, "head publish")
 }
 
 /// Publish a head and its change-index entry as one recoverable metadata commit.
 /// The caller must hold [`WorkspaceLock`] throughout reading and updating state.
 pub fn write_head_and_change(head: &Head, entry: &ChangesIndexEntry) -> io::Result<()> {
-    commit_head(head, Some(entry))
+    write_head_and_change_action(head, entry, "change publish")
 }
 
 fn flush_snapshot_closure(root: &Path, snapshot: &str) -> io::Result<()> {
@@ -857,25 +919,478 @@ fn flush_core_references(root: &Path, snapshots: &[&str], changes: &[&str]) -> i
     Ok(())
 }
 
-fn commit_head(head: &Head, entry: Option<&ChangesIndexEntry>) -> io::Result<()> {
+/// Publish a local HEAD transition with its actual command attribution.
+pub fn write_head_action(head: &Head, action: &str) -> io::Result<()> {
+    publish_prepared(prepare_head_transition(head, None, action, None)?)
+}
+
+/// Publish a recorded change and HEAD with command attribution.
+pub fn write_head_and_change_action(
+    head: &Head,
+    entry: &ChangesIndexEntry,
+    action: &str,
+) -> io::Result<()> {
+    publish_prepared(prepare_head_transition(head, Some(entry), action, None)?)
+}
+
+/// State of the active pointer and the lane pointers touched by an operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LocalState {
+    pub head: Option<Head>,
+    pub lane_heads: BTreeMap<String, Option<String>>,
+}
+
+/// Immutable local ref publication. Its id is the digest of the stored bytes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Operation {
+    pub version: u32,
+    pub sequence: u64,
+    pub previous: Option<String>,
+    pub created_at: String,
+    pub action: String,
+    pub related_operation: Option<String>,
+    pub before: LocalState,
+    pub after: LocalState,
+}
+
+pub const OPERATIONS_DIR: &str = "operations";
+pub const CHECKPOINTS_DIR: &str = "checkpoints";
+
+fn invalid_record(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
+}
+
+fn valid_component(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-' || c == b'.')
+}
+
+fn valid_digest(id: &str) -> bool {
+    id.len() == 64
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+}
+
+// Check every existing component before staging or replaying a journal. Metadata
+// registries must never redirect publication through symlinks outside .sorrel.
+fn validate_metadata_path(root: &Path, relative: &Path) -> io::Result<()> {
+    if relative
+        .components()
+        .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err(invalid_record("invalid metadata path"));
+    }
+    if fs::symlink_metadata(root)?.file_type().is_symlink() {
+        return Err(invalid_record("metadata root is a symlink"));
+    }
+    let mut path = root.to_owned();
+    for component in relative.components() {
+        path.push(component);
+        match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(invalid_record("metadata path contains a symlink"));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn validate_state(state: &LocalState) -> io::Result<()> {
+    if let Some(head) = &state.head {
+        if !valid_component(&head.lane) || !valid_digest(&head.snapshot) {
+            return Err(invalid_record("invalid operation HEAD"));
+        }
+    }
+    for (lane, snapshot) in &state.lane_heads {
+        if !valid_component(lane) || snapshot.as_ref().is_some_and(|id| !valid_digest(id)) {
+            return Err(invalid_record("invalid operation lane pointer"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_operation(operation: &Operation) -> io::Result<()> {
+    if operation.version != 1
+        || operation.sequence == 0
+        || operation.created_at.len() != 20
+        || operation
+            .previous
+            .as_ref()
+            .is_some_and(|id| !valid_digest(id))
+        || operation
+            .related_operation
+            .as_ref()
+            .is_some_and(|id| !valid_digest(id))
+        || !matches!(
+            operation.action.as_str(),
+            "init"
+                | "change create"
+                | "lane create"
+                | "lane switch"
+                | "merge"
+                | "merge continue"
+                | "git import"
+                | "git sync"
+                | "pull"
+                | "checkpoint restore"
+                | "undo"
+                | "head publish"
+                | "change publish"
+                | "lane head publish"
+                | "heads migration"
+        )
+        || operation
+            .before
+            .lane_heads
+            .keys()
+            .ne(operation.after.lane_heads.keys())
+    {
+        return Err(invalid_record("invalid operation record"));
+    }
+    validate_state(&operation.before)?;
+    validate_state(&operation.after)
+}
+
+fn operation_filename(operation: &Operation, id: &str) -> String {
+    format!("{:020}-{id}.json", operation.sequence)
+}
+
+/// Read validated operation records, oldest first. Old repositories yield none.
+pub fn load_operations() -> io::Result<Vec<(String, Operation)>> {
+    load_operations_at(&sorrel_dir())
+}
+
+// ponytail: scan local history under the workspace lock; add an index only if
+// measured history size makes publication slow.
+fn load_operations_at(root: &Path) -> io::Result<Vec<(String, Operation)>> {
+    let dir = Path::new(OPERATIONS_DIR);
+    validate_metadata_path(root, dir)?;
+    let entries = match fs::read_dir(root.join(dir)) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut paths = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        // Unpublished staging files can remain after a pre-journal crash.
+        if name.to_string_lossy().starts_with(".sorrel-")
+            && name.to_string_lossy().ends_with(".tmp")
+        {
+            continue;
+        }
+        paths.push(dir.join(name));
+    }
+    paths.sort();
+    let mut operations: Vec<(String, Operation)> = Vec::new();
+    for path in paths {
+        validate_metadata_path(root, &path)?;
+        let bytes = fs::read(root.join(&path))?;
+        let operation: Operation = serde_json::from_slice(&bytes)?;
+        validate_operation(&operation)?;
+        let id = sorrel_core::ObjectId::for_bytes(&bytes).to_hex();
+        if path.file_name().and_then(|s| s.to_str())
+            != Some(operation_filename(&operation, &id).as_str())
+            || operation.sequence != operations.len() as u64 + 1
+            || operation.previous != operations.last().map(|(id, _)| id.clone())
+        {
+            return Err(invalid_record("operation history is corrupt or incomplete"));
+        }
+        operations.push((id, operation));
+    }
+    Ok(operations)
+}
+
+fn read_state(lanes: impl Iterator<Item = String>) -> io::Result<LocalState> {
+    validate_metadata_path(&sorrel_dir(), Path::new(HEAD_FILE))?;
+    let mut state = LocalState {
+        head: load_head_raw()?,
+        lane_heads: BTreeMap::new(),
+    };
+    for lane in lanes {
+        if !valid_component(&lane) {
+            return Err(invalid_record("invalid lane identifier"));
+        }
+        let path = Path::new(HEADS_DIR).join(&lane);
+        validate_metadata_path(&sorrel_dir(), &path)?;
+        let snapshot = match fs::read(sorrel_dir().join(path)) {
+            Ok(bytes) => {
+                let value: Value = serde_json::from_slice(&bytes)?;
+                Some(
+                    value
+                        .get("snapshot")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| invalid_record("invalid lane pointer"))?
+                        .to_owned(),
+                )
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+        state.lane_heads.insert(lane, snapshot);
+    }
+    validate_state(&state)?;
+    Ok(state)
+}
+
+/// Prepared publication validated before touching the working tree.
+pub struct PreparedTransition {
+    before: LocalState,
+    updates: Vec<(PathBuf, Vec<u8>)>,
+    previous: Option<String>,
+    pub operation_id: String,
+}
+
+fn prepare_transition(
+    before: LocalState,
+    after: LocalState,
+    entry: Option<&ChangesIndexEntry>,
+    action: &str,
+    related_operation: Option<String>,
+) -> io::Result<PreparedTransition> {
+    let operations = load_operations()?;
+    let previous = operations.last().map(|(id, _)| id.clone());
+    let operation = Operation {
+        version: 1,
+        sequence: operations.len() as u64 + 1,
+        previous: previous.clone(),
+        created_at: now_rfc3339(),
+        action: action.to_owned(),
+        related_operation,
+        before: before.clone(),
+        after: after.clone(),
+    };
+    validate_operation(&operation)?;
+    let snapshots: Vec<_> = [&before, &after]
+        .into_iter()
+        .flat_map(|state| {
+            state
+                .head
+                .iter()
+                .map(|head| head.snapshot.as_str())
+                .chain(state.lane_heads.values().filter_map(|id| id.as_deref()))
+        })
+        .collect();
     let changes: Vec<_> = entry
         .map(|entry| entry.change.as_str())
         .into_iter()
         .collect();
-    flush_core_references(&sorrel_dir(), &[&head.snapshot], &changes)?;
-    let mut updates = Vec::new();
+    flush_core_references(&sorrel_dir(), &snapshots, &changes)?;
+    let bytes = serde_json::to_vec(&operation)?;
+    let operation_id = sorrel_core::ObjectId::for_bytes(&bytes).to_hex();
+    let operation_path =
+        registry_dir(OPERATIONS_DIR).join(operation_filename(&operation, &operation_id));
+    let mut updates = vec![(operation_path, bytes)];
     if let Some(entry) = entry {
         updates.push((changes_index_path(), changes_index_bytes(entry)?));
     }
-    updates.push((
-        lane_head_path(&head.lane),
-        serde_json::to_vec(&json!({ "snapshot": head.snapshot }))?,
-    ));
-    updates.push((
-        head_path(),
-        serde_json::to_vec(&json!({ "lane": head.lane, "snapshot": head.snapshot }))?,
-    ));
-    metadata_transaction(&sorrel_dir(), &updates)
+    for (lane, snapshot) in &after.lane_heads {
+        if snapshot != &before.lane_heads[lane] {
+            let snapshot = snapshot
+                .as_ref()
+                .ok_or_else(|| invalid_record("lane removal is unsupported"))?;
+            updates.push((
+                lane_head_path(lane),
+                serde_json::to_vec(&json!({"snapshot": snapshot}))?,
+            ));
+        }
+    }
+    if after.head != before.head {
+        let head = after
+            .head
+            .as_ref()
+            .ok_or_else(|| invalid_record("HEAD removal is unsupported"))?;
+        updates.push((head_path(), serde_json::to_vec(head)?));
+    }
+    for (path, _) in &updates {
+        validate_metadata_path(&sorrel_dir(), path.strip_prefix(sorrel_dir()).unwrap())?;
+        if path.exists()
+            && (!path.is_file() || path.parent() == Some(registry_dir(OPERATIONS_DIR).as_path()))
+        {
+            return Err(invalid_record(
+                "metadata publication destination already exists or is not a file",
+            ));
+        }
+    }
+    Ok(PreparedTransition {
+        before,
+        updates,
+        previous,
+        operation_id,
+    })
+}
+
+/// Prepare an expected-state HEAD transition while holding WorkspaceLock.
+pub fn prepare_head_transition(
+    head: &Head,
+    entry: Option<&ChangesIndexEntry>,
+    action: &str,
+    related: Option<String>,
+) -> io::Result<PreparedTransition> {
+    ensure_heads_migrated()?;
+    let old_head = load_head_raw()?;
+    let mut lanes = std::collections::BTreeSet::from([head.lane.clone()]);
+    if let Some(old) = old_head {
+        lanes.insert(old.lane);
+    }
+    let before = read_state(lanes.into_iter())?;
+    let mut after = before.clone();
+    after.head = Some(head.clone());
+    after
+        .lane_heads
+        .insert(head.lane.clone(), Some(head.snapshot.clone()));
+    prepare_transition(before, after, entry, action, related)
+}
+
+/// Commit only if the expected refs and history tip still match. Call after restore.
+pub fn publish_prepared(prepared: PreparedTransition) -> io::Result<()> {
+    if read_state(prepared.before.lane_heads.keys().cloned())? != prepared.before
+        || load_operations()?.last().map(|(id, _)| id.clone()) != prepared.previous
+    {
+        return Err(io::Error::other(
+            "local state changed before ref publication",
+        ));
+    }
+    metadata_transaction(&sorrel_dir(), &prepared.updates)
+}
+
+/// Prepare the inverse of the latest local active HEAD transition. Other lane
+/// publications and all immutable history remain intact.
+pub fn prepare_undo() -> io::Result<(Head, PreparedTransition)> {
+    let operations = load_operations()?;
+    let (id, operation) = operations
+        .iter()
+        .rev()
+        .find(|(_, op)| op.before.head != op.after.head)
+        .ok_or_else(|| io::Error::other("no local HEAD transition to undo"))?;
+    let target = operation
+        .before
+        .head
+        .clone()
+        .ok_or_else(|| io::Error::other("initialization cannot be undone"))?;
+    let before = read_state(operation.after.lane_heads.keys().cloned())?;
+    if before != operation.after {
+        return Err(io::Error::other(
+            "latest HEAD transition no longer matches local state",
+        ));
+    }
+    // Refuse to reactivate a lane whose pointer moved since switching away.
+    if before
+        .lane_heads
+        .get(&target.lane)
+        .and_then(|id| id.as_deref())
+        != Some(target.snapshot.as_str())
+        && target.lane != before.head.as_ref().unwrap().lane
+    {
+        return Err(io::Error::other(
+            "previous active lane has advanced; refusing undo",
+        ));
+    }
+    let prepared = prepare_transition(
+        before,
+        operation.before.clone(),
+        None,
+        "undo",
+        Some(id.clone()),
+    )?;
+    Ok((target, prepared))
+}
+
+/// A named reference to an existing recorded snapshot, never a workspace backup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Checkpoint {
+    pub version: u32,
+    pub name: String,
+    pub head: Head,
+    pub created_at: String,
+}
+
+fn validate_checkpoint(checkpoint: &Checkpoint) -> io::Result<()> {
+    if checkpoint.version != 1
+        || !valid_component(&checkpoint.name)
+        || checkpoint.name.len() > 80
+        || checkpoint.created_at.len() != 20
+    {
+        return Err(invalid_record(
+            "invalid checkpoint; use a name of 1–80 ASCII letters, digits, '.', '_' or '-'",
+        ));
+    }
+    validate_state(&LocalState {
+        head: Some(checkpoint.head.clone()),
+        lane_heads: BTreeMap::new(),
+    })
+}
+
+pub fn load_checkpoints() -> io::Result<Vec<Checkpoint>> {
+    validate_metadata_path(&sorrel_dir(), Path::new(CHECKPOINTS_DIR))?;
+    let entries = match fs::read_dir(registry_dir(CHECKPOINTS_DIR)) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut paths = Vec::new();
+    for entry in entries {
+        let name = entry?.file_name();
+        if name.to_string_lossy().starts_with(".sorrel-")
+            && name.to_string_lossy().ends_with(".tmp")
+        {
+            continue;
+        }
+        paths.push(Path::new(CHECKPOINTS_DIR).join(name));
+    }
+    paths.sort();
+    let mut checkpoints = Vec::new();
+    for path in paths {
+        validate_metadata_path(&sorrel_dir(), &path)?;
+        let checkpoint: Checkpoint = serde_json::from_slice(&fs::read(sorrel_dir().join(&path))?)?;
+        validate_checkpoint(&checkpoint)?;
+        if path.file_name().and_then(|s| s.to_str())
+            != Some(format!("{}.json", checkpoint.name).as_str())
+        {
+            return Err(invalid_record(
+                "checkpoint name does not match its filename",
+            ));
+        }
+        checkpoints.push(checkpoint);
+    }
+    Ok(checkpoints)
+}
+
+pub fn create_checkpoint(name: &str, head: &Head) -> io::Result<Checkpoint> {
+    let checkpoint = Checkpoint {
+        version: 1,
+        name: name.to_owned(),
+        head: head.clone(),
+        created_at: now_rfc3339(),
+    };
+    validate_checkpoint(&checkpoint)?;
+    let _ = load_checkpoints()?;
+    let path = registry_dir(CHECKPOINTS_DIR).join(format!("{name}.json"));
+    validate_metadata_path(&sorrel_dir(), path.strip_prefix(sorrel_dir()).unwrap())?;
+    if path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "checkpoint name already exists",
+        ));
+    }
+    if load_head()? != Some(head.clone()) {
+        return Err(io::Error::other("HEAD changed before checkpoint creation"));
+    }
+    flush_snapshot_closure(&sorrel_dir(), &head.snapshot)?;
+    write_json_atomic(&path, &serde_json::to_value(&checkpoint)?)?;
+    Ok(checkpoint)
 }
 
 /// Loads the per-lane head snapshot id for `lane_id`, if present.
@@ -904,9 +1419,17 @@ pub fn load_lane_head(lane_id: &str) -> io::Result<Option<String>> {
 
 /// Writes the per-lane head snapshot pointer atomically.
 pub fn write_lane_head(lane_id: &str, snapshot: &str) -> io::Result<()> {
-    flush_snapshot_closure(&sorrel_dir(), snapshot)?;
-    let value = json!({ "snapshot": snapshot });
-    write_json_atomic(&lane_head_path(lane_id), &value)
+    write_lane_head_action(lane_id, snapshot, "lane head publish")
+}
+
+/// Publish a lane pointer and an immutable operation in the same journal.
+pub fn write_lane_head_action(lane_id: &str, snapshot: &str, action: &str) -> io::Result<()> {
+    let before = read_state(std::iter::once(lane_id.to_owned()))?;
+    let mut after = before.clone();
+    after
+        .lane_heads
+        .insert(lane_id.to_owned(), Some(snapshot.to_owned()));
+    publish_prepared(prepare_transition(before, after, None, action, None)?)
 }
 
 /// Ensures `.sorrel/heads/` exists, creating it from `HEAD` when missing.
@@ -923,7 +1446,7 @@ pub fn ensure_heads_migrated() -> io::Result<()> {
         return Ok(());
     };
     fs::create_dir_all(&dir)?;
-    write_lane_head(&head.lane, &head.snapshot)
+    write_lane_head_action(&head.lane, &head.snapshot, "heads migration")
 }
 
 /// Loads HEAD without triggering per-lane head migration (avoids recursion).
@@ -1476,6 +1999,133 @@ mod tests {
         recover_metadata_transaction(&root).unwrap();
         assert_eq!(fs::read(index).unwrap(), next.as_bytes());
         assert!(!root.join(TRANSACTION_FILE).exists());
+    }
+
+    #[test]
+    fn operation_and_refs_recover_after_journal_and_operation_barrier_failures() {
+        for barrier in [5, 7] {
+            let outer = tempfile::tempdir().unwrap();
+            let root = outer.path().join(SORREL_DIR);
+            let store = sorrel_core::FileObjectStore::new(&root).unwrap();
+            let tree = sorrel_core::write_tree(&store, Vec::new()).unwrap();
+            let snapshot = sorrel_core::write_snapshot(
+                &store,
+                tree.id,
+                sorrel_core::SnapshotOptions::new("repo_fixture"),
+            )
+            .unwrap()
+            .id
+            .to_hex();
+            let after = LocalState {
+                head: Some(Head {
+                    lane: "lane_main".to_owned(),
+                    snapshot: snapshot.clone(),
+                }),
+                lane_heads: BTreeMap::from([("lane_main".to_owned(), Some(snapshot.clone()))]),
+            };
+            let operation = Operation {
+                version: 1,
+                sequence: 1,
+                previous: None,
+                created_at: now_rfc3339(),
+                action: "init".to_owned(),
+                related_operation: None,
+                before: LocalState {
+                    head: None,
+                    lane_heads: BTreeMap::from([("lane_main".to_owned(), None)]),
+                },
+                after: after.clone(),
+            };
+            let bytes = serde_json::to_vec(&operation).unwrap();
+            let id = sorrel_core::ObjectId::for_bytes(&bytes).to_hex();
+            let path = root
+                .join(OPERATIONS_DIR)
+                .join(operation_filename(&operation, &id));
+            let updates = vec![
+                (path.clone(), bytes.clone()),
+                (
+                    root.join(HEADS_DIR).join("lane_main"),
+                    serde_json::to_vec(&json!({"snapshot": snapshot})).unwrap(),
+                ),
+                (
+                    root.join(HEAD_FILE),
+                    serde_json::to_vec(&after.head).unwrap(),
+                ),
+            ];
+            let error =
+                metadata_transaction_with_flush(&root, &updates, &fail_nth_barrier(barrier))
+                    .unwrap_err();
+            assert!(is_publication_uncertain(&error));
+            assert!(!root.join(HEAD_FILE).exists());
+            assert!(root.join(TRANSACTION_FILE).exists());
+            assert_eq!(path.exists(), barrier == 7);
+            let original = sorrel_core::ObjectStore::read(&store, &tree.id).unwrap();
+            let hex = tree.id.to_hex();
+            let tree_path = root.join("objects").join(&hex[..2]).join(&hex[2..]);
+            fs::write(&tree_path, b"corrupt operation snapshot tree").unwrap();
+            assert!(WorkspaceLock::acquire(&root).is_err());
+            assert!(!root.join(HEAD_FILE).exists());
+            assert!(root.join(TRANSACTION_FILE).exists());
+            fs::write(tree_path, original).unwrap();
+            let _lock = WorkspaceLock::acquire(&root).unwrap();
+            assert_eq!(fs::read(path).unwrap(), bytes);
+            assert_eq!(fs::read(root.join(HEAD_FILE)).unwrap(), updates[2].1);
+            assert_eq!(load_operations_at(&root).unwrap().len(), 1);
+            assert!(!root.join(TRANSACTION_FILE).exists());
+        }
+    }
+
+    #[test]
+    fn recovery_rejects_corrupt_operation_and_duplicate_staging_before_ref_writes() {
+        let root = tempfile::tempdir().unwrap();
+        let head = root.path().join(HEAD_FILE);
+        fs::write(&head, b"old head").unwrap();
+        let bad = b"{}";
+        let id = sorrel_core::ObjectId::for_bytes(bad).to_hex();
+        let op_path = root
+            .path()
+            .join(OPERATIONS_DIR)
+            .join(format!("{:020}-{id}.json", 1));
+        let staged = stage_bytes(&op_path, bad).unwrap();
+        let staged_head = stage_bytes(&head, b"new head").unwrap();
+        write_json_atomic(
+            &root.path().join(TRANSACTION_FILE),
+            &json!([
+                [
+                    op_path.strip_prefix(root.path()).unwrap(),
+                    staged.strip_prefix(root.path()).unwrap(),
+                    id
+                ],
+                [
+                    HEAD_FILE,
+                    staged_head.strip_prefix(root.path()).unwrap(),
+                    sorrel_core::ObjectId::for_bytes(b"new head").to_hex()
+                ]
+            ]),
+        )
+        .unwrap();
+        assert!(WorkspaceLock::acquire(root.path()).is_err());
+        assert_eq!(fs::read(&head).unwrap(), b"old head");
+        assert!(!op_path.exists());
+        assert!(staged.exists());
+        write_json_atomic(
+            &root.path().join(TRANSACTION_FILE),
+            &json!([
+                [
+                    HEAD_FILE,
+                    staged_head.strip_prefix(root.path()).unwrap(),
+                    sorrel_core::ObjectId::for_bytes(b"new head").to_hex()
+                ],
+                [
+                    CHANGES_INDEX_FILE,
+                    staged_head.strip_prefix(root.path()).unwrap(),
+                    sorrel_core::ObjectId::for_bytes(b"new head").to_hex()
+                ]
+            ]),
+        )
+        .unwrap();
+        assert!(WorkspaceLock::acquire(root.path()).is_err());
+        assert_eq!(fs::read(&head).unwrap(), b"old head");
     }
 
     #[test]
