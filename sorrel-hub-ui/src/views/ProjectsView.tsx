@@ -2,6 +2,7 @@ import { A, useNavigate } from '@solidjs/router';
 import { createResource, createSignal, For, Show } from 'solid-js';
 import type { Organization } from '../domain.ts';
 import { apiGet, apiPost, unwrapList } from '../api.ts';
+import { useEffectivePrincipal } from '../session.ts';
 import {
   EmptyState,
   ErrorText,
@@ -22,7 +23,8 @@ type Project = {
 };
 
 /** Home: project picker — GitHub-style entry point. */
-export function ProjectsHome() {
+export function ProjectsHome(props: { inviteOnly?: boolean } = {}) {
+  const principal = useEffectivePrincipal();
   const navigate = useNavigate();
   const [orgFilter, setOrgFilter] = createSignal('');
   const [status, setStatus] = createSignal('');
@@ -85,13 +87,13 @@ export function ProjectsHome() {
             <button type="button" class="ghost" onClick={() => setReloadToken((n) => n + 1)}>
               Refresh
             </button>
-            <button
+            <Show when={!props.inviteOnly}><button
               type="button"
               onClick={() => setCreating(true)}
               aria-expanded={creating()}
             >
               Create project <span aria-hidden="true">＋</span>
-            </button>
+            </button></Show>
           </>
         }
       />
@@ -162,11 +164,11 @@ export function ProjectsHome() {
               fallback={
                 <EmptyState
                   title="No projects yet"
-                  body="Projects connect local workspaces without moving development into the cloud."
+                  body={props.inviteOnly ? `You are signed in. Ask your team administrator to share a project with ${principal().id}.` : 'Projects connect local workspaces without moving development into the cloud.'}
                   action={
-                    <button type="button" onClick={() => setCreating(true)}>
+                    <Show when={!props.inviteOnly}><button type="button" onClick={() => setCreating(true)}>
                       Create your first project
-                    </button>
+                    </button></Show>
                   }
                 />
               }

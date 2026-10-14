@@ -129,6 +129,7 @@ export function createWorkOsAdapter(options = {}) {
  * @param {{
  *   issuer?: string,
  *   audience?: string,
+ *   jwksUri?: string,
  *   fetchJwks?: (uri: string) => Promise<import('./oidc-jwt.js').Jwk[]>,
  * }} [options]
  * @returns {AuthAdapter}
@@ -150,6 +151,7 @@ export function createOidcAdapter(options = {}) {
           issuer: options.issuer,
           audience: options.audience,
           fetchJwks: options.fetchJwks,
+          jwksUri: options.jwksUri,
         });
         const subject = payload.sub;
         if (typeof subject !== 'string' || !subject.trim()) {
@@ -190,14 +192,15 @@ export function createAuthAdapterFromEnv(env = process.env) {
     return createWorkOsAdapter({
       apiKey: env.WORKOS_API_KEY,
       clientId: env.WORKOS_CLIENT_ID,
-      issuer: env.WORKOS_ISSUER,
-      audience: env.WORKOS_AUDIENCE,
+      issuer: env.WORKOS_ISSUER || undefined,
+      audience: env.WORKOS_AUDIENCE || undefined,
     });
   }
   if (mode === 'oidc') {
     return createOidcAdapter({
       issuer: env.SORREL_OIDC_ISSUER,
       audience: env.SORREL_OIDC_AUDIENCE,
+      jwksUri: env.SORREL_OIDC_JWKS_URI || undefined,
     });
   }
   return createDevActingPrincipalAdapter();

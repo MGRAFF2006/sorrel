@@ -36,7 +36,7 @@ test('configured Convex never changes product counter transport', async () => {
     const url = String(input); calls.push(url);
     const data = url === '/api/capabilities' ? { modules: { core: true }, auth: { mode: 'oidc' }, convex: { enabled: true, url: 'https://private-backend.convex.cloud' } }
       : url === '/api/admin/proposals?status=open' ? [{ id: 'visible' }]
-      : url === '/api/session' ? { auth: { mode: 'oidc' }, session: null } : [];
+      : url === '/api/session' ? { auth: { mode: 'oidc' }, session: { principal: { type: 'user', id: 'member' } } } : [];
     return new Response(JSON.stringify({ data }));
   }));
   render(() => <HubApp platform={createWebPlatform()} />);
