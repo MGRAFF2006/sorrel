@@ -1,6 +1,6 @@
 # Sorrel architecture
 
-Last updated: 2026-10-14
+Last updated: 2026-10-15
 
 This document describes the alpha architecture and explicitly labeled current
 source additions. Those additions require a source build; the published
@@ -92,6 +92,8 @@ A CLI workspace adds mutable references around those immutable objects:
   secrets/          secret-reference handles, never values
   runs/             structured workflow results and redacted logs
   slices/           slice manifests
+  operations/       immutable hash-linked local ref-transition history (optional)
+  checkpoints/      named recorded-snapshot references (optional)
   manifest.json     repository identity and format version
   HEAD              active lane and snapshot
   changes.index     snapshot-to-change lookup
@@ -99,15 +101,21 @@ A CLI workspace adds mutable references around those immutable objects:
   git-map.json      Git SHA ↔ Sorrel snapshot mapping, when used
   MERGE_STATE       only while resolving a conflicted merge
   write.lock        advisory command lock (released by the OS on process exit)
-  metadata-transaction.json  only while publishing heads and change metadata
+  metadata-transaction.json  only while publishing refs, changes or recovery metadata
 ```
 
 Mutable files are written through unique temporary files and atomic replacement.
 CLI workspace commands hold an advisory OS lock while reading and changing
 metadata; a competing command fails with a retryable busy error. Workflow
 processes run outside that lock so they can invoke Sorrel. HEAD, its lane head,
-and a new change-index entry are staged together with a recovery journal; the
-next locked command completes an interrupted publication before reading state.
+and a new change-index entry are staged with an immutable operation record in a
+recovery journal; the next locked command validates and completes interrupted
+metadata publication before reading state. Old repositories can omit operation
+and checkpoint registries without a format migration. Checkpoints name recorded
+snapshots; restore and undo refuse dirty work or pending merges, preflight the
+restore and publication, and compare saved ref state before publishing. Undo
+records a new transition and retains later history. This metadata recovery does
+not roll back arbitrary filesystem I/O or capture unfinished/ignored files.
 Unknown format versions fail closed.
 There is no general migration framework yet, so alpha workspaces and Hub data
 must be backed up before upgrading.
