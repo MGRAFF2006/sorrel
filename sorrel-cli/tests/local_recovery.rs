@@ -420,3 +420,260 @@ fn invalid_checkpoint_snapshot_paths_fail_before_worktree_changes() {
     assert!(!root.join("a").exists());
     assert!(!root.join("outside.txt").exists());
 }
+
+fn corrupt_first_operation(root: &Path) {
+    let path = fs::read_dir(root.join(".sorrel/operations"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    fs::write(path, b"{}").unwrap();
+}
+
+#[test]
+fn corrupt_history_rejects_lane_switch_and_both_merge_paths_before_restore() {
+    for divergent in [false, true] {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path();
+        sorrel(root, &["init"]);
+        record(root, "main");
+        let lane = sorrel(root, &["lane", "create", "--name", "incoming"])["object"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        sorrel(root, &["lane", "switch", &lane]);
+        record(root, "incoming");
+        sorrel(root, &["lane", "switch", "lane_main"]);
+        if divergent {
+            fs::write(root.join("main.txt"), "main only").unwrap();
+            sorrel(root, &["change", "create", "-m", "main only"]);
+        }
+        let head = fs::read(root.join(".sorrel/HEAD")).unwrap();
+        let lane_head = fs::read(root.join(".sorrel/heads/lane_main")).unwrap();
+        corrupt_first_operation(root);
+        for args in [&["lane", "switch", &lane][..], &["merge", &lane]] {
+            let output = Command::cargo_bin("sorrel")
+                .unwrap()
+                .current_dir(root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(!output.status.success());
+            assert!(String::from_utf8_lossy(&output.stderr).contains("missing field"));
+            assert_eq!(fs::read(root.join("file.txt")).unwrap(), b"main");
+            assert_eq!(fs::read(root.join(".sorrel/HEAD")).unwrap(), head);
+            assert_eq!(
+                fs::read(root.join(".sorrel/heads/lane_main")).unwrap(),
+                lane_head
+            );
+            if divergent {
+                assert_eq!(fs::read(root.join("main.txt")).unwrap(), b"main only");
+            }
+        }
+    }
+}
+
+fn git(root: &Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "humunkulud")
+        .env("GIT_AUTHOR_EMAIL", "graff.mathis@gmail.com")
+        .env("GIT_COMMITTER_NAME", "humunkulud")
+        .env("GIT_COMMITTER_EMAIL", "graff.mathis@gmail.com")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn corrupt_history_rejects_git_import_and_sync_before_restore() {
+    for import in [false, true] {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path();
+        let mirror = tempfile::tempdir().unwrap();
+        let git_root = mirror.path();
+        sorrel(root, &["init"]);
+        record(root, "first");
+        if import {
+            git(git_root, &["init", "--initial-branch", "main"]);
+        } else {
+            sorrel(
+                root,
+                &[
+                    "git",
+                    "export",
+                    git_root.to_str().unwrap(),
+                    "--branch",
+                    "main",
+                ],
+            );
+            git(git_root, &["checkout", "main"]);
+        }
+        fs::write(git_root.join("file.txt"), "incoming").unwrap();
+        git(git_root, &["add", "file.txt"]);
+        git(git_root, &["commit", "-m", "incoming"]);
+        let head = fs::read(root.join(".sorrel/HEAD")).unwrap();
+        let lane_head = fs::read(root.join(".sorrel/heads/lane_main")).unwrap();
+        corrupt_first_operation(root);
+        let args = if import {
+            vec!["git", "import", git_root.to_str().unwrap(), "--force"]
+        } else {
+            vec![
+                "git",
+                "sync",
+                git_root.to_str().unwrap(),
+                "--branch",
+                "main",
+            ]
+        };
+        let output = Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("missing field"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(fs::read(root.join("file.txt")).unwrap(), b"first");
+        assert_eq!(fs::read(root.join(".sorrel/HEAD")).unwrap(), head);
+        assert_eq!(
+            fs::read(root.join(".sorrel/heads/lane_main")).unwrap(),
+            lane_head
+        );
+    }
+}
+
+#[test]
+fn recovery_rejects_inconsistent_operation_refs_before_any_publication() {
+    for case in [
+        "malformed-head",
+        "wrong-head",
+        "missing-head",
+        "extra-head-field",
+        "malformed-lane",
+        "wrong-lane",
+        "missing-lane",
+        "extra-ref",
+        "stale-current",
+    ] {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path();
+        sorrel(root, &["init"]);
+        record(root, "first");
+        let before_head = fs::read(root.join(".sorrel/HEAD")).unwrap();
+        let before_lane = fs::read(root.join(".sorrel/heads/lane_main")).unwrap();
+        record(root, "second");
+        let mut paths: Vec<_> = fs::read_dir(root.join(".sorrel/operations"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        paths.sort();
+        let operation = paths.last().unwrap().clone();
+        let mut journal = Vec::new();
+        let mut staging = Vec::new();
+        for path in [
+            operation.clone(),
+            root.join(".sorrel/heads/lane_main"),
+            root.join(".sorrel/HEAD"),
+        ] {
+            let is_head = path.file_name().unwrap() == "HEAD";
+            let is_lane = path.parent().unwrap().file_name().unwrap() == "heads";
+            if (is_head && case == "missing-head") || (is_lane && case == "missing-lane") {
+                continue;
+            }
+            let mut bytes = fs::read(&path).unwrap();
+            if (is_head && case == "malformed-head") || (is_lane && case == "malformed-lane") {
+                bytes = b"{}".to_vec();
+            }
+            if is_head && case == "wrong-head" {
+                bytes = before_head.clone();
+            }
+            if is_lane && case == "wrong-lane" {
+                bytes = before_lane.clone();
+            }
+            if is_head && case == "extra-head-field" {
+                let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+                value["extra"] = json!(true);
+                bytes = serde_json::to_vec(&value).unwrap();
+            }
+            let temporary = path.parent().unwrap().join(".sorrel-recovery.tmp");
+            fs::write(&temporary, &bytes).unwrap();
+            staging.push(temporary.clone());
+            journal.push(json!([
+                path.strip_prefix(root.join(".sorrel")).unwrap(),
+                temporary.strip_prefix(root.join(".sorrel")).unwrap(),
+                sorrel_core::ObjectId::for_bytes(&bytes).to_hex()
+            ]));
+        }
+        if case == "extra-ref" {
+            let bytes = fs::read(root.join(".sorrel/heads/lane_main")).unwrap();
+            let temporary = root.join(".sorrel/heads/.sorrel-extra.tmp");
+            fs::write(&temporary, &bytes).unwrap();
+            staging.push(temporary);
+            journal.push(json!([
+                "heads/unrecorded",
+                "heads/.sorrel-extra.tmp",
+                sorrel_core::ObjectId::for_bytes(&bytes).to_hex()
+            ]));
+        }
+        fs::remove_file(&operation).unwrap();
+        fs::write(root.join(".sorrel/HEAD"), &before_head).unwrap();
+        fs::write(root.join(".sorrel/heads/lane_main"), &before_lane).unwrap();
+        if case == "stale-current" {
+            let mut value: Value = serde_json::from_slice(&before_head).unwrap();
+            value["snapshot"] = json!("f".repeat(64));
+            fs::write(
+                root.join(".sorrel/HEAD"),
+                serde_json::to_vec(&value).unwrap(),
+            )
+            .unwrap();
+        }
+        let current_head = fs::read(root.join(".sorrel/HEAD")).unwrap();
+        let journal_bytes = serde_json::to_vec(&journal).unwrap();
+        fs::write(
+            root.join(".sorrel/metadata-transaction.json"),
+            &journal_bytes,
+        )
+        .unwrap();
+        Command::cargo_bin("sorrel")
+            .unwrap()
+            .current_dir(root)
+            .arg("status")
+            .assert()
+            .failure();
+        assert_eq!(
+            fs::read(root.join(".sorrel/HEAD")).unwrap(),
+            current_head,
+            "{case}"
+        );
+        assert_eq!(
+            fs::read(root.join(".sorrel/heads/lane_main")).unwrap(),
+            before_lane,
+            "{case}"
+        );
+        assert_eq!(
+            fs::read(root.join("file.txt")).unwrap(),
+            b"second",
+            "{case}"
+        );
+        assert_eq!(
+            fs::read(root.join(".sorrel/metadata-transaction.json")).unwrap(),
+            journal_bytes,
+            "{case}"
+        );
+        assert!(!operation.exists(), "{case}");
+        for path in staging {
+            assert!(path.exists(), "{case}");
+        }
+    }
+}

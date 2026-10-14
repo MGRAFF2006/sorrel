@@ -1775,15 +1775,17 @@ fn lane_switch_output(args: LaneSwitchArgs) -> io::Result<CommandOutput> {
     // Restore target snapshot into the working tree without touching `.sorrel/`.
     // Snapshots never contain `.sorrel`, but restore does not delete extras, so
     // remove paths present in the current HEAD that are absent from the target.
-    restore_worktree_to_snapshot(&store, &current_snapshot, &target_snapshot)?;
-
-    repo::write_head_action(
+    let prepared = repo::prepare_head_transition(
         &repo::Head {
             lane: args.lane_id.clone(),
             snapshot: target_snapshot_hex.clone(),
         },
+        None,
         "lane switch",
+        None,
     )?;
+    restore_worktree_to_snapshot(&store, &current_snapshot, &target_snapshot)?;
+    repo::publish_prepared(prepared)?;
 
     Ok(CommandOutput {
         json: json!({
@@ -1963,6 +1965,15 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
     } else {
         head_snapshot_id(&head)?.unwrap_or(imported.empty_base_snapshot)
     };
+    let prepared = repo::prepare_head_transition(
+        &repo::Head {
+            lane: head.lane,
+            snapshot: head_hex.clone(),
+        },
+        None,
+        "git import",
+        None,
+    )?;
     restore_worktree_to_snapshot(&store, &previous, &imported.head_snapshot)?;
 
     for commit in &imported.commits {
@@ -1996,14 +2007,7 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
     });
     repo::write_json_atomic(&repo::git_map_path(), &map_value)?;
 
-    let lane = head.lane;
-    repo::write_head_action(
-        &repo::Head {
-            lane,
-            snapshot: head_hex.clone(),
-        },
-        "git import",
-    )?;
+    repo::publish_prepared(prepared)?;
 
     let count = imported.commits.len();
     Ok(CommandOutput {
@@ -2355,6 +2359,15 @@ fn git_sync_finish_pull(
     target: ObjectId,
     force: bool,
 ) -> io::Result<()> {
+    let prepared = repo::prepare_head_transition(
+        &repo::Head {
+            lane: head.lane.clone(),
+            snapshot: target.to_hex(),
+        },
+        None,
+        "git sync",
+        None,
+    )?;
     let current = materialize_worktree(store, repo_id, None, &[], None)?;
     let matches_target = to_io(snapshot_diff(store, &target, &current))?.is_empty();
     if !matches_target {
@@ -2369,13 +2382,7 @@ fn git_sync_finish_pull(
         }
         restore_worktree_to_snapshot(store, &current, &target)?;
     }
-    repo::write_head_action(
-        &repo::Head {
-            lane: head.lane.clone(),
-            snapshot: target.to_hex(),
-        },
-        "git sync",
-    )
+    repo::publish_prepared(prepared)
 }
 
 /// Exports Sorrel history onto the mirrored Git branch and refreshes the map.
@@ -2983,14 +2990,17 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
 
     // Fast-forward: active lane has not diverged; just advance to theirs.
     if base_id == ours_id {
-        restore_worktree_to_snapshot(&store, &ours_id, &theirs_id)?;
-        repo::write_head_action(
+        let prepared = repo::prepare_head_transition(
             &repo::Head {
                 lane: head.lane,
                 snapshot: theirs_hex.clone(),
             },
+            None,
             "merge",
+            None,
         )?;
+        restore_worktree_to_snapshot(&store, &ours_id, &theirs_id)?;
+        repo::publish_prepared(prepared)?;
 
         return Ok(CommandOutput {
             json: json!({
@@ -3046,8 +3056,6 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
     };
 
     // Clean three-way merge: restore merged tree, advance HEAD, record Change.
-    restore_worktree_to_snapshot(&store, &ours_id, &result_snapshot)?;
-
     let change = to_io(create_change(
         &store,
         ours_id,
@@ -3057,17 +3065,20 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
 
     let result_hex = result_snapshot.to_hex();
     let change_id = change.id.to_hex();
-    repo::write_head_and_change_action(
+    let prepared = repo::prepare_head_transition(
         &repo::Head {
             lane: head.lane,
             snapshot: result_hex.clone(),
         },
-        &repo::ChangesIndexEntry {
+        Some(&repo::ChangesIndexEntry {
             snapshot: result_hex.clone(),
             change: change_id.clone(),
-        },
+        }),
         "merge",
+        None,
     )?;
+    restore_worktree_to_snapshot(&store, &ours_id, &result_snapshot)?;
+    repo::publish_prepared(prepared)?;
 
     let (changes, total) = diff_json(&change.diff);
 
@@ -3862,14 +3873,17 @@ fn pull_output(args: PullArgs) -> io::Result<CommandOutput> {
     let after_snapshot = parse_object_id_hex(&result.snapshot)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
     if before_snapshot != after_snapshot {
-        restore_worktree_to_snapshot(&store, &before_snapshot, &after_snapshot)?;
-        repo::write_head_action(
+        let prepared = repo::prepare_head_transition(
             &repo::Head {
                 lane: before.lane,
                 snapshot: result.snapshot.clone(),
             },
+            None,
             "pull",
+            None,
         )?;
+        restore_worktree_to_snapshot(&store, &before_snapshot, &after_snapshot)?;
+        repo::publish_prepared(prepared)?;
     }
 
     Ok(CommandOutput {

@@ -359,6 +359,8 @@ fn recover_metadata_transaction_with_flush(
     flush(root, root).map_err(|source| publication_uncertain(&journal, source))?;
     let mut snapshots = std::collections::BTreeSet::new();
     let mut changes = std::collections::BTreeSet::new();
+    let mut payloads = BTreeMap::new();
+    let mut journal_operation = None;
     for (target, temporary, digest) in &entries {
         let target = root.join(target);
         let temporary = root.join(temporary);
@@ -403,6 +405,11 @@ fn recover_metadata_transaction_with_flush(
                 snapshots.extend(state.head.iter().map(|head| head.snapshot.clone()));
                 snapshots.extend(state.lane_heads.values().filter_map(Clone::clone));
             }
+            if journal_operation.replace(operation).is_some() {
+                return Err(invalid_record(
+                    "multiple operations in one metadata transaction",
+                ));
+            }
         }
         if target.file_name().is_some_and(|name| name == HEAD_FILE)
             || target.parent() == Some(root.join(HEADS_DIR).as_path())
@@ -428,6 +435,10 @@ fn recover_metadata_transaction_with_flush(
                 }
             }
         }
+        payloads.insert(target.strip_prefix(root).unwrap().to_owned(), data);
+    }
+    if let Some(operation) = &journal_operation {
+        validate_journal_operation_refs(root, operation, &payloads)?;
     }
     if !snapshots.is_empty() || !changes.is_empty() {
         let snapshots: Vec<_> = snapshots.iter().map(String::as_str).collect();
@@ -455,6 +466,99 @@ fn recover_metadata_transaction_with_flush(
     }
     fs::remove_file(&journal)?;
     flush(root, root).map_err(|source| publication_uncertain(&journal, source))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LanePointer {
+    snapshot: String,
+}
+
+fn parse_ref_payload(path: &Path, bytes: &[u8]) -> io::Result<Value> {
+    if path == Path::new(HEAD_FILE) {
+        let head: Head = serde_json::from_slice(bytes)?;
+        if !valid_component(&head.lane) || !valid_digest(&head.snapshot) {
+            return Err(invalid_record("invalid journal HEAD"));
+        }
+        Ok(serde_json::to_value(head)?)
+    } else {
+        let pointer: LanePointer = serde_json::from_slice(bytes)?;
+        if !valid_digest(&pointer.snapshot) {
+            return Err(invalid_record("invalid journal lane pointer"));
+        }
+        Ok(json!({"snapshot": pointer.snapshot}))
+    }
+}
+
+fn validate_journal_operation_refs(
+    root: &Path,
+    operation: &Operation,
+    payloads: &BTreeMap<PathBuf, Vec<u8>>,
+) -> io::Result<()> {
+    let mut expected = BTreeMap::new();
+    expected.insert(
+        PathBuf::from(HEAD_FILE),
+        (
+            operation
+                .before
+                .head
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()?,
+            operation
+                .after
+                .head
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()?,
+        ),
+    );
+    for (lane, before) in &operation.before.lane_heads {
+        expected.insert(
+            Path::new(HEADS_DIR).join(lane),
+            (
+                before.as_ref().map(|id| json!({"snapshot": id})),
+                operation.after.lane_heads[lane]
+                    .as_ref()
+                    .map(|id| json!({"snapshot": id})),
+            ),
+        );
+    }
+    for path in payloads.keys() {
+        if (path == Path::new(HEAD_FILE) || path.parent() == Some(Path::new(HEADS_DIR)))
+            && !expected.contains_key(path)
+        {
+            return Err(invalid_record(
+                "journal publishes a ref not recorded by its operation",
+            ));
+        }
+    }
+    for (path, (before, after)) in expected {
+        validate_metadata_path(root, &path)?;
+        if before != after && !payloads.contains_key(&path) {
+            return Err(invalid_record("journal is missing an operation ref update"));
+        }
+        if let Some(bytes) = payloads.get(&path) {
+            if Some(parse_ref_payload(&path, bytes)?) != after {
+                return Err(invalid_record(
+                    "journal ref disagrees with operation after-state",
+                ));
+            }
+        }
+        // A replay can observe either side of each already started publication,
+        // but must never overwrite a ref changed independently since the crash.
+        let current = match fs::read(root.join(&path)) {
+            Ok(bytes) => Some(parse_ref_payload(&path, &bytes)?),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+        if current != before && current != after {
+            return Err(invalid_record(
+                "current ref disagrees with operation recovery state",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Absolute-ish path to the `.sorrel` directory rooted at the current dir.
