@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
+const skip = process.platform !== 'linux' && 'Pilot backup requires Linux flock and GNU realpath';
+
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'sorrel-backup-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -42,7 +44,7 @@ exit "${'${MOCK_RESTIC_EXIT:-0}'}"
   return { root, run };
 }
 
-test('backs up the actual named volume without a supplied data path', t => {
+test('backs up the actual named volume without a supplied data path', { skip }, t => {
   const { root, run } = fixture(t);
   const data = join(root, 'volume/_data');
   const result = run(data);
@@ -50,7 +52,7 @@ test('backs up the actual named volume without a supplied data path', t => {
   assert.equal(readFileSync(join(root, 'restic-args'), 'utf8').split('\n')[2], realpathSync(data));
 });
 
-test('accepts an equivalent bind-mount path and resumes after Restic failure', t => {
+test('accepts an equivalent bind-mount path and resumes after Restic failure', { skip }, t => {
   const { root, run } = fixture(t);
   const data = join(root, 'bind');
   const alias = join(root, 'bind-alias');
@@ -61,7 +63,7 @@ test('accepts an equivalent bind-mount path and resumes after Restic failure', t
   assert.match(readFileSync(join(root, 'calls'), 'utf8'), /up -d --no-build --wait/);
 });
 
-test('rejects an unrelated existing data directory before stopping services', t => {
+test('rejects an unrelated existing data directory before stopping services', { skip }, t => {
   const { root, run } = fixture(t);
   const result = run(join(root, 'volume/_data'), join(root, 'unrelated'));
   assert.equal(result.status, 1);
