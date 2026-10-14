@@ -28,10 +28,12 @@ email login and disabled public signup are configured. The operator's pilot user
 has exact Core workspace grants; signing into the application still needs live
 email verification. Private credentials are outside Git.
 
-The browser displays the Hub sign-in gate. Cloudflare currently challenges the
-public login redirect and ordinary API/CLI requests; dashboard authentication is
-needed to correct the Sorrel-specific policy before external invitations. The
-origin returns 401 for anonymous projects and redirects login to WorkOS.
+The origin displays the Hub sign-in gate. Public access is client-dependent:
+laptop curl reaches health/session endpoints, receives 401 for anonymous projects,
+and receives the WorkOS login redirect, while normal Python requests and the
+development browser receive Cloudflare 403 responses. A scoped Cloudflare API
+configuration rule still needs owner access before external invitations; the
+existing tunnel credential cannot change those settings.
 
 A daily encrypted Restic backup runs at 00:30 Europe/Berlin using the existing
 homelab repository and shared backup lock. The first snapshot (`73ee29b9`) was
@@ -47,8 +49,6 @@ transport. Regression coverage is in
 [`restore_safety.rs`](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/tests/restore_safety.rs),
 [`sync.rs`](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-cli/tests/sync.rs), and
 [`workos-browser.test.js`](https://github.com/MGRAFF2006/sorrel/blob/main/sorrel-hub/test/workos-browser.test.js).
-The first plan received an independent review; the follow-up review returned
-additional restore/logout/proxy findings before its provider stopped the review.
 
 Important remaining product gaps:
 
