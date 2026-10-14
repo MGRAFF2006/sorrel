@@ -304,9 +304,13 @@ backup/restore checks in [RELEASE.md](RELEASE.md) before external invitations.
 
 `deploy/backup-pilot.sh` pauses Hub writes, backs up data and the deployment
 checkout (including private configuration) to an existing encrypted Restic
-repository, then resumes the containers even after a failed backup. Set
-`SORREL_HUB_DATA_PATH`, `RESTIC_REPOSITORY`, and `RESTIC_PASSWORD_FILE`; for the
-tunnel overlay also set `SORREL_PILOT_TUNNEL=1`. A shared `SORREL_BACKUP_LOCK`
+repository, then resumes the containers even after a failed backup. It discovers
+the running Hub's `/app/data` mount, covering both the direct-TLS named volume
+and the tunnel bind mount. Run it on the Docker host with access to that local
+directory. Set `RESTIC_REPOSITORY` and `RESTIC_PASSWORD_FILE`; for the tunnel
+overlay also set `SORREL_PILOT_TUNNEL=1`. If `SORREL_HUB_DATA_PATH` is supplied,
+it must resolve to the actual mount or backup fails before stopping services.
+A shared `SORREL_BACKUP_LOCK`
 coordinates with other backups. It refuses to start an intentionally stopped
 Hub. Backups retain all pilot snapshots; choose retention after measuring growth.
 

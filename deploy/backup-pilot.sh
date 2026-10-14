@@ -4,10 +4,8 @@ umask 077
 
 checkout=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$checkout"
-: "${SORREL_HUB_DATA_PATH:?Set the persistent Hub data directory}"
 : "${RESTIC_REPOSITORY:?Use an existing encrypted Restic repository}"
 : "${RESTIC_PASSWORD_FILE:?Set the existing Restic password-file path}"
-test -d "$SORREL_HUB_DATA_PATH"
 test -f "$RESTIC_PASSWORD_FILE"
 mkdir -p deploy/backups
 exec 9>"${SORREL_BACKUP_LOCK:-$checkout/deploy/backups/backup.lock}"
@@ -26,6 +24,21 @@ for service in hub hub-web; do
     exit 1
   }
 done
+hub_container=$(dc ps -q hub)
+[[ -n $hub_container && $hub_container != *$'\n'* ]] || {
+  printf 'Expected exactly one running Hub container\n' >&2
+  exit 1
+}
+data_source=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' "$hub_container")
+[[ -n $data_source && -d $data_source ]] || {
+  printf 'Hub data mount is not a readable local directory\n' >&2
+  exit 1
+}
+data_source=$(realpath -e -- "$data_source")
+if [[ -n ${SORREL_HUB_DATA_PATH:-} && $(realpath -e -- "$SORREL_HUB_DATA_PATH") != "$data_source" ]]; then
+  printf 'SORREL_HUB_DATA_PATH does not match the running Hub data mount\n' >&2
+  exit 1
+fi
 paused=0
 resume() {
   local result=$?
@@ -38,7 +51,7 @@ resume() {
 trap resume EXIT
 paused=1
 dc stop hub-web hub
-restic --no-cache backup "$SORREL_HUB_DATA_PATH" "$checkout" --tag sorrel-pilot \
+restic --no-cache backup "$data_source" "$checkout" --tag sorrel-pilot \
   --exclude '**/.git' --exclude '**/node_modules' --exclude '**/target' \
   --exclude "$checkout/deploy/backups"
 dc up -d --no-build --wait --wait-timeout 60 hub hub-web
