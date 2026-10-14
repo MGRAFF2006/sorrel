@@ -457,3 +457,51 @@ cargo test --workspace
 cargo clippy --bin sorrel -- -D warnings
 cargo fmt --all -- --check
 ```
+
+## Local operations, checkpoints, and undo
+
+```sh
+sorrel operation log --json
+sorrel checkpoint create before-refactor
+sorrel checkpoint list --json
+sorrel checkpoint restore before-refactor
+sorrel undo
+```
+
+HEAD and lane-pointer publications append immutable, digest-verified records in
+`.sorrel/operations/`, using the same durable metadata transaction as the refs.
+Records contain a version, sequence, previous operation id, UTC timestamp, actual
+command action, and before/after active HEAD and affected lane pointers. The log
+lists newest first; JSON contains `command`, `mocked`, `repoId`, `count`, and
+`operations` entries with `id` and `operation`. Old repositories start with an
+empty operation history; existing snapshots and refs need no format migration.
+
+Checkpoints in `.sorrel/checkpoints/` name the current **recorded** HEAD snapshot.
+Names contain 1–80 ASCII letters, digits, `.`, `_`, or `-`, excluding `.` and
+`..`; a collision is an error. Creation requires a clean working tree and no
+pending merge. It does not snapshot unfinished work or save ignored files.
+Checkpoint JSON returns `checkpoint` on creation and `checkpoints` plus `count`
+on listing. Each checkpoint has `version`, `name`, `head`, and `createdAt`.
+
+Restore puts the checkpoint's snapshot onto the **currently active lane**.
+Undo reverses the latest operation that changed active HEAD, including a lane
+switch. It refuses initialization and any transition whose saved after-state no
+longer matches the affected local refs. Later publications on unrelated lanes
+remain intact. Undo itself is a new operation, so a second undo reverses that
+undo. Recovery JSON includes `status: "restored"`, `operationId`, `before`,
+`after`, and `checkpoint` (the name for restore, otherwise `null`).
+
+Restore and undo require a clean working tree and no pending merge. They validate
+the complete graph, recorded paths, and publication destinations before restore,
+protect ignored/untracked collisions, and compare current refs before publishing
+HEAD. Each recovery appends history and keeps both prior and target snapshots
+reachable; it never rewrites the change index or other lane heads. Errors retain
+the existing CLI contract: nonzero exit with a diagnostic on stderr.
+
+This is recovery of recorded local snapshot/ref transitions. It does not undo
+remote Hub/Git state, grants, external processes, or arbitrary filesystem actions,
+and does not back up secrets, ignored, or untracked files. A filesystem I/O error
+or process death during working-tree restore can leave a partial working tree;
+HEAD is published only after restore succeeds. The metadata journal recovers ref
+and operation publication together, not arbitrary working-tree I/O. There is no
+checkpoint overwrite, deletion, or automatic history pruning in this version.

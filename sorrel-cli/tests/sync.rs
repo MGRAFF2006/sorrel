@@ -640,3 +640,33 @@ fn cli_pull_preserves_ignored_children_on_directory_to_file() {
         b"preserve\n"
     );
 }
+
+#[test]
+fn cli_pull_rejects_corrupt_operation_history_before_restoring() {
+    let hub = LiveHub::start();
+    let source = connected_workspace(&hub, "repo_corrupt_history_pull");
+    std::fs::write(source.path().join("tracked.txt"), b"base\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "base"]);
+    cli_ok(source.path(), &["push"]);
+    let local = connected_workspace(&hub, "repo_corrupt_history_pull");
+    cli_ok(local.path(), &["pull"]);
+    std::fs::write(source.path().join("tracked.txt"), b"remote\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "remote"]);
+    cli_ok(source.path(), &["push"]);
+    let before = head_bytes(local.path());
+    let operation = std::fs::read_dir(local.path().join(".sorrel/operations"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    std::fs::write(operation, b"{}").unwrap();
+    let output = cli(local.path(), &["pull"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("missing field"));
+    assert_eq!(head_bytes(local.path()), before);
+    assert_eq!(
+        std::fs::read(local.path().join("tracked.txt")).unwrap(),
+        b"base\n"
+    );
+}
