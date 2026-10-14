@@ -1,0 +1,48 @@
+# Overlay for source-built WorkOS pilots; use with sorrel-server.compose.yml.
+# Only Caddy exposes public ports. API and web ports remain on loopback.
+services:
+  hub:
+    image: sorrel-hub:pilot
+    build:
+      context: ..
+      dockerfile: sorrel-hub/Dockerfile
+    environment:
+      SORREL_HUB_DEPLOY: saas
+      SORREL_HUB_AUTH: workos
+      SORREL_HUB_PUBLIC_URL: "${SORREL_HUB_PUBLIC_URL:?Set the public HTTPS origin}"
+      WORKOS_COOKIE_PASSWORD: "${WORKOS_COOKIE_PASSWORD:?Set the WorkOS cookie password}"
+      SORREL_HUB_LOCAL_DEMO: "0"
+      SORREL_HUB_BOOTSTRAP_GRANTS: "0"
+      SORREL_HUB_ALLOW_INSECURE_DEV_AUTH: "0"
+      SORREL_HUB_TRUSTED_GRANTS_FILE: /app/config/grants.json
+      SORREL_HUB_MAX_BODY_BYTES: "${SORREL_HUB_MAX_BODY_BYTES:-67108864}"
+    volumes:
+      - ./config:/app/config:ro
+  hub-web:
+    image: sorrel-hub-web:pilot
+    build:
+      context: ..
+      dockerfile: sorrel-hub-web/Dockerfile
+    environment:
+      SORREL_HUB_MAX_BODY_BYTES: "${SORREL_HUB_MAX_BODY_BYTES:-67108864}"
+  caddy:
+    image: caddy:2.11.7
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SORREL_HUB_HOST: "${SORREL_HUB_HOST:?Set the public Hub hostname}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      hub-web:
+        condition: service_healthy
+volumes:
+  caddy-data:
+  caddy-config:

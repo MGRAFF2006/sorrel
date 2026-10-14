@@ -1,0 +1,28 @@
+# Add after sorrel-server.compose.yml and sorrel-hosted.compose.yml.
+# TLS and DNS belong to an existing Cloudflare Tunnel; no Caddy ports are opened.
+services:
+  hub:
+    volumes: !override
+      - "${SORREL_HUB_DATA_PATH:?Set the persistent Hub data directory}:/app/data"
+      - ./config:/app/config:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+  hub-web:
+    networks:
+      default:
+      tunnel:
+        aliases: [sorrel-hub-web]
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+  caddy:
+    profiles: [direct-tls]
+networks:
+  tunnel:
+    external: true
+    name: "${SORREL_TUNNEL_NETWORK:?Set the existing tunnel Docker network}"

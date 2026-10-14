@@ -8,3 +8,5 @@ target
 **/.env.*
 **/data
 **/*.log
+deploy/config
+deploy/backups
