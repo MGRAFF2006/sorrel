@@ -30,8 +30,9 @@ path. The old alpha artifacts do not contain new source changes.
 2. Separate working directories per lane sharing immutable objects. Define
    ownership and locking; independent heads alone do not isolate filesystem edits.
 3. Selective changes by path, then hunks. Leave unrelated unfinished work untouched.
-4. Claim release, heartbeat, expiry and overlap warnings. Coordination remains
-   advisory; stale claims must not look like a sandbox or permission boundary.
+4. Connect advisory claims to authenticated remote coordination and explicit
+   cleanup/retention. Keep expiry separate from authorization and execution
+   isolation; local leases must not look like a sandbox or permission boundary.
 
 Acceptance: two agents work separately, submit focused changes and recover from
 an abandoned or incorrect operation without losing each other's files. Add

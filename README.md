@@ -44,6 +44,8 @@ The source-built CLI also provides an operation log, named checkpoints of
 recorded snapshots, and guarded local undo. Checkpoint creation and recovery
 require a clean working tree and do not back up unfinished or ignored files; see
 [local recovery](sorrel-cli/README.md#local-operations-checkpoints-and-undo).
+The source agent library adds leased advisory claims, heartbeat, release and
+overlap warnings; these coordinate local work and never enforce access.
 
 Lanes currently share a working directory. Separate agent checkouts,
 focused changes, and real proposal integration with

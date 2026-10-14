@@ -270,9 +270,16 @@ missing input. Human output includes redacted streams and a saved-log hint;
 follow/Hub streaming is not implemented.
 
 Slices compute deterministic TS/JS dependency closures for focused context.
-The agent package persists advisory agent/lane registrations and path claims;
-writers lock and reload the local state before atomic replacement, and readers
-refresh from disk. It is coordination, not an enforcement boundary. The JavaScript and Rust SDKs
+The agent package persists registrations and leased advisory path claims. New
+claims default to 15 minutes; heartbeat renews active claims and release is
+owner-specific and idempotent. Expired claims leave the active view and
+cross-agent component-boundary overlap warnings, while registrations and stored
+records remain. Legacy records without expiry remain indefinite until explicit
+action. Writers lock and reload before atomic replacement; readers refresh from
+disk. Owner IDs are caller-supplied and matching is lexical and case-sensitive;
+there is no authentication, cleanup scheduler, symlink resolution or enforcement.
+Core remains authoritative, including for claims marked `blocking`.
+The JavaScript and Rust SDKs
 are intentionally thin until a stable embedding surface is designed.
 
 ## Compatibility and trust rules
