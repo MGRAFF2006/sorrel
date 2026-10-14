@@ -72,6 +72,60 @@ SORREL_VERSION=0.1.0-alpha.2 \
 
 ## Tagging
 
+### Hosted pilot launch gate
+
+Before external invitations, test the current source-built stack with real
+WorkOS application configuration and the intended HTTPS hostname:
+
+- Login/callback uses the exact registered URI. Expiry refreshes a session;
+  logout clears local credentials and completes identity-provider sign-out;
+  expired or revoked credentials fail closed. Test an IdP outage and retry.
+- Two invited teams can see only their exact projects, repository bytes, refs,
+  counters, proposals and comments. A forged acting-principal header cannot
+  substitute for a hosted identity. Test scoped CLI upload through `/api`.
+- A new invitee finds the provisioned project without policy-file editing.
+  Verify the empty-access state and clearly document current manual CLI token
+  provisioning; automatic CLI login is still an onboarding gap.
+- Restart API/web and confirm metadata, objects, refs and valid cookie sessions
+  persist. Preserve the cookie password in the operator's secret manager.
+- With Hub stopped, back up the entire `hub-data` volume, operator grants and
+  configuration to a private location. Restore into a separate disposable
+  volume and verify project/ref visibility and a CLI pull before deleting the
+  test copy. Keep backup files and credentials out of Git and screenshots.
+- Confirm TLS, private API/web ports, expected container users, writeable data
+  mounts, startup failures for incomplete hosted config, and actual release
+  installer/checksum assets. Run the full release gate in CI.
+
+The supplied container smoke check exercises image startup, non-root users,
+read-only roots and proxy health. It does not validate live identity, TLS,
+backup restoration or general production readiness. Source deployment guidance
+is in [GETTING_STARTED.md](GETTING_STARTED.md#hosted-pilot-from-current-source).
+
+### Pilot outreach
+
+After those gates pass, recruit 3–5 agent-tool teams for a guided trial. Show
+one real repository moving from a local lane to recorded review, with explicit
+current integration/recovery limits. Measure successful first uploads/reviews,
+time and assistance required, and use the next week. Prefer interviews and a
+short demo over paid ads until onboarding works without operator help.
+
+An announcement can describe an invite-only Sorrel Hub pilot for reviewing
+human and agent changes while retaining local/Git workflows. State that Core
+grants control access, integration remains manual, and the preview needs
+disposable repositories. Invite concrete workflow feedback through the existing
+GitHub issue forms. Do not claim market fit, enforced agent isolation or
+production readiness without evidence.
+
+For a later Show HN, provide something people can actually run; a signup-only
+landing page is insufficient. Mathis should write and post in his own voice:
+HN currently disallows generated/AI-edited posts and automated posting.
+Check the [Show HN guidance](https://news.ycombinator.com/showhn.html) and
+[posting rules](https://news.ycombinator.com/newsguidelines.html) again at launch.
+Other communities need their own current posting rules checked. No outreach is
+sent by deployment or release scripts.
+
+### Versioned release
+
 After checks pass on `main`:
 
 1. Run the **Prepare changelogs** workflow with the next version and release

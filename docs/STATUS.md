@@ -1,12 +1,82 @@
 # Sorrel status
 
-Last updated: 2026-09-01
+Last updated: 2026-10-14
 
 What works today, what does not, and where to look next. For how to run the
 stack, see [GETTING_STARTED.md](GETTING_STARTED.md). The forward plan is
 [`ROADMAP.md`](../ROADMAP.md).
 
 ## Snapshot
+
+### Current source versus the published alpha
+
+The current source adds WorkOS browser sign-in, SDK-sealed cookies, refresh,
+logout, authenticated UI gating, and an invite-only HTTPS deployment/provisioning
+path. It also protects first Git import and Hub pull from overwriting unfinished
+work, rejects non-fast-forward pulls, and checks restore paths and objects before
+deletions. **These changes are not in the published alpha artifacts.** The
+invite-only staging deployment is running; end-to-end live sessions remain
+unverified. This is not a general production-readiness claim.
+
+The operator selected `sorrel.humunkulud.com` on `homelab-services` through the
+existing Cloudflare Tunnel. Tested source-built containers are healthy, DNS and
+ingress are active, and no additional public ports are open. The WorkOS account,
+Sorrel Hub staging application, exact callback/sign-out/login URLs, passwordless
+email login and disabled public signup are configured. The operator's pilot user
+has exact Core workspace grants; signing into the application still needs live
+email verification. Private credentials are outside Git.
+
+The browser displays the Hub sign-in gate. Cloudflare currently challenges the
+public login redirect and ordinary API/CLI requests; dashboard authentication is
+needed to correct the Sorrel-specific policy before external invitations. The
+origin returns 401 for anonymous projects and redirects login to WorkOS.
+
+A daily encrypted Restic backup runs at 00:30 Europe/Berlin using the existing
+homelab repository and shared backup lock. The first snapshot (`73ee29b9`) was
+restored separately with all 627 files verified; metadata, grants and private
+configuration matched, and an isolated restored Hub passed health and anonymous
+access checks. Live session/refresh/revocation, two-team isolation, public CLI
+upload and independent off-host recovery checks remain pending.
+
+The 2026-10-14 audit reproduced first-import data loss, dirty/diverged pulls,
+ignored-file and symlink restore collisions, and broken browser cookie/redirect
+transport. Regression coverage is in
+[`git_import.rs`](../sorrel-cli/tests/git_import.rs),
+[`restore_safety.rs`](../sorrel-cli/tests/restore_safety.rs),
+[`sync.rs`](../sorrel-cli/tests/sync.rs), and
+[`workos-browser.test.js`](../sorrel-hub/test/workos-browser.test.js).
+The first plan received an independent review; the follow-up review returned
+additional restore/logout/proxy findings before its provider stopped the review.
+
+Important remaining product gaps:
+
+- Lanes keep independent heads but share a checkout; separate directories,
+  selective changes, operation history/checkpoints/undo, and complete claim
+  lifecycle are still future work.
+- Hub reviews compare recorded snapshots. “Mark as merged” changes metadata;
+  real Core integration and checks/approvals tied to exact snapshots are pending.
+- Hosted access is operator-provisioned; self-service team access, managed CLI
+  login, quotas, pagination, safe format migrations, and general disaster-recovery
+  validation are pending. Core grants remain authoritative after login.
+- Restore preflight handles known invalid paths, missing blobs, inconsistent
+  trees, ignored collisions, symlinks and Unix hardlinks. It does not provide
+  full filesystem rollback on arbitrary I/O failure, process death, or concurrent
+  external file edits. Back up important work and use separate checkouts.
+- Git import protects conventional provider paths and current provider
+  configuration, not arbitrary leaked credentials or every historical provider
+  configuration. Audit existing history and rotate any exposed credentials.
+- The verified alpha release has five CLI platform archives, no Windows ARM64
+  archive and no desktop bundles, despite the intended next-release matrix.
+  Its Linux x64 archive checksum and binary startup were verified. Other native
+  platform behavior was not tested in this audit.
+- The repository is already public. GitHub's homepage field is empty; the live
+  landing URL and its current deployment were not verified in this audit.
+
+The forward plan in [`ROADMAP.md`](../ROADMAP.md) incorporates the hosted launch
+choice and the recovery/isolation/review feedback. Architecture scope alone does
+not establish market demand; validate a complete workflow with design partners.
+
+### Published alpha baseline
 
 Sorrel already has a **working local VCS loop** (init → change → lanes → merge →
 push/pull) on a real content-addressed engine, plus **Git import/export and
@@ -94,11 +164,11 @@ dependencies and workspace Cargo commands from the repo root.
 
 ## Next up (from roadmap)
 
-1. Finish production auth (WorkOS sealed sessions + IdP login UI) and richer review UX.
-2. Deepen devenv workflow mapping, run-log follow/Hub streaming, and optional
-   hosted or bring-your-own secret backends.
-3. Define the stable embedding surface, then connect native apps to local
-   workspaces and mature agents and SDKs around it.
-4. Add format migrations before persisted `v0` formats begin evolving rapidly.
-5. Converge the remaining CLI policy-command/authority compatibility surface
-   onto native Core contracts; workflow evaluation already uses Core.
+1. Validate real WorkOS identity and a credentialed hosted pilot, including
+   managed CLI onboarding, two-team access boundaries and backup restoration.
+2. Add operation history/checkpoints/undo, isolated lane directories, selective
+   changes and complete advisory claim lifecycle.
+3. Implement real proposal integration with snapshot-bound checks and approvals.
+4. Add a narrow MCP adapter, handoff bundles, useful stacks and materialized slices.
+5. Add migrations, quotas, self-service access, workflow streaming/cancellation
+   and native remote-Hub integration as pilot use establishes priorities.
