@@ -138,7 +138,8 @@ pinned to its lane. Shared objects, lane/stack/slice registries, lane heads, cha
 index, grants, secret references and remotes have one common authority. `HEAD`,
 merge state, stat cache, operations, checkpoints, run logs and previews stay local.
 Core's additive registry-aware selection APIs protect shared provider paths while
-retaining local configuration and root metadata exclusions.
+retaining local configuration and root metadata exclusions. Incoming restores and
+shared ref publication validate provider paths in the receiving directory.
 
 All locked commands use the common `write.lock`. Shared publications use typed
 common/workspace targets staged beside each destination. Replay validates the

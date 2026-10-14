@@ -222,6 +222,30 @@ pub fn check_lane_writer(lane: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// Apply the same destination protections to every shared restore/publication,
+/// including replay on behalf of another registered directory.
+pub fn validate_snapshot_secrets(
+    layout: &Layout,
+    store: &sorrel_core::FileObjectStore,
+    snapshot: &sorrel_core::ObjectId,
+) -> io::Result<()> {
+    let registry = layout.common.join(repo::SECRETS_DIR);
+    sorrel_core::validate_workspace_snapshot_secrets(
+        store,
+        &layout.binding.root,
+        snapshot,
+        &registry,
+    )
+    .map_err(io::Error::other)?;
+    sorrel_core::validate_workspace_snapshot_secrets_at(
+        store,
+        &layout.binding.root,
+        snapshot,
+        &registry,
+    )
+    .map_err(io::Error::other)
+}
+
 /// No filesystem or manifest changes in preview. Apply backs up original metadata before the format gate changes.
 pub fn enable(apply: bool) -> io::Result<Value> {
     if current().is_some() {

@@ -1051,3 +1051,134 @@ fn enable_refuses_noncanonical_lane_refs_before_backup_or_format_change() {
         assert!(!metadata.join("workspace-backups").exists());
     }
 }
+
+#[test]
+fn incoming_merge_cannot_restore_provider_paths_protected_in_the_receiving_directory() {
+    for merge_kind in ["fast-forward", "clean-three-way", "conflicted"] {
+        let f = Fixture::new();
+        fs::create_dir(f.common().join("secrets")).unwrap();
+        write(
+            f.common().join("secrets/provider.json"),
+            &json!({"provider":format!("dotenv:{}",f.main.join("credentials.txt").display())}),
+        );
+        if merge_kind != "fast-forward" {
+            record(&f.main, "receiver diverges\n");
+            if merge_kind == "conflicted" {
+                record(&f.other, "incoming diverges\n");
+            }
+        }
+        fs::write(
+            f.other.join("credentials.txt"),
+            "synthetic ordinary incoming file",
+        )
+        .unwrap();
+        ok(
+            &f.other,
+            &["change", "create", "-m", "incoming credentials name"],
+        );
+        let before = head(&f.main);
+        let other_before = head(&f.other);
+        let history = ok(&f.main, &["operation", "log"]);
+        let same = fs::read(f.main.join("same.txt")).unwrap();
+        fail(&f.main, &["merge", &f.lane], "protected");
+        assert_eq!(head(&f.main), before);
+        assert_eq!(head(&f.other), other_before);
+        assert_eq!(fs::read(f.main.join("same.txt")).unwrap(), same);
+        assert_eq!(ok(&f.main, &["operation", "log"]), history);
+        assert!(!f.main.join("credentials.txt").exists());
+        assert!(!f.main.join(".sorrel/MERGE_STATE").exists());
+        assert!(!f.common().join("metadata-transaction.json").exists());
+        ok(&f.main, &["status"]);
+    }
+}
+
+#[test]
+fn malformed_shared_inactive_refs_fail_attachment_before_materialization_or_binding() {
+    for case in ["unknown-field", "symlink", "hardlink"] {
+        let f = Fixture::new();
+        let lane = ok(&f.main, &["lane", "create", "--name", "invalid-inactive"])["object"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let path = f.common().join("heads").join(&lane);
+        match case {
+            "unknown-field" => {
+                let mut value = read(&path);
+                value["unexpected"] = json!(true);
+                write(&path, &value);
+            }
+            #[cfg(unix)]
+            "symlink" => {
+                let outside = f._temp.path().join("outside-ref");
+                fs::rename(&path, &outside).unwrap();
+                std::os::unix::fs::symlink(outside, &path).unwrap();
+            }
+            #[cfg(unix)]
+            "hardlink" => {
+                fs::hard_link(&path, f._temp.path().join("outside-ref")).unwrap();
+            }
+            _ => continue,
+        }
+        let destination = f._temp.path().join("must-not-create");
+        let before = fs::read(f.common().join("manifest.json")).unwrap();
+        assert!(
+            !run(
+                &f.main,
+                &["workspace", "add", &lane, destination.to_str().unwrap()]
+            )
+            .status
+            .success(),
+            "{case}"
+        );
+        assert!(!destination.exists());
+        assert_eq!(fs::read(f.common().join("manifest.json")).unwrap(), before);
+    }
+}
+
+#[test]
+fn linked_slice_creation_writes_the_single_common_registry() {
+    let f = Fixture::new();
+    let value = ok(&f.other, &["slice", "create", "--name", "from-linked"]);
+    assert_eq!(value["persisted"], true);
+    assert!(f.common().join("slices/from-linked.json").is_file());
+    assert!(!f.other.join(".sorrel/slices").exists());
+    let stored = read(f.common().join("slices/from-linked.json"));
+    assert_eq!(stored["name"], "from-linked");
+}
+
+#[test]
+fn shared_undo_and_checkpoint_restore_refuse_newly_protected_historical_paths() {
+    let f = Fixture::new();
+    fs::write(
+        f.main.join("credentials.txt"),
+        "synthetic previously ordinary content",
+    )
+    .unwrap();
+    ok(
+        &f.main,
+        &["change", "create", "-m", "before provider registration"],
+    );
+    ok(&f.main, &["checkpoint", "create", "before-provider"]);
+    fs::remove_file(f.main.join("credentials.txt")).unwrap();
+    ok(
+        &f.main,
+        &["change", "create", "-m", "remove credential-shaped file"],
+    );
+    fs::create_dir(f.common().join("secrets")).unwrap();
+    write(
+        f.common().join("secrets/provider.json"),
+        &json!({"provider":format!("dotenv:{}",f.main.join("credentials.txt").display())}),
+    );
+    let before = head(&f.main);
+    let history = ok(&f.main, &["operation", "log"]);
+    for args in [
+        &["undo"][..],
+        &["checkpoint", "restore", "before-provider"][..],
+    ] {
+        fail(&f.main, args, "protected");
+        assert_eq!(head(&f.main), before);
+        assert_eq!(ok(&f.main, &["operation", "log"]), history);
+        assert!(!f.main.join("credentials.txt").exists());
+        assert!(!f.common().join("metadata-transaction.json").exists());
+    }
+}

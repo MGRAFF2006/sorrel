@@ -540,7 +540,9 @@ The common repository shares objects, lane/stack registries and heads, change
 index, grants, secret references, slices and remotes. Each directory keeps its
 own `HEAD`, merge state, stat cache, operation/checkpoint registries, run logs and
 preview files. Shared provider paths protect full/selected recording and path
-explanation in every directory; no provider values or unrecorded files are copied.
+explanation in every directory. Incoming merges, restores and ref publication also
+validate provider paths in the receiving directory before writing files or refs;
+no provider values or unrecorded files are copied.
 
 One common command lock serializes metadata operations. A typed common journal
 stages each file beside its destination and validates workspace registration,

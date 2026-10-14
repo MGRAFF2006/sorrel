@@ -738,6 +738,12 @@ fn recover_shared_metadata_transaction(common: &Path) -> io::Result<()> {
             for state in [&operation.before, &operation.after] {
                 validate_bound_head(&layout, state)?;
             }
+            let store =
+                sorrel_core::FileObjectStore::open_existing(common).map_err(io::Error::other)?;
+            let snapshot =
+                sorrel_core::parse_object_id_hex(&operation.after.head.as_ref().unwrap().snapshot)
+                    .map_err(io::Error::other)?;
+            crate::workspace::validate_snapshot_secrets(&layout, &store, &snapshot)?;
         }
     }
     recover_entries(
@@ -1611,6 +1617,11 @@ fn prepare_transition(
     if let Some(layout) = crate::workspace::current() {
         validate_bound_head(layout, &before)?;
         validate_bound_head(layout, &after)?;
+        let store = sorrel_core::FileObjectStore::open_existing(&layout.common)
+            .map_err(io::Error::other)?;
+        let snapshot = sorrel_core::parse_object_id_hex(&after.head.as_ref().unwrap().snapshot)
+            .map_err(io::Error::other)?;
+        crate::workspace::validate_snapshot_secrets(layout, &store, &snapshot)?;
     }
     if let Some(head) = &after.head {
         crate::workspace::check_head_lane(&head.lane)?;
@@ -1866,6 +1877,20 @@ pub fn create_checkpoint(name: &str, head: &Head) -> io::Result<Checkpoint> {
 pub fn load_lane_head(lane_id: &str) -> io::Result<Option<String>> {
     ensure_heads_migrated()?;
     let path = lane_head_path(lane_id);
+    if crate::workspace::current().is_some() {
+        if !valid_component(lane_id) {
+            return Err(invalid_record("invalid shared lane identifier"));
+        }
+        let relative = Path::new(HEADS_DIR).join(lane_id);
+        validate_metadata_path(&crate::workspace::common_dir(), &relative)?;
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let value = parse_ref_payload(&relative, &bytes)?;
+        return Ok(value["snapshot"].as_str().map(str::to_owned));
+    }
     if !path.is_file() {
         return Ok(None);
     }

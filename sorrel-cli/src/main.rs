@@ -3060,6 +3060,9 @@ fn merge_lane_output(lane_id: &str) -> io::Result<CommandOutput> {
         .parse::<ObjectId>()
         .map_err(|error| io::Error::other(format!("invalid lane head snapshot id: {error}")))?;
 
+    if let Some(layout) = workspace::current() {
+        workspace::validate_snapshot_secrets(layout, &store, &theirs_id)?;
+    }
     if ours_id == theirs_id {
         return Err(io::Error::other(format!(
             "nothing to merge: active lane and `{lane_id}` already share the same head"
@@ -3276,6 +3279,9 @@ fn restore_worktree_to_snapshot(
     current: &ObjectId,
     target: &ObjectId,
 ) -> io::Result<()> {
+    if let Some(layout) = workspace::current() {
+        workspace::validate_snapshot_secrets(layout, store, target)?;
+    }
     // Validate the complete object graph before removing any existing file.
     let current_paths = to_io(validate_snapshot_restore(store, current))?;
     let target_paths = to_io(validate_snapshot_restore(store, target))?;
@@ -4205,7 +4211,7 @@ fn persist_slice_if_initialized(name: &str, slice: &Value) -> io::Result<()> {
         return Ok(());
     }
 
-    let slices_dir = repo::sorrel_dir().join(repo::SLICES_DIR);
+    let slices_dir = repo::registry_dir(repo::SLICES_DIR);
     fs::create_dir_all(&slices_dir)?;
     write_json_file(&slices_dir.join(slice_file_name(name)), slice)
 }

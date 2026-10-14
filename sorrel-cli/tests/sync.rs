@@ -729,3 +729,41 @@ fn linked_pull_advances_only_its_owned_lane_and_checkout_with_shared_remotes() {
     assert_eq!(head["snapshot"], lane_head["snapshot"]);
     assert!(!linked.join(".sorrel/remotes.json").exists());
 }
+
+#[test]
+fn shared_pull_refuses_paths_protected_only_in_the_receiving_directory() {
+    let hub = LiveHub::start();
+    let source = connected_workspace(&hub, "repo_receiver_provider_guard");
+    std::fs::write(source.path().join("base.txt"), "base\n").unwrap();
+    cli_ok(source.path(), &["change", "create", "-m", "base"]);
+    cli_ok(source.path(), &["push"]);
+    let receiver = connected_workspace(&hub, "repo_receiver_provider_guard");
+    cli_ok(receiver.path(), &["pull"]);
+    cli_ok(receiver.path(), &["workspace", "enable", "--apply"]);
+    std::fs::create_dir(receiver.path().join(".sorrel/secrets")).unwrap();
+    std::fs::write(receiver.path().join(".sorrel/secrets/provider.json"),serde_json::to_vec(&serde_json::json!({"provider":format!("dotenv:{}",receiver.path().join("credentials.txt").display())})).unwrap()).unwrap();
+    std::fs::write(
+        source.path().join("credentials.txt"),
+        "synthetic ordinary remote file",
+    )
+    .unwrap();
+    cli_ok(
+        source.path(),
+        &["change", "create", "-m", "remote credential-shaped file"],
+    );
+    cli_ok(source.path(), &["push"]);
+    let before = head_bytes(receiver.path());
+    let result = cli(receiver.path(), &["pull"]);
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("protected"));
+    assert_eq!(head_bytes(receiver.path()), before);
+    assert!(!receiver.path().join("credentials.txt").exists());
+    assert!(!receiver
+        .path()
+        .join(".sorrel/metadata-transaction.json")
+        .exists());
+    assert_eq!(
+        std::fs::read(receiver.path().join("base.txt")).unwrap(),
+        b"base\n"
+    );
+}
