@@ -266,15 +266,22 @@ fn explain_path(
     let supported_type = info
         .as_ref()
         .is_none_or(|info| info.is_dir() || info.is_file());
+    // Missing tracked directories still need directory-only ignore rules. Keep
+    // is_directory below as an observation of the current filesystem.
+    let rule_is_directory =
+        is_directory || (info.is_none() && selection.tracked_directories.contains(&relative));
     let tracked = selection.tracked.contains(&relative)
+        || selection.tracked_directories.contains(&relative)
         || (is_directory
             && selection
                 .tracked
                 .iter()
                 .any(|path| path.starts_with(&relative)));
-    let ignored = !metadata && selection.is_ignored(&relative, is_directory)?;
-    let included =
-        !metadata && !protected && supported_type && selection.allows(&relative, is_directory)?;
+    let ignored = !metadata && selection.is_ignored(&relative, rule_is_directory)?;
+    let included = !metadata
+        && !protected
+        && supported_type
+        && selection.allows(&relative, rule_is_directory)?;
     Ok(WorkspacePathExplanation {
         path: if relative.as_os_str().is_empty() {
             PathBuf::from(".")

@@ -418,3 +418,34 @@ fn selective_modes_and_file_directory_replacements_use_native_changes() {
         serde_json::json!(["later-mode"])
     );
 }
+
+#[test]
+fn deleted_ignored_directory_selector_cannot_publish_objects_or_metadata() {
+    for ignore_file in [".gitignore", ".sorrelignore"] {
+        let workspace = TempDir::new().unwrap();
+        let root = workspace.path();
+        command(root, &["init", "--json"]);
+        write(root, "gone/file", "tracked");
+        command(root, &["change", "create", "-m", "base", "--json"]);
+        write(root, ignore_file, "gone/\n");
+        command(
+            root,
+            &["change", "create", "-m", "ignore directory", "--json"],
+        );
+        fs::remove_dir_all(root.join("gone")).unwrap();
+        write(root, "public", "not yet recorded");
+        let count_objects = || {
+            fs::read_dir(root.join(".sorrel/objects"))
+                .unwrap()
+                .map(|shard| fs::read_dir(shard.unwrap().path()).unwrap().count())
+                .sum::<usize>()
+        };
+        let objects = count_objects();
+        for path in ["gone", "gone/file"] {
+            assert_selective_failure(root, &["public", path]);
+            assert_eq!(count_objects(), objects, "{ignore_file}/{path}");
+        }
+        assert!(!root.join("gone").exists());
+        assert_eq!(fs::read(root.join("public")).unwrap(), b"not yet recorded");
+    }
+}

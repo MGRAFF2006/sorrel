@@ -361,3 +361,43 @@ fn selective_recording_still_rejects_previously_tracked_secrets_globally() {
     ));
     assert_eq!(store.len(), before);
 }
+
+#[test]
+fn deleted_tracked_directories_still_reject_directory_only_ignore_rules() {
+    for ignore_file in [".gitignore", ".sorrelignore"] {
+        let root = TempDir::new().unwrap();
+        let store = InMemoryObjectStore::new();
+        let mut cache = StatCache::new();
+        write(root.path(), "gone/file", "tracked");
+        let base = full(&store, root.path(), None, &mut cache);
+        write(root.path(), ignore_file, "gone/\n");
+        let base = full(&store, root.path(), Some(&base.id), &mut cache);
+        fs::remove_dir_all(root.path().join("gone")).unwrap();
+        write(root.path(), "public", "not yet recorded");
+        let explanation =
+            sorrel_core::explain_workspace_path(&store, root.path(), Some(&base.id), "gone")
+                .unwrap();
+        assert_eq!(explanation.exists, Some(false));
+        assert_eq!(explanation.is_directory, Some(false));
+        assert!(explanation.tracked);
+        assert!(explanation.ignored);
+        for path in ["gone", "gone/file"] {
+            let objects = store.len();
+            let cache_before = cache.to_bytes().unwrap();
+            assert!(
+                materialize_workspace_snapshot_paths(
+                    &store,
+                    root.path(),
+                    &base.id,
+                    &["public".into(), path.into()],
+                    Some(&mut cache),
+                    SnapshotOptions::new("repo")
+                )
+                .is_err(),
+                "{ignore_file}/{path}"
+            );
+            assert_eq!(store.len(), objects);
+            assert_eq!(cache.to_bytes().unwrap(), cache_before);
+        }
+    }
+}
