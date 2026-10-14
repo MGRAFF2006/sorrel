@@ -124,12 +124,25 @@ impl WorkspaceLock {
             }
         })?;
         let guard = Self { _file: file };
-        // Recheck under the lock before interpreting any recovery journal.
-        let _ = load_manifest_at(&root.join(MANIFEST_FILE))?;
+        // Configuration precedes locking. Opt-in or a changed binding in that
+        // interval must never leave this command using standalone publication.
+        let shared = load_manifest_at(&root.join(MANIFEST_FILE))?
+            .is_some_and(|v| v["schemaVersion"] == crate::workspace::SHARED_VERSION);
+        if shared != crate::workspace::current().is_some() {
+            return Err(invalid_record(
+                "workspace format changed before lock acquisition; retry the command",
+            ));
+        }
+        if let Some(layout) = crate::workspace::current() {
+            crate::workspace::validate_link(layout)?;
+            if fs::canonicalize(root)? != layout.common {
+                return Err(invalid_record(
+                    "configured common directory disagrees with acquired lock",
+                ));
+            }
+        }
         sorrel_core::durability::flush_root_ancestors(root)?;
-        if load_manifest_at(&root.join(MANIFEST_FILE))?
-            .is_some_and(|v| v["schemaVersion"] == crate::workspace::SHARED_VERSION)
-        {
+        if shared {
             recover_shared_metadata_transaction(root)?;
             crate::workspace::validate_current_head()?;
         } else {
@@ -723,13 +736,7 @@ fn recover_shared_metadata_transaction(common: &Path) -> io::Result<()> {
             }
             let operation: Operation = serde_json::from_slice(&bytes)?;
             for state in [&operation.before, &operation.after] {
-                if state
-                    .head
-                    .as_ref()
-                    .is_none_or(|head| head.lane != layout.binding.lane)
-                {
-                    return Err(invalid_record("journal HEAD violates fixed lane binding"));
-                }
+                validate_bound_head(&layout, state)?;
             }
         }
     }
@@ -742,13 +749,39 @@ fn recover_shared_metadata_transaction(common: &Path) -> io::Result<()> {
     )
 }
 
+fn validate_bound_head(layout: &crate::workspace::Layout, state: &LocalState) -> io::Result<()> {
+    if state
+        .head
+        .as_ref()
+        .is_none_or(|head| head.lane != layout.binding.lane)
+    {
+        return Err(invalid_record("journal HEAD violates fixed lane binding"));
+    }
+    let head = state.head.as_ref().unwrap();
+    let snapshot = match state.lane_heads.get(&layout.binding.lane) {
+        Some(snapshot) => snapshot.clone(),
+        None => {
+            let lane_path = Path::new(HEADS_DIR).join(&layout.binding.lane);
+            validate_metadata_path(&layout.common, &lane_path)?;
+            let value = parse_ref_payload(&lane_path, &fs::read(layout.common.join(&lane_path))?)?;
+            value["snapshot"].as_str().map(str::to_owned)
+        }
+    };
+    if snapshot.as_deref() != Some(&head.snapshot) {
+        return Err(invalid_record(
+            "journal HEAD disagrees with authoritative lane state",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LanePointer {
     snapshot: String,
 }
 
-fn parse_ref_payload(path: &Path, bytes: &[u8]) -> io::Result<Value> {
+pub(crate) fn parse_ref_payload(path: &Path, bytes: &[u8]) -> io::Result<Value> {
     if path == Path::new(HEAD_FILE) {
         let head: Head = serde_json::from_slice(bytes)?;
         if !valid_component(&head.lane) || !valid_digest(&head.snapshot) {
@@ -1575,6 +1608,10 @@ fn prepare_transition(
     related_operation: Option<String>,
 ) -> io::Result<PreparedTransition> {
     crate::workspace::validate_current_head()?;
+    if let Some(layout) = crate::workspace::current() {
+        validate_bound_head(layout, &before)?;
+        validate_bound_head(layout, &after)?;
+    }
     if let Some(head) = &after.head {
         crate::workspace::check_head_lane(&head.lane)?;
     }

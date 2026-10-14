@@ -224,7 +224,8 @@ fn ownership_fixed_lanes_git_rejection_and_common_lock_precede_side_effects() {
     }
     assert!(!f.other.join(".git").exists());
     assert!(!f.other.join(".sorrel/git-map.json").exists());
-    let guard = sorrel_cli::repo::WorkspaceLock::acquire(&f.common()).unwrap();
+    let guard = fs::File::open(f.common().join("write.lock")).unwrap();
+    fs2::FileExt::try_lock_exclusive(&guard).unwrap();
     for root in [&f.main, &f.other] {
         fail(root, &["change", "create", "-m", "blocked"], "busy");
     }
@@ -809,5 +810,244 @@ fn invalid_identity_heads_and_pending_journal_fail_enable_before_original_metada
                 b"[]"
             );
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn enabling_between_configuration_and_lock_acquisition_cannot_bypass_lane_ownership() {
+    use std::{
+        process::{Child, Command as Process, Stdio},
+        thread,
+        time::{Duration, Instant},
+    };
+    struct ChildGuard(Child);
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let main = temp.path().join("main");
+    fs::create_dir(&main).unwrap();
+    ok(&main, &["init"]);
+    record(&main, "base\n");
+    let lane = ok(&main, &["lane", "create", "--name", "owned"])["object"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // Pause the actual CLI at libc's flock boundary; no product test hooks or timing race.
+    let source = temp.path().join("pause.c");
+    let library = temp.path().join("pause.so");
+    fs::write(
+        &source,
+        r#"
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <sys/file.h>
+#include <signal.h>
+int flock(int fd, int op) {
+    static int paused = 0;
+    int (*real_flock)(int,int) = dlsym(RTLD_NEXT, "flock");
+    if (!paused && (op & LOCK_EX)) { paused=1; raise(SIGSTOP); }
+    return real_flock(fd,op);
+}
+"#,
+    )
+    .unwrap();
+    let compile = Process::new("cc")
+        .args(["-shared", "-fPIC", "-o"])
+        .arg(&library)
+        .arg(&source)
+        .arg("-ldl")
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let mut child = ChildGuard(
+        Process::new(assert_cmd::cargo::cargo_bin("sorrel"))
+            .current_dir(&main)
+            .args(["lane", "switch", &lane, "--json"])
+            .env("LD_PRELOAD", &library)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let state = fs::read_to_string(format!("/proc/{}/status", child.0.id())).unwrap();
+        if state
+            .lines()
+            .any(|line| line.starts_with("State:") && line.contains("T (stopped)"))
+        {
+            break;
+        }
+        assert!(
+            child.0.try_wait().unwrap().is_none(),
+            "CLI exited before flock pause"
+        );
+        assert!(Instant::now() < deadline, "CLI did not reach flock pause");
+        thread::sleep(Duration::from_millis(10));
+    }
+    ok(&main, &["workspace", "enable", "--apply"]);
+    let other = temp.path().join("other");
+    ok(&main, &["workspace", "add", &lane, other.to_str().unwrap()]);
+    let main_head = head(&main);
+    let other_head = head(&other);
+    assert!(Process::new("kill")
+        .args(["-CONT", &child.0.id().to_string()])
+        .status()
+        .unwrap()
+        .success());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.0.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "resumed CLI did not finish");
+        thread::sleep(Duration::from_millis(10));
+    }
+    let result = child.0.wait().unwrap();
+    assert!(
+        !result.success(),
+        "stale configured CLI bypassed workspace ownership"
+    );
+    assert_eq!(head(&main), main_head);
+    assert_eq!(head(&other), other_head);
+    ok(&main, &["status"]);
+    ok(&other, &["status"]);
+}
+
+#[test]
+fn recovery_rejects_split_head_and_bound_lane_states_even_if_the_ref_is_omitted() {
+    for omit_lane in [false, true] {
+        let f = Fixture::new();
+        interrupted_record(&f);
+        let main_before = head(&f.main);
+        let local_before = head(&f.other);
+        let lane_before = fs::read(f.common().join("heads").join(&f.lane)).unwrap();
+        let path = f.common().join("metadata-transaction.json");
+        let mut journal = read(&path);
+        journal["entries"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|entry| entry["path"] != format!("heads/{}", f.lane));
+        let entry = &mut journal["entries"][0];
+        let temporary = f
+            .other
+            .join(".sorrel")
+            .join(entry["temporary"].as_str().unwrap());
+        let mut operation = read(&temporary);
+        if omit_lane {
+            operation["before"]["laneHeads"]
+                .as_object_mut()
+                .unwrap()
+                .remove(&f.lane);
+            operation["after"]["laneHeads"]
+                .as_object_mut()
+                .unwrap()
+                .remove(&f.lane);
+        } else {
+            operation["after"]["laneHeads"][&f.lane] = local_before["snapshot"].clone();
+        }
+        let bytes = serde_json::to_vec(&operation).unwrap();
+        let digest = ObjectId::for_bytes(&bytes).to_hex();
+        fs::write(temporary, bytes).unwrap();
+        entry["digest"] = json!(digest);
+        entry["path"] = json!(format!(
+            "operations/{:020}-{digest}.json",
+            operation["sequence"].as_u64().unwrap()
+        ));
+        write(&path, &journal);
+        fail(
+            &f.main,
+            &["status"],
+            "HEAD disagrees with authoritative lane state",
+        );
+        assert_eq!(head(&f.main), main_before);
+        assert_eq!(head(&f.other), local_before);
+        assert_eq!(
+            fs::read(f.common().join("heads").join(&f.lane)).unwrap(),
+            lane_before
+        );
+        assert!(path.exists());
+    }
+}
+
+#[test]
+fn creation_checks_shared_and_recorded_provider_paths_in_destination_coordinates() {
+    for registry in [true, false] {
+        let f = Fixture::new();
+        let destination = f._temp.path().join("credential-destination");
+        let provider = format!("dotenv:{}", destination.join("credentials.txt").display());
+        fs::write(
+            f.main.join("credentials.txt"),
+            "synthetic recorded bytes must not be copied",
+        )
+        .unwrap();
+        if !registry {
+            fs::write(
+                f.main.join("sorrel.secrets.yml"),
+                format!("provider: '{provider}'\n"),
+            )
+            .unwrap();
+        }
+        ok(
+            &f.main,
+            &["change", "create", "-m", "recorded legacy paths"],
+        );
+        let lane = ok(&f.main, &["lane", "create", "--name", "destination"])["object"]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        if registry {
+            fs::create_dir(f.common().join("secrets")).unwrap();
+            write(
+                f.common().join("secrets/provider.json"),
+                &json!({"provider":provider}),
+            );
+        } else {
+            // The destination must be checked against recorded config even if
+            // the invoking directory has since removed its working config.
+            fs::remove_file(f.main.join("sorrel.secrets.yml")).unwrap();
+        }
+        let before = fs::read(f.common().join("manifest.json")).unwrap();
+        fail(
+            &f.main,
+            &["workspace", "add", &lane, destination.to_str().unwrap()],
+            "protected",
+        );
+        assert!(!destination.exists());
+        assert_eq!(fs::read(f.common().join("manifest.json")).unwrap(), before);
+    }
+}
+
+#[test]
+fn enable_refuses_noncanonical_lane_refs_before_backup_or_format_change() {
+    for inactive in [true, false] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        ok(root, &["init"]);
+        let lane = if inactive {
+            ok(root, &["lane", "create", "--name", "bad-ref"])["object"]["id"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        } else {
+            "lane_main".to_owned()
+        };
+        let metadata = root.join(".sorrel");
+        let path = metadata.join("heads").join(lane);
+        let mut value = read(&path);
+        value["unexpected"] = json!(true);
+        write(&path, &value);
+        let manifest = fs::read(metadata.join("manifest.json")).unwrap();
+        let pointer = fs::read(&path).unwrap();
+        fail(root, &["workspace", "enable", "--apply"], "unknown field");
+        assert_eq!(fs::read(metadata.join("manifest.json")).unwrap(), manifest);
+        assert_eq!(fs::read(path).unwrap(), pointer);
+        assert!(!metadata.join("workspace-backups").exists());
     }
 }

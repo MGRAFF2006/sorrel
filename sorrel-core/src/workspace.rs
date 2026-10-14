@@ -184,6 +184,54 @@ pub fn validate_workspace_snapshot_secrets(
     .validate_tracked_paths()
 }
 
+/// Check a prospective checkout's recorded configuration and shared provider paths
+/// in destination coordinates, without creating the directory or copying file values.
+/// `destination` must be an absolute normalized path with an existing canonical parent.
+pub fn validate_workspace_snapshot_secrets_at(
+    store: &impl ObjectStore,
+    destination: &Path,
+    snapshot: &ObjectId,
+    secret_registry: &Path,
+) -> SnapshotResult<()> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| config_error(destination, "missing destination parent"))?;
+    if !destination.is_absolute()
+        || normalize(destination) != destination
+        || fs::canonicalize(parent).map_err(|e| config_io(parent, e))? != parent
+    {
+        return Err(config_error(
+            destination,
+            "destination must have a canonical parent",
+        ));
+    }
+    let mut selection = WorkspaceSelection::empty(destination);
+    selection.load_provider_registry(secret_registry)?;
+    let snapshot = read_snapshot(store, snapshot)?;
+    collect_tracked(
+        store,
+        &snapshot.root_tree.id,
+        &mut selection.tracked,
+        &mut selection.tracked_directories,
+    )?;
+    for entry in read_tree(store, &snapshot.root_tree.id)?.entries {
+        if matches!(
+            entry.path.to_str(),
+            Some("sorrel.secrets.yml" | "secretspec.toml")
+        ) {
+            if entry.entry_type != EntryType::File {
+                return Err(config_error(
+                    &entry.path,
+                    "provider configuration must be a regular file",
+                ));
+            }
+            let blob = crate::read_blob(store, &entry.object.id)?;
+            selection.add_provider_config(&entry.path, &blob.content)?;
+        }
+    }
+    selection.validate_tracked_paths()
+}
+
 fn overlay_selected_tree(
     store: &impl ObjectStore,
     base: Vec<TreeEntry>,
@@ -498,10 +546,19 @@ impl WorkspaceSelection {
         let registry = secret_registry
             .map(Path::to_owned)
             .unwrap_or_else(|| self.root.join(".sorrel/secrets"));
-        match fs::read_dir(&registry) {
+        self.load_provider_registry(&registry)?;
+        let toml_path = self.root.join("secretspec.toml");
+        if let Some(bytes) = read_optional(&toml_path)? {
+            self.add_provider_config(Path::new("secretspec.toml"), &bytes)?;
+        }
+        Ok(())
+    }
+
+    fn load_provider_registry(&mut self, registry: &Path) -> SnapshotResult<()> {
+        match fs::read_dir(registry) {
             Ok(entries) => {
                 for entry in entries {
-                    let path = entry.map_err(|error| config_io(&registry, error))?.path();
+                    let path = entry.map_err(|error| config_io(registry, error))?.path();
                     if path
                         .extension()
                         .is_some_and(|extension| extension == "json")
@@ -514,11 +571,7 @@ impl WorkspaceSelection {
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(config_io(&registry, error)),
-        }
-        let toml_path = self.root.join("secretspec.toml");
-        if let Some(bytes) = read_optional(&toml_path)? {
-            self.add_provider_config(Path::new("secretspec.toml"), &bytes)?;
+            Err(error) => return Err(config_io(registry, error)),
         }
         Ok(())
     }

@@ -326,7 +326,8 @@ fn preflight(common: &Path) -> io::Result<()> {
         {
             return Err(invalid("invalid lane ref"));
         }
-        let value: Value = serde_json::from_slice(&fs::read(path)?)?;
+        let relative = Path::new(repo::HEADS_DIR).join(path.file_name().unwrap());
+        let value = repo::parse_ref_payload(&relative, &fs::read(path)?)?;
         let id = value["snapshot"]
             .as_str()
             .ok_or_else(|| invalid("invalid lane snapshot"))?;
@@ -467,6 +468,13 @@ pub fn add(lane: &str, destination: &Path) -> io::Result<Value> {
     sorrel_core::validate_workspace_snapshot_secrets(
         &store,
         &layout.binding.root,
+        &id,
+        &repo::registry_dir(repo::SECRETS_DIR),
+    )
+    .map_err(io::Error::other)?;
+    sorrel_core::validate_workspace_snapshot_secrets_at(
+        &store,
+        &root,
         &id,
         &repo::registry_dir(repo::SECRETS_DIR),
     )
