@@ -129,6 +129,19 @@ directory), and skips ignored untracked files before reading or storing their
 contents. Existing ordinary tracked files remain tracked when a new ignore rule
 matches them; removing a tracked file from disk still records a deletion.
 
+Current source adds repeatable `change create --path <relative-path>` selectors
+through Core's additive `materialize_workspace_snapshot_paths`. Literal files
+and directory subtrees overlay HEAD while every unselected recorded entry stays
+unchanged. Working files are untouched; unselected edits stay dirty for a later
+full recording, and unvisited stat-cache entries are dropped. Explicit ignored,
+protected, metadata, unknown, absolute/traversal and symlink selectors fail before
+publication. Containing directories retain normal ignore/secret filtering;
+file/directory replacements require selecting the replaced path. The normal
+change objects, durable operation journal and active-lane publication still apply.
+Omitting selectors keeps full-workspace behavior. Selective recording rejects a
+pending merge and does not bypass recovery's dirty-work guard. This source-only
+feature provides no hunk staging or separate lane checkout.
+
 Files named `.env` or `.env.*` are always protected, except `.env.example`, which
 follows ordinary ignore rules unless explicitly configured as a secret source.
 Configured `dotenv:` / `dotenv://` file paths in `sorrel.secrets.yml`,
