@@ -677,3 +677,85 @@ fn recovery_rejects_inconsistent_operation_refs_before_any_publication() {
         }
     }
 }
+
+#[test]
+fn malformed_existing_refs_fail_before_restore_or_journal_creation() {
+    for case in [
+        "extra-head",
+        "missing-head-lane",
+        "extra-lane",
+        "missing-lane-snapshot",
+    ] {
+        for command in ["checkpoint", "undo", "switch"] {
+            let workspace = tempfile::tempdir().unwrap();
+            let root = workspace.path();
+            sorrel(root, &["init"]);
+            record(root, "first");
+            sorrel(root, &["checkpoint", "create", "first"]);
+            let lane = sorrel(root, &["lane", "create", "--name", "first"])["object"]["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            record(root, "second");
+            let is_head = case.contains("head");
+            let path = root.join(if is_head {
+                ".sorrel/HEAD"
+            } else {
+                ".sorrel/heads/lane_main"
+            });
+            let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            if case.starts_with("extra") {
+                value["extra"] = json!(true);
+            } else {
+                value
+                    .as_object_mut()
+                    .unwrap()
+                    .remove(if is_head { "lane" } else { "snapshot" });
+            }
+            fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+            let head = fs::read(root.join(".sorrel/HEAD")).unwrap();
+            let lane_head = fs::read(root.join(".sorrel/heads/lane_main")).unwrap();
+            let operations = fs::read_dir(root.join(".sorrel/operations"))
+                .unwrap()
+                .count();
+            let args = match command {
+                "checkpoint" => vec!["checkpoint", "restore", "first"],
+                "undo" => vec!["undo"],
+                _ => vec!["lane", "switch", &lane],
+            };
+            let output = Command::cargo_bin("sorrel")
+                .unwrap()
+                .current_dir(root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(!output.status.success(), "{case}/{command}");
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                error.contains(if case.starts_with("extra") {
+                    "unknown field"
+                } else {
+                    "missing field"
+                }),
+                "{case}/{command}: {error}"
+            );
+            assert_eq!(
+                fs::read(root.join("file.txt")).unwrap(),
+                b"second",
+                "{case}/{command}"
+            );
+            assert_eq!(fs::read(root.join(".sorrel/HEAD")).unwrap(), head);
+            assert_eq!(
+                fs::read(root.join(".sorrel/heads/lane_main")).unwrap(),
+                lane_head
+            );
+            assert!(!root.join(".sorrel/metadata-transaction.json").exists());
+            assert_eq!(
+                fs::read_dir(root.join(".sorrel/operations"))
+                    .unwrap()
+                    .count(),
+                operations
+            );
+        }
+    }
+}

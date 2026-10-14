@@ -1218,8 +1218,16 @@ fn load_operations_at(root: &Path) -> io::Result<Vec<(String, Operation)>> {
 
 fn read_state(lanes: impl Iterator<Item = String>) -> io::Result<LocalState> {
     validate_metadata_path(&sorrel_dir(), Path::new(HEAD_FILE))?;
+    let head = match fs::read(head_path()) {
+        Ok(bytes) => Some(serde_json::from_value(parse_ref_payload(
+            Path::new(HEAD_FILE),
+            &bytes,
+        )?)?),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
     let mut state = LocalState {
-        head: load_head_raw()?,
+        head,
         lane_heads: BTreeMap::new(),
     };
     for lane in lanes {
@@ -1228,9 +1236,9 @@ fn read_state(lanes: impl Iterator<Item = String>) -> io::Result<LocalState> {
         }
         let path = Path::new(HEADS_DIR).join(&lane);
         validate_metadata_path(&sorrel_dir(), &path)?;
-        let snapshot = match fs::read(sorrel_dir().join(path)) {
+        let snapshot = match fs::read(sorrel_dir().join(&path)) {
             Ok(bytes) => {
-                let value: Value = serde_json::from_slice(&bytes)?;
+                let value = parse_ref_payload(&path, &bytes)?;
                 Some(
                     value
                         .get("snapshot")
@@ -1342,8 +1350,8 @@ pub fn prepare_head_transition(
     action: &str,
     related: Option<String>,
 ) -> io::Result<PreparedTransition> {
+    let old_head = read_state(std::iter::empty())?.head;
     ensure_heads_migrated()?;
-    let old_head = load_head_raw()?;
     let mut lanes = std::collections::BTreeSet::from([head.lane.clone()]);
     if let Some(old) = old_head {
         lanes.insert(old.lane);
@@ -1489,7 +1497,7 @@ pub fn create_checkpoint(name: &str, head: &Head) -> io::Result<Checkpoint> {
             "checkpoint name already exists",
         ));
     }
-    if load_head()? != Some(head.clone()) {
+    if read_state(std::iter::once(head.lane.clone()))?.head != Some(head.clone()) {
         return Err(io::Error::other("HEAD changed before checkpoint creation"));
     }
     flush_snapshot_closure(&sorrel_dir(), &head.snapshot)?;
