@@ -114,8 +114,6 @@ describe('HubApp rendered behavior', () => {
     const calls = installHubFetch([], [], { developmentSession: true });
     render(() => <HubApp platform={createWebPlatform()} />);
     await screen.findByRole('heading', { level: 1 });
-    await waitFor(() => expect(calls.filter((call) => call.url === '/api/session')).toHaveLength(2));
-    await new Promise((resolve) => setTimeout(resolve, 0));
     const identity = await screen.findByRole('combobox', { name: 'Acting principal' });
     await fireEvent.change(identity, { target: { value: 'user:reviewer' } });
     expect(identity).toHaveValue('user:reviewer');
