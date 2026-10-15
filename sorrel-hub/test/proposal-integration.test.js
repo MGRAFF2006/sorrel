@@ -455,6 +455,32 @@ test('configured root aliases can publish without resolving descendant aliases',
   assert.equal(f.sync.getRef('repo_test', 'main'), b.candidateSnapshot);
 });
 
+test('unchanged out-of-order comments preserve bound evidence across restart while actual edits invalidate it', async t => {
+  const f = await fixture(t);
+  for (const id of ['z-last', 'a-first']) {
+    assert.equal((await f.call('/admin/review-comments', { id, proposalId: 'proposal', body: `Review ${id}` })).status, 201);
+  }
+  const commentBytes = () => ['z-last', 'a-first'].map(id => fs.readFileSync(path.join(f.metadata, 'reviewComments', `${id}.json`), 'utf8'));
+  const originalBytes = commentBytes();
+  let b = await f.prepare(); await f.approve(b); await f.report(b);
+  assert.equal((await f.readiness()).data.ready, true);
+  await f.restart();
+  assert.deepEqual(commentBytes(), originalBytes);
+  const preserved = await f.readiness();
+  assert.equal(preserved.data.binding.id, b.id);
+  assert.equal(preserved.data.ready, true, JSON.stringify(preserved));
+  assert.equal(preserved.data.approved, true);
+  assert.equal(preserved.data.requiredChecks[0].outcome, 'succeeded');
+  assert.equal((await f.report(b)).status, 201);
+  assert.equal((await f.call('/admin/review-comments/z-last', { body: 'Actual review edit' }, 'author', 'PATCH')).status, 200);
+  assert.ok((await f.readiness()).data.blockers.includes('review_changed'));
+  assert.equal((await f.integrate(b)).status, 409);
+  b = await f.prepare(); await f.approve(b); await f.report(b);
+  await f.restart();
+  assert.equal((await f.readiness()).data.ready, true);
+  assert.equal((await f.integrate(b, 'stable-comments')).status, 200);
+});
+
 test('a descendant repository symlink cannot read or mutate another actual Hub dataset', async t => {
   const f = await fixture(t);
   await f.prepare();
