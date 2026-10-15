@@ -1,4 +1,5 @@
 # Overlay for source-built WorkOS pilots; use with sorrel-server.compose.yml.
+# Requires Docker Compose 2.24.4+ for port overrides.
 # Only Caddy exposes public ports. API and web ports remain on loopback.
 services:
   hub:
@@ -18,6 +19,8 @@ services:
       SORREL_HUB_MAX_BODY_BYTES: "${SORREL_HUB_MAX_BODY_BYTES:-67108864}"
     volumes:
       - ./config:/app/config:ro
+    ports: !override
+      - "127.0.0.1:${SORREL_HUB_PORT:-3000}:3000"
   hub-web:
     image: sorrel-hub-web:pilot
     build:
@@ -25,6 +28,8 @@ services:
       dockerfile: sorrel-hub-web/Dockerfile
     environment:
       SORREL_HUB_MAX_BODY_BYTES: "${SORREL_HUB_MAX_BODY_BYTES:-67108864}"
+    ports: !override
+      - "127.0.0.1:${SORREL_HUB_WEB_PORT:-5180}:5180"
   caddy:
     image: caddy:2.11.7
     restart: unless-stopped
