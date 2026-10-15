@@ -31,7 +31,11 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      - name: Install Restic for verified pilot backup coverage
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends restic
       - name: Repository consistency
+        env:
+          SORREL_REQUIRE_RESTIC: "1"
         run: npm run check:quick
       - name: Rust lint and format
         run: |
