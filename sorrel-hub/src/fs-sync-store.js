@@ -81,6 +81,21 @@ export function decodePathSegment(value) {
   return Buffer.from(bytes).toString('utf8');
 }
 
+// Configured root aliases are supported; descendants must stay in that dataset.
+function datasetPath(root, target) {
+  let current = root;
+  for (const part of path.relative(root, target).split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    try {
+      if (fs.lstatSync(current).isSymbolicLink()) throw Object.assign(new Error('symlink within filesystem dataset'), { code: 'EACCES' });
+    } catch (error) {
+      if (error.code === 'ENOENT') break;
+      throw error;
+    }
+  }
+  return target;
+}
+
 /**
  * Filesystem-backed drop-in replacement for the in-memory `RepoSyncStore`.
  *
@@ -107,15 +122,15 @@ export class FsRepoSyncStore {
   }
 
   #repoDir(repoId) {
-    return path.join(this.rootDir, filesystemName(encodePathSegment(repoId)));
+    return datasetPath(this.rootDir, path.join(this.rootDir, filesystemName(encodePathSegment(repoId))));
   }
 
   #objectPath(repoId, id) {
-    return path.join(this.#repoDir(repoId), 'objects', id.slice(0, 2), id);
+    return datasetPath(this.rootDir, path.join(this.#repoDir(repoId), 'objects', id.slice(0, 2), id));
   }
 
   #refPath(repoId, name) {
-    return path.join(this.#repoDir(repoId), 'refs', filesystemName(encodePathSegment(name)));
+    return datasetPath(this.rootDir, path.join(this.#repoDir(repoId), 'refs', filesystemName(encodePathSegment(name))));
   }
 
   has(repoId, id) {
@@ -186,7 +201,7 @@ export class FsRepoSyncStore {
   }
 
   listRefs(repoId) {
-    const refsDir = path.join(this.#repoDir(repoId), 'refs');
+    const refsDir = datasetPath(this.rootDir, path.join(this.#repoDir(repoId), 'refs'));
     let files;
     try {
       files = fs.readdirSync(refsDir);
@@ -200,7 +215,7 @@ export class FsRepoSyncStore {
     const refs = [];
     for (const file of files.sort()) {
       if (file.startsWith('.tmp-')) continue;
-      const parsed = readRefFile(path.join(refsDir, file), decodePathSegment(file));
+      const parsed = readRefFile(datasetPath(this.rootDir, path.join(refsDir, file)), decodePathSegment(file));
       if (parsed) {
         refs.push({ name: parsed.name, snapshot: parsed.snapshot });
       }

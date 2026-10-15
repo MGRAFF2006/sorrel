@@ -174,6 +174,7 @@ impl HubObjects {
         for (id, bytes) in self.writes.borrow().iter() {
             self.budget(0)?;
             let path = self.path(id);
+            dataset_writer::contained(&self.root, &path)?;
             fs::create_dir_all(path.parent().unwrap())?;
             let temp = path.with_extension(format!("{}.tmp", std::process::id()));
             let mut file = OpenOptions::new()
@@ -199,9 +200,10 @@ impl ObjectStore for HubObjects {
     fn read(&self, id: &ObjectId) -> ObjectStoreResult<Vec<u8>> {
         let path = self.path(id);
         let io_error = |source| ObjectStoreError::Io {
-            path: path.clone(),
+            path: PathBuf::from(id.to_string()),
             source,
         };
+        dataset_writer::contained(&self.root, &path).map_err(io_error)?;
         let bytes = if let Some(bytes) = self.writes.borrow().get(id) {
             self.budget(bytes.len()).map_err(io_error)?;
             bytes.clone()
@@ -237,13 +239,13 @@ impl ObjectStore for HubObjects {
     fn write(&self, bytes: &[u8]) -> ObjectStoreResult<ObjectId> {
         self.budget(bytes.len())
             .map_err(|source| ObjectStoreError::Io {
-                path: self.root.clone(),
+                path: PathBuf::from("integration-output"),
                 source,
             })?;
         let id = ObjectId::for_bytes(bytes);
         if self.writes.borrow().len() >= MAX_NODES {
             return Err(ObjectStoreError::Io {
-                path: self.root.clone(),
+                path: PathBuf::from("integration-output"),
                 source: io::Error::other("output object limit"),
             });
         }
@@ -251,7 +253,12 @@ impl ObjectStore for HubObjects {
         Ok(id)
     }
     fn has(&self, id: &ObjectId) -> ObjectStoreResult<bool> {
-        Ok(self.path(id).is_file() || self.writes.borrow().contains_key(id))
+        let path = self.path(id);
+        dataset_writer::contained(&self.root, &path).map_err(|source| ObjectStoreError::Io {
+            path: PathBuf::from(id.to_string()),
+            source,
+        })?;
+        Ok(path.is_file() || self.writes.borrow().contains_key(id))
     }
 }
 
@@ -775,6 +782,40 @@ mod integration_tests {
                 .collect::<Vec<_>>(),
             [r.inputs.target_snapshot, r.inputs.source_snapshot]
         );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn object_adapter_rejects_repository_directory_shard_and_file_symlinks() {
+        for depth in 0..4 {
+            let parent = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            let root = parent.path().join("repo");
+            fs::create_dir(&root).unwrap();
+            let store = objects(&root);
+            let id = store.write(b"expected").unwrap();
+            store.commit().unwrap();
+            let file = store.path(&id);
+            let linked = match depth {
+                0 => root.clone(),
+                1 => root.join("objects"),
+                2 => file.parent().unwrap().to_path_buf(),
+                _ => file.clone(),
+            };
+            let moved = outside.path().join("moved");
+            fs::rename(&linked, &moved).unwrap();
+            std::os::unix::fs::symlink(&moved, &linked).unwrap();
+            let reader = objects(&root);
+            let error = reader.read(&id).unwrap_err().to_string();
+            assert!(!error.contains(root.to_str().unwrap()));
+            assert!(reader.has(&id).is_err());
+            assert!(store.commit().is_err());
+            let actual = if file == linked {
+                moved
+            } else {
+                moved.join(file.strip_prefix(&linked).unwrap())
+            };
+            assert_eq!(fs::read(actual).unwrap(), b"expected");
+        }
     }
     #[test]
     fn adapter_rejects_digest_mismatch_and_oversized_reads_before_engine_traversal() {

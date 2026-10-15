@@ -221,7 +221,7 @@ export async function assertCollectionWrite(context, collection, body, existing)
   }
 }
 
-export async function assertProposalReferences(context, item) {
+export async function assertProposalReferences(context, item, { readWorkflows = true } = {}) {
   const project = projectScope(context, item.projectId);
   if (item.repositoryId) {
     const repository = context.store.getRepository(scopeString(item.repositoryId, 'repositoryId'));
@@ -236,7 +236,7 @@ export async function assertProposalReferences(context, item) {
   for (const id of item.workflowRunIds ?? []) {
     const run = context.store.getWorkflowRun(id);
     if (!run) notFound();
-    await assertCollectionRead(context, 'workflow-runs', run);
+    if (readWorkflows) await assertCollectionRead(context, 'workflow-runs', run);
     if (run.projectId !== project.id) throw new HttpError(400, 'workflowRunIds must belong to the project', 'model_validation_failed');
   }
 }

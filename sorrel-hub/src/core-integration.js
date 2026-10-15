@@ -52,10 +52,11 @@ export async function coreIntegration(payload, datasetLease) {
 
 /** OS leases cover canonical aliases of *both* roots before server hydration. */
 export async function acquireDatasetWriter(roots) {
-  const canonical = [...new Set(roots.map(root => {
+  const aliases = roots.map(root => {
     fs.mkdirSync(root, { recursive: true });
-    return fs.realpathSync(root);
-  }))].sort();
+    return { original: path.resolve(root), canonical: fs.realpathSync(root) };
+  });
+  const canonical = [...new Set(aliases.map(root => root.canonical))].sort();
   const child = spawn(integrationBinary(), ['lock', ...canonical], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   const token = randomBytes(32).toString('hex');
   let port;
@@ -89,7 +90,18 @@ export async function acquireDatasetWriter(roots) {
     if (!alive || closed) throw new HttpError(503, 'filesystem writer lease lost; restart Hub', 'dataset_writer_lost');
   };
   const abort = () => { alive = false; child.kill('SIGKILL'); };
-  const envelope = command => { assert(); return { token, command }; };
+  const envelope = command => {
+    assert();
+    if (command.operation === 'core') {
+      const root = path.resolve(command.request.root);
+      const alias = aliases.find(({ original }) => { const relative = path.relative(original, root); return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative); });
+      if (!alias) throw new Error('Core root lacks a dataset lease');
+      // Resolve only the configured root alias. Descendant symlinks must remain
+      // visible to the native owner's containment check, never normalized away.
+      command = { ...command, request: { ...command.request, root: path.join(alias.canonical, path.relative(alias.original, root)) } };
+    }
+    return { token, command };
+  };
   const requestSync = command => {
     const input = JSON.stringify(envelope(command));
     if (Buffer.byteLength(input) > 32 * 1024 * 1024) throw new HttpError(413, 'protected write exceeds safety limit', 'dataset_write_limit');

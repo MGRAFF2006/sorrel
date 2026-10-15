@@ -95,7 +95,8 @@ export function createProposalIntegration(store, options) {
   async function handle(requestMessage, response, context, proposalId, subResource) {
     const proposal = store.getProposal(proposalId);
     await assertCollectionRead(context, 'proposals', proposal);
-    await assertProposalReferences(context, proposal);
+    // Linked workflow bytes stay internal to the binding, like review comments.
+    await assertProposalReferences(context, proposal, { readWorkflows: false });
     if (!available) throw new HttpError(503, capabilities.limitation, 'integration_unavailable');
     if (!['integration', 'integration-changes'].includes(subResource) && requestMessage.method !== 'POST') throw new HttpError(405, 'this subresource requires POST', 'method_not_allowed');
     recover();

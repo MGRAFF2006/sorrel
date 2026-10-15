@@ -55,7 +55,7 @@ struct WriteFailure {
     source: io::Error,
     published: bool,
 }
-fn contained(root: &Path, path: &Path) -> io::Result<()> {
+pub(super) fn contained(root: &Path, path: &Path) -> io::Result<()> {
     if !path.is_absolute()
         || path.strip_prefix(root).map_or(true, |p| {
             p.components().any(|c| matches!(c, Component::ParentDir))
@@ -65,6 +65,30 @@ fn contained(root: &Path, path: &Path) -> io::Result<()> {
             io::ErrorKind::PermissionDenied,
             "write outside locked root",
         ));
+    }
+    // Dataset roots are canonicalized before locking. Reject descendant aliases
+    // before any read or directory creation can reach another writer's dataset.
+    let mut current = root.to_path_buf();
+    for component in std::iter::once(None).chain(
+        path.strip_prefix(root)
+            .expect("validated prefix")
+            .components()
+            .map(Some),
+    ) {
+        if let Some(component) = component {
+            current.push(component);
+        }
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "symlink within protected dataset",
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => break,
+            Err(error) => return Err(error),
+        }
     }
     Ok(())
 }
@@ -222,6 +246,7 @@ pub(super) fn serve(roots: impl Iterator<Item = String>) -> super::Result<()> {
     }
     let mut files = Vec::new();
     for root in &roots {
+        contained(root, &root.join(".sorrel-hub-writer.lock"))?;
         let file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -302,6 +327,23 @@ pub(super) fn client(port: u16) -> super::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    #[test]
+    fn protected_writes_reject_descendant_symlinks_before_creating_directories() {
+        for name in ["projects", "repo/objects", "repo/refs"] {
+            let root = tempfile::tempdir().unwrap();
+            let outside = tempfile::tempdir().unwrap();
+            let link = root.path().join(name);
+            fs::create_dir_all(link.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+            let failure = atomic_write(root.path(), &link.join("new/record"), b"never", None, None)
+                .err()
+                .unwrap();
+            assert!(!failure.published);
+            assert_eq!(failure.source.kind(), io::ErrorKind::PermissionDenied);
+            assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+        }
+    }
     #[test]
     fn native_write_guards_and_barrier_failures_never_fabricate_publication() {
         let root = tempfile::tempdir().unwrap();
