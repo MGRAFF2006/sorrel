@@ -427,7 +427,7 @@ export async function runPilotWorkflow() {
     await execute(process.execPath, ['verify.mjs'], { cwd: recoveredWork, env: { PATH: env.PATH }, timeout: 10000 });
     await isolation();
     log('fresh reviewer CLI pull matches tested candidate after recovery; isolation persists');
-    log('LOCAL protocol/OIDC proof passed; live WorkOS, public edge and hosted workflow remain unproven');
+    log('LOCAL protocol/OIDC proof passed; live identity, public edge and hosted workflow require separate evidence');
   } finally {
     try {
       if (hub) await hub.stop();
