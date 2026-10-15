@@ -81,6 +81,7 @@ export async function runPilotWorkflow() {
     const tokens = {};
     const alpha = (await cli(work, ['init'])).repoId;
     const beta = (await cli(privateWork, ['init'])).repoId;
+    const movedRepo = `${alpha}_moved`;
 
     const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
     const key = { ...publicKey.export({ format: 'jwk' }), kid: 'local-pilot', alg: 'RS256', use: 'sig' };
@@ -91,7 +92,7 @@ export async function runPilotWorkflow() {
     jwks.listen(0, '127.0.0.1');
     await once(jwks, 'listening');
     const issuer = `http://127.0.0.1:${jwks.address().port}`;
-    for (const id of ['alice', 'bob', 'ci', 'eve']) {
+    for (const id of ['alice', 'bob', 'ci', 'eve', 'moved-reader']) {
       const payload = [ { alg: 'RS256', kid: key.kid }, {
         sub: id, iss: issuer, aud: 'pilot-test', exp: Math.floor(Date.now() / 1000) + 1800,
       } ].map(value => Buffer.from(JSON.stringify(value)).toString('base64url')).join('.');
@@ -99,10 +100,13 @@ export async function runPilotWorkflow() {
     }
     const grants = {};
     function grant(actor, kind, id, capabilities) {
-      const name = `${actor}_${kind}`;
+      const name = `${actor}_${kind}_${id}`;
       grants[name] = { id: name, schemaVersion: 'sorrel.protocol.v0', kind: 'Grant',
         principal: { kind: 'user', id: principal(actor).id }, resource: { kind, id }, capabilities, effect: 'allow' };
     }
+    grant('alice', 'repo', movedRepo, ['repo.read']);
+    grant('moved-reader', 'project', 'project_alpha', ['proposal.read']);
+    grant('moved-reader', 'repo', movedRepo, ['repo.read']);
     for (const [actor, team, repo] of [['alice', 'alpha', alpha], ['bob', 'alpha', alpha], ['ci', 'alpha', alpha], ['eve', 'beta', beta]]) {
       if (actor !== 'ci') grant(actor, 'org', `org_${team}`, ['org.read', 'org.write', 'project.create']);
       grant(actor, 'project', `project_${team}`, actor === 'ci' ? ['proposal.read'] : [
@@ -135,7 +139,8 @@ export async function runPilotWorkflow() {
     const tip = async () => (await refs(alpha)).find(ref => ref.name === 'main').snapshot;
     const project = async (team, actor, repo) => {
       expect(await call('/admin/organizations', { id: `org_${team}`, name: team }, actor), 201);
-      expect(await call('/projects', { id: `project_${team}`, organizationId: `org_${team}`, name: team, repositoryIds: [repo] }, actor), 201);
+      expect(await call('/projects', { id: `project_${team}`, organizationId: `org_${team}`, name: team,
+        repositoryIds: team === 'alpha' ? [repo, movedRepo] : [repo] }, actor), 201);
     };
     await project('alpha', 'alice', alpha);
     await project('beta', 'eve', beta);
@@ -179,6 +184,8 @@ export async function runPilotWorkflow() {
       authorPrincipal: principal('bob'), status: 'approved', metadata: { tests: 'succeeded', approvals: ['bob'] } }), 201).data;
     assert.deepEqual(proposal.authorPrincipal, principal('alice'));
     const endpoint = `/admin/proposals/${proposal.id}`;
+    const privateReviewBody = 'Fixture review visible only with comment-read authority';
+    expect(await call('/admin/review-comments', { proposalId: proposal.id, body: privateReviewBody }, 'bob'), 201);
     const prepare = async () => expect(await call(`${endpoint}/integration`, {}), 201).data.binding;
     const bindingEndpoint = b => `/admin/proposals/${b.inputs.proposalId}`;
     const approve = b => call(`${bindingEndpoint(b)}/approvals`, { bindingId: b.id, candidateSnapshot: b.candidateSnapshot }, 'bob');
@@ -220,6 +227,28 @@ export async function runPilotWorkflow() {
     assert.equal(binding.inputs.targetSnapshot, targetSnapshot);
     assert.equal(binding.mergeBase, base);
     assert.equal(binding.conflicts.length, 0);
+    assert.equal(binding.inputs.review, undefined);
+    const producerReadiness = expect(await call(`${endpoint}/integration`, undefined, 'ci'), 200);
+    assert.equal(producerReadiness.data.binding.id, binding.id);
+    assert.equal(producerReadiness.data.binding.inputs.review, undefined);
+    assert.ok(!JSON.stringify(producerReadiness).includes(privateReviewBody));
+    assert.deepEqual(expect(await call(`${endpoint}/comments`, undefined, 'ci'), 200).data, []);
+
+    // A current-repo reader must not recover bytes from an older binding's different repo.
+    const movedEndpoint = '/admin/proposals/proposal_moved';
+    expect(await call('/admin/proposals', { id: 'proposal_moved', projectId: 'project_alpha', syncRepoId: alpha,
+      title: 'Repository authorization regression', sourceLane: 'source', targetLane: 'main', status: 'open' }), 201);
+    const oldBinding = expect(await call(`${movedEndpoint}/integration`, {}), 201).data.binding;
+    expect(await call(movedEndpoint, { syncRepoId: movedRepo }, 'alice', 'PATCH'), 200);
+    expect(await call(movedEndpoint, undefined, 'moved-reader'), 200);
+    expect(await call(`/${movedRepo}/refs`, undefined, 'moved-reader'), 200);
+    expect(await call(`/${alpha}/objects/${oldBinding.candidateSnapshot}`, undefined, 'moved-reader'), 403);
+    for (const suffix of ['integration', `integration-changes?bindingId=${oldBinding.id}`]) {
+      const denied = await call(`${movedEndpoint}/${suffix}`, undefined, 'moved-reader');
+      assert.ok([403, 404].includes(denied.status), JSON.stringify(denied));
+      assert.equal(denied.data, undefined);
+    }
+    log('least-privileged CI sees sanitized binding; current-repo-only reader cannot read old binding repository');
     expect(await integrate(binding), 409);
     expect(await call(`${endpoint}/approvals`, { bindingId: binding.id, candidateSnapshot: binding.candidateSnapshot }), 409);
     expect(await approve(binding), 201);
