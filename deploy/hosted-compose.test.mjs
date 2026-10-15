@@ -9,15 +9,20 @@ const cwd = new URL('..', import.meta.url);
 const compose = spawnSync('docker', ['compose', 'version'], { encoding: 'utf8' });
 const skip = compose.status !== 0 && !process.env.CI && 'Install Docker Compose 2.24.4+ to render hosted deployment configuration';
 
-for (const mode of ['preview', 'hosted TLS', 'hosted tunnel']) {
-  test(`${mode} renders the intended API/web bindings with SORREL_BIND_ADDRESS=0.0.0.0`, { skip }, t => {
+const requiredChecks = JSON.stringify({ repo_fixture: { version: 1, checks: [{ id: 'tests', reporter: { type: 'user', id: 'workos:fixture' } }] } });
+const cases = ['preview', 'hosted TLS', 'hosted tunnel'].flatMap(mode => [
+  { mode, checks: requiredChecks }, { mode, checks: undefined },
+]);
+
+for (const { mode, checks } of cases) {
+  test(`${mode} preserves ${checks ? 'configured' : 'unset'} required checks and API/web bindings with SORREL_BIND_ADDRESS=0.0.0.0`, { skip }, t => {
     assert.equal(compose.status, 0, 'CI requires Docker Compose 2.24.4+; missing or unsupported Compose must fail');
     const hosted = mode !== 'preview';
     const tunnel = mode === 'hosted tunnel';
     const fixture = mkdtempSync(join(tmpdir(), 'sorrel-compose-'));
     t.after(() => rmSync(fixture, { recursive: true, force: true }));
-    const envFile = join(fixture, 'empty.env');
-    writeFileSync(envFile, '');
+    const envFile = join(fixture, 'checks.env');
+    writeFileSync(envFile, checks ? `SORREL_HUB_REQUIRED_CHECKS_JSON='${checks}'\n` : '');
     const args = ['compose', '--env-file', envFile, '-f', 'deploy/sorrel-server.compose.yml'];
     if (hosted) args.push('-f', 'deploy/sorrel-hosted.compose.yml');
     if (tunnel) args.push('-f', 'deploy/sorrel-tunnel.compose.yml');
@@ -36,6 +41,7 @@ for (const mode of ['preview', 'hosted TLS', 'hosted tunnel']) {
     });
     assert.equal(result.status, 0, result.stderr);
     const { services } = JSON.parse(result.stdout);
+    assert.equal(services.hub.environment.SORREL_HUB_REQUIRED_CHECKS_JSON, checks ?? '{}');
     for (const [name, target, published] of [['hub', 3000, '13000'], ['hub-web', 5180, '15180']]) {
       assert.equal(services[name].ports.length, 1, `${name} must not retain a public inherited binding`);
       assert.equal(services[name].ports[0].host_ip, hosted ? '127.0.0.1' : '0.0.0.0');
