@@ -53,7 +53,8 @@ export function createProposalIntegration(store, options) {
     const targetGeneration = store.sync.getRefRecord(proposal.syncRepoId, targetRef).generation ?? 'legacy';
     return { sourceGeneration, targetGeneration, proposalId: proposal.id, projectId: proposal.projectId, repositoryId: proposal.repositoryId ?? null,
       repoId: proposal.syncRepoId, sourceRef, targetRef, sourceSnapshot, targetSnapshot, author: provenance.principal,
-      review: { proposal, workflows: (proposal.workflowRunIds ?? []).map(id => store.getWorkflowRun(id)), comments: store.listReviewComments({ proposalId: proposal.id }) } };
+      review: { proposal, workflows: (proposal.workflowRunIds ?? []).map(id => store.getWorkflowRun(id)),
+        comments: store.listReviewComments({ proposalId: proposal.id }).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0) } };
   }
   function request(context, proposal, operation, extra = {}) {
     const inputs = proposalInputs(proposal);
