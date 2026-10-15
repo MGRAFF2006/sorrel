@@ -24,7 +24,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
-import { runPilotWorkflow } from './pilot-workflow.mjs';
+import { runPilotWorkflow, stopPilotWorkflow } from './pilot-workflow.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SORREL_BIN = join(ROOT, 'target/debug/sorrel');
@@ -60,14 +60,16 @@ function cleanup() {
 }
 
 process.on('exit', cleanup);
-process.on('SIGINT', () => {
+let shuttingDown = false;
+async function shutdown(code) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  await stopPilotWorkflow();
   cleanup();
-  process.exit(130);
-});
-process.on('SIGTERM', () => {
-  cleanup();
-  process.exit(143);
-});
+  process.exit(code);
+}
+process.on('SIGINT', () => shutdown(130));
+process.on('SIGTERM', () => shutdown(143));
 
 async function spawnReady(command, args, options = {}) {
   const child = spawn(command, args, {
@@ -145,6 +147,7 @@ function sorrelJson(cwd, args, env = {}) {
 }
 
 async function main() {
+  if (process.argv.includes('--pilot-only')) return runPilotWorkflow();
   console.log('Sorrel E2E happy path (no mocks)\n');
 
   // Protocol validate (fast) — full npm test suite lives in `npm run test:modules`.
@@ -481,11 +484,13 @@ jobs:
   log('sorrel-runners', 'exercised via CLI workflow run');
 
   await runPilotWorkflow();
+  run('node', ['--test', 'tests/e2e/pilot-workflow-cancellation.test.mjs'], { cwd: ROOT });
   console.log('\nAll E2E checks passed.');
   cleanup();
 }
 
 main().catch((error) => {
+  if (shuttingDown) return;
   console.error('✗ E2E failed');
   console.error(error);
   cleanup();

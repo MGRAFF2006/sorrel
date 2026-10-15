@@ -16,17 +16,19 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-const execute = promisify(execFile);
+const executeFile = promisify(execFile);
 const principal = id => ({ type: 'user', id: `oidc:${id}` });
 const log = message => console.log(`✓ pilot workflow — ${message}`);
+let stopActiveWorkflow = async () => {};
+export const stopPilotWorkflow = () => stopActiveWorkflow();
 
 // Never inherit real bearer tokens, operator grants, WorkOS/Convex config or Node hooks.
 const cleanEnv = () => Object.fromEntries(Object.entries(process.env).filter(([key]) =>
   !/^(SORREL_|WORKOS_|CONVEX_|NODE_OPTIONS$|NODE_PATH$|PORT$|HOST$)/.test(key)));
 
-async function startHub(env) {
+async function startHub(env, signal) {
   const child = spawn(process.execPath, ['tests/e2e/pilot-hub.mjs'], {
-    cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: ROOT, env, signal, stdio: ['ignore', 'pipe', 'pipe'],
   });
   const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
   let stderr = '';
@@ -43,7 +45,7 @@ async function startHub(env) {
         try { resolve(JSON.parse(line).url); } catch (error) { reject(error); }
       });
     });
-    return { url, closed, async stop() {
+    return { url, pid: child.pid, closed, async stop() {
       if (child.exitCode !== null || child.signalCode !== null) return closed;
       child.kill('SIGTERM');
       const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
@@ -56,13 +58,19 @@ export async function runPilotWorkflow() {
   const env = cleanEnv();
   const target = path.resolve(ROOT, env.CARGO_TARGET_DIR ?? 'target');
   const binary = path.join(target, 'debug', process.platform === 'win32' ? 'sorrel.exe' : 'sorrel');
-  await execute('cargo', ['build', '--locked', '-p', 'sorrel-cli', '-p', 'sorrel-core', '--bins'], {
-    cwd: ROOT, env, timeout: 240000, maxBuffer: 4 * 1024 * 1024,
-  });
-  const root = await mkdtemp(path.join(tmpdir(), 'sorrel-pilot-workflow-'));
+  const aborter = new AbortController();
+  const finished = Promise.withResolvers();
+  const stop = async () => { aborter.abort(); await finished.promise; };
+  stopActiveWorkflow = stop;
+  const execute = (command, args, options) => executeFile(command, args, { ...options, signal: aborter.signal });
+  let root;
   let hub;
   let jwks;
   try {
+    await execute('cargo', ['build', '--locked', '-p', 'sorrel-cli', '-p', 'sorrel-core', '--bins'], {
+      cwd: ROOT, env, timeout: 240000, maxBuffer: 4 * 1024 * 1024,
+    });
+    root = await mkdtemp(path.join(tmpdir(), 'sorrel-pilot-workflow-'));
     const work = path.join(root, 'author');
     const privateWork = path.join(root, 'other-team');
     await Promise.all([mkdir(work), mkdir(privateWork)]);
@@ -112,10 +120,11 @@ export async function runPilotWorkflow() {
       SORREL_HUB_TRUSTED_GRANTS_FILE: grantsFile,
       SORREL_HUB_REQUIRED_CHECKS_JSON: JSON.stringify({ [alpha]: { version: 1, checks: [{ id: 'test', reporter: principal('ci') }] } }),
     };
-    hub = await startHub(hubEnv);
+    hub = await startHub(hubEnv, aborter.signal);
+    log(`disposable Hub ready ${JSON.stringify({ root, pid: hub.pid })}`);
     async function call(route, body, actor = 'alice', method, headers = {}) {
       const response = await fetch(`${hub.url}${route}`, {
-        method: method ?? (body === undefined ? 'GET' : 'POST'), signal: AbortSignal.timeout(15000),
+        method: method ?? (body === undefined ? 'GET' : 'POST'), signal: AbortSignal.any([aborter.signal, AbortSignal.timeout(15000)]),
         headers: { 'content-type': 'application/json', ...(actor ? { authorization: `Bearer ${tokens[actor]}` } : {}), ...headers },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
@@ -315,14 +324,14 @@ export async function runPilotWorkflow() {
     // Kill a real Hub process on both sides of the publication boundary. No disk records are fabricated.
     for (const stage of ['journal', 'ref']) {
       await hub.stop();
-      hub = await startHub({ ...hubEnv, SORREL_PILOT_TEST_CRASH: stage });
+      hub = await startHub({ ...hubEnv, SORREL_PILOT_TEST_CRASH: stage }, aborter.signal);
       binding = await prepare();
       await testCandidate(binding, 0);
       expect(await approve(binding), 201);
       const body = integrateBody(binding);
       await assert.rejects(call(`${endpoint}/integrate`, body), /fetch failed|terminated|socket/i);
       assert.deepEqual(await hub.closed, { code: null, signal: 'SIGKILL' });
-      hub = await startHub(hubEnv);
+      hub = await startHub(hubEnv, aborter.signal);
       const recovered = expect(await call(`${endpoint}/integrate`, body), 200).data;
       if (stage === 'journal') {
         assert.equal(recovered.state, 'not_published');
@@ -341,7 +350,7 @@ export async function runPilotWorkflow() {
         expect(await call(`${endpoint}/integrate`, { ...body, expectedTargetSnapshot: base }), 409);
         expect(await call(`${endpoint}/integrate`, body, 'bob'), 409);
         await hub.stop();
-        hub = await startHub(hubEnv);
+        hub = await startHub(hubEnv, aborter.signal);
         assert.deepEqual(expect(await call(`${endpoint}/integrate`, body), 200).data, recovered);
       }
       log(`${stage} SIGKILL → restart → ${recovered.state} from durable evidence`);
@@ -358,12 +367,27 @@ export async function runPilotWorkflow() {
     log('fresh reviewer CLI pull matches tested candidate after recovery; isolation persists');
     log('LOCAL protocol/OIDC proof passed; live WorkOS, public edge and hosted workflow remain unproven');
   } finally {
-    if (hub) await hub.stop();
-    if (jwks) await new Promise(resolve => jwks.close(resolve));
-    await rm(root, { recursive: true, force: true });
+    try {
+      if (hub) await hub.stop();
+    } finally {
+      try {
+        if (jwks) await new Promise(resolve => jwks.close(resolve));
+        if (root) await rm(root, { recursive: true, force: true });
+      } finally {
+        if (stopActiveWorkflow === stop) stopActiveWorkflow = async () => {};
+        finished.resolve();
+      }
+    }
   }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  runPilotWorkflow().catch(error => { console.error(error); process.exitCode = 1; });
+  let interrupted = false;
+  for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]]) process.on(signal, async () => {
+    if (interrupted) return;
+    interrupted = true;
+    await stopPilotWorkflow();
+    process.exit(code);
+  });
+  runPilotWorkflow().catch(error => { if (!interrupted) { console.error(error); process.exitCode = 1; } });
 }
