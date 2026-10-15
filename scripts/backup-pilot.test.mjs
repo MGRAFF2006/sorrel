@@ -8,9 +8,10 @@ import test from 'node:test';
 const skip = process.platform !== 'linux' && 'Pilot backup requires Linux flock and GNU realpath';
 const restic = spawnSync('which', ['restic'], { encoding: 'utf8' }).stdout?.trim();
 
-function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'sorrel-backup-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+function fixture(t, checkoutName = '') {
+  const parent = mkdtempSync(join(tmpdir(), 'sorrel-backup-'));
+  const root = join(parent, checkoutName);
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
   for (const path of ['deploy', 'bin', 'volume/_data', 'bind', 'unrelated']) mkdirSync(join(root, path), { recursive: true });
   copyFileSync(new URL('../deploy/backup-pilot.sh', import.meta.url), join(root, 'deploy/backup-pilot.sh'));
   writeFileSync(join(root, 'password'), 'test-placeholder');
@@ -77,7 +78,7 @@ test('real Restic restores cache-like repository/ref names while excluding check
   skip: skip || (!restic && process.env.SORREL_REQUIRE_RESTIC !== '1' && 'Install Restic to verify saved and restored backup content'),
 }, t => {
   assert.ok(restic, 'Restic is required when SORREL_REQUIRE_RESTIC=1');
-  const { root, run } = fixture(t);
+  const { root, run } = fixture(t, 'checkout[a]');
   const storage = mkdtempSync(join(tmpdir(), 'sorrel-restic-'));
   t.after(() => rmSync(storage, { recursive: true, force: true }));
   // Use the actual Restic binary; Docker remains a disposable lifecycle fixture.
@@ -94,7 +95,7 @@ test('real Restic restores cache-like repository/ref names while excluding check
     return result;
   }
   saved('init');
-  for (const location of ['bind', 'target/hub-data', 'sorrel-hub/node_modules/hub-data']) {
+  for (const location of ['bind', 'target/hub-data', 'sorrel-hub/node_modules/hub-data', '../checkouta/target/hub-data']) {
     const data = join(root, location);
     const files = [
       'sync/repos/target/refs/main', 'sync/repos/node_modules/refs/main',

@@ -46,7 +46,13 @@ for generated in "$checkout/.git" "$checkout/node_modules" "$checkout/target" \
   [[ -e $generated ]] || continue
   # A supported data mount may itself live inside the checkout or a cache path.
   [[ $data_source/ == "$generated/"* || $generated/ == "$data_source/"* ]] && continue
-  excludes+=(--exclude "$generated")
+  # Restic treats exclusions as globs even when the shell argument is quoted.
+  pattern=${generated//\\/\\\\}
+  pattern=${pattern//\*/\\*}
+  pattern=${pattern//\?/\\?}
+  pattern=${pattern//\[/\\[}
+  pattern=${pattern//\]/\\]}
+  excludes+=(--exclude "$pattern")
 done
 paused=0
 resume() {
