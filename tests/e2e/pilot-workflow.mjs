@@ -184,6 +184,10 @@ export async function runPilotWorkflow() {
       authorPrincipal: principal('bob'), status: 'approved', metadata: { tests: 'succeeded', approvals: ['bob'] } }), 201).data;
     assert.deepEqual(proposal.authorPrincipal, principal('alice'));
     const endpoint = `/admin/proposals/${proposal.id}`;
+    const linkedWorkflow = expect(await call('/admin/workflow-runs', {
+      projectId: 'project_alpha', proposalId: proposal.id, name: 'Linked queued workflow', status: 'queued',
+    }), 201).data;
+    expect(await call(endpoint, { workflowRunIds: [linkedWorkflow.id] }, 'alice', 'PATCH'), 200);
     const privateReviewBody = 'Fixture review visible only with comment-read authority';
     expect(await call('/admin/review-comments', { proposalId: proposal.id, body: privateReviewBody }, 'bob'), 201);
     const prepare = async () => expect(await call(`${endpoint}/integration`, {}), 201).data.binding;
@@ -233,6 +237,8 @@ export async function runPilotWorkflow() {
     assert.equal(producerReadiness.data.binding.inputs.review, undefined);
     assert.ok(!JSON.stringify(producerReadiness).includes(privateReviewBody));
     assert.deepEqual(expect(await call(`${endpoint}/comments`, undefined, 'ci'), 200).data, []);
+    expect(await call(`/admin/workflow-runs/${linkedWorkflow.id}`, undefined, 'ci'), 404);
+    assert.equal(expect(await call(`/admin/workflow-runs/${linkedWorkflow.id}`, undefined, 'bob'), 200).data.status, 'queued');
 
     // A current-repo reader must not recover bytes from an older binding's different repo.
     const movedEndpoint = '/admin/proposals/proposal_moved';
@@ -248,7 +254,7 @@ export async function runPilotWorkflow() {
       assert.ok([403, 404].includes(denied.status), JSON.stringify(denied));
       assert.equal(denied.data, undefined);
     }
-    log('least-privileged CI sees sanitized binding; current-repo-only reader cannot read old binding repository');
+    log('CI without workflow/comment-read sees sanitized binding with a linked run; old-binding repo access stays denied');
     expect(await integrate(binding), 409);
     expect(await call(`${endpoint}/approvals`, { bindingId: binding.id, candidateSnapshot: binding.candidateSnapshot }), 409);
     expect(await approve(binding), 201);
