@@ -189,7 +189,10 @@ export async function runPilotWorkflow() {
     }), 201).data;
     expect(await call(endpoint, { workflowRunIds: [linkedWorkflow.id] }, 'alice', 'PATCH'), 200);
     const privateReviewBody = 'Fixture review visible only with comment-read authority';
-    expect(await call('/admin/review-comments', { proposalId: proposal.id, body: privateReviewBody }, 'bob'), 201);
+    const commentIds = ['z-last', 'a-first'];
+    for (const id of commentIds) {
+      expect(await call('/admin/review-comments', { id, proposalId: proposal.id, body: privateReviewBody }, 'bob'), 201);
+    }
     const prepare = async () => expect(await call(`${endpoint}/integration`, {}), 201).data.binding;
     const bindingEndpoint = b => `/admin/proposals/${b.inputs.proposalId}`;
     const approve = b => call(`${bindingEndpoint(b)}/approvals`, { bindingId: b.id, candidateSnapshot: b.candidateSnapshot }, 'bob');
@@ -309,9 +312,33 @@ export async function runPilotWorkflow() {
     expect(await integrate(binding), 409);
     binding = await prepare();
     assert.equal(expect(await call(`${endpoint}/integration`), 200).data.approved, false);
-    await testCandidate(binding, 0);
+    const successfulReport = await testCandidate(binding, 0);
     assert.deepEqual(expect(await approve(binding), 201).data.principal, principal('bob'));
     assert.equal(expect(await call(`${endpoint}/integration`), 200).data.ready, true);
+
+    const commentBytes = () => Promise.all(commentIds.map(id => readFile(path.join(root, 'metadata', 'reviewComments', `${id}.json`))));
+    const beforeRestart = await commentBytes();
+    await hub.stop();
+    hub = await startHub(hubEnv, aborter.signal);
+    assert.deepEqual(await commentBytes(), beforeRestart);
+    const retained = expect(await call(`${endpoint}/integration`), 200).data;
+    assert.equal(retained.ready, true);
+    assert.equal(retained.binding.id, binding.id);
+    assert.equal(retained.approved, true);
+    assert.ok(retained.requiredChecks.some(check => check.runId === successfulReport.runId && check.outcome === 'succeeded'));
+    expect(await call(`${endpoint}/check-reports`, successfulReport, 'ci'), 201);
+    expect(await call('/admin/review-comments/a-first', { body: 'A real post-restart edit' }, 'bob', 'PATCH'), 200);
+    const edited = expect(await call(`${endpoint}/integration`), 200).data;
+    assert.equal(edited.ready, false);
+    assert.ok(edited.blockers.includes('review_changed'));
+    expect(await integrate(binding), 409);
+    await assertUnpublished(targetSnapshot);
+    binding = await prepare();
+    await testCandidate(binding, 0);
+    expect(await approve(binding), 201);
+    assert.equal(expect(await call(`${endpoint}/integration`), 200).data.ready, true);
+    await cli(work, ['remote', 'add', 'origin', hub.url, '--repo-id', alpha]);
+    log('unchanged comment bytes preserve evidence across restart; real comment edit requires fresh evidence');
 
     // Public target movement invalidates tested evidence; it must never overwrite the new tip.
     await cli(work, ['lane', 'switch', 'lane_main']);
