@@ -21,7 +21,7 @@ export type HubCapabilities = {
   convex: {
     enabled: boolean;
   };
-  collaboration?: { proposalTransitions: Record<string, string[]> };
+  collaboration?: { proposalTransitions: Record<string, string[]>; integration?: { version: number; available: boolean; limitation?: string | null } };
   deploy: 'saas' | 'selfhost' | 'dev';
 };
 

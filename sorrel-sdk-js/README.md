@@ -36,6 +36,13 @@ await hub.session();
 
 TypeScript declarations are included with the package.
 
+The filesystem Hub also exposes `proposalIntegration(id)`,
+`prepareProposalIntegration(id)`, `approveProposalCandidate(id, payload)`,
+`reportProposalCheck(id, payload)` and `integrateProposal(id, payload)`. These use
+normal authenticated JSON transport and preserve explicit candidate bindings and
+idempotency keys. See the [Hub integration contract](../sorrel-hub/README.md#consequential-proposal-integration)
+for required test reporter configuration, authority and receipt semantics.
+
 ## Checks
 
 ```sh

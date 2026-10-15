@@ -35,6 +35,7 @@ async function withServer(app, callback) {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
+    await app.close();
   }
 }
 

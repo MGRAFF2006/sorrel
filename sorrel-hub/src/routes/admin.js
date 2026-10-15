@@ -94,6 +94,10 @@ export async function handleAdminRoute(request, response, context) {
     throw new HttpError(404, 'admin collection not found', 'not_found');
   }
 
+  if (collectionName === 'proposals' && itemId && ['integration', 'integration-changes', 'approvals', 'check-reports', 'integrate'].includes(subResource)) {
+    return await context.integration.handle(request, response, context, itemId, subResource);
+  }
+
   // GET /admin/proposals/:id/comments — nested review comments for a proposal
   if (collectionName === 'proposals' && itemId && subResource === 'changes' && request.method === 'GET') {
     const proposal = context.store.getProposal(itemId);

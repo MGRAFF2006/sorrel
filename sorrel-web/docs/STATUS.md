@@ -91,8 +91,13 @@ Important remaining product gaps:
 
 - Lanes keep independent heads but share a checkout; separate directories,
   hunk staging and authenticated remote agent coordination remain future work. Local leases do not isolate execution or authorize writes.
-- Hub reviews compare recorded snapshots. “Mark as merged” changes metadata;
-  real Core integration and checks/approvals tied to exact snapshots are pending.
+- Filesystem Hub integration prepares real Core candidates and conflicts,
+  requires one authenticated non-author approval plus configured trusted test
+  reporters bound to the exact candidate, and publishes with target CAS, a durable
+  receipt and journal recovery. Required test reporting remains an external
+  operator configuration step; missing reporters block integration. “Mark as
+  merged” remains metadata only. Distributed writers, manual conflict resolution
+  in Hub and CI execution/provider integrations are not included.
 - Hosted access is operator-provisioned; self-service team access, managed CLI
   login, quotas, pagination, safe format migrations, and general disaster-recovery
   validation are pending. Core grants remain authoritative after login.
@@ -206,7 +211,8 @@ dependencies and workspace Cargo commands from the repo root.
    managed CLI onboarding, two-team access boundaries and backup restoration.
 2. Extend recovery to interrupted working-tree writes, directory lifecycle,
    hunk staging and authenticated remote agent coordination.
-3. Implement real proposal integration with snapshot-bound checks and approvals.
+3. Validate operator-wired trusted proposal test reporters in a credentialed pilot;
+   expand conflict resolution and distributed storage only with evidence.
 4. Add a narrow MCP adapter, handoff bundles, useful stacks and materialized slices.
 5. Add migrations, quotas, self-service access, workflow streaming/cancellation
    and native remote-Hub integration as pilot use establishes priorities.

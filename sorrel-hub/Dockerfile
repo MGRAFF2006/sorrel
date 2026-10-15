@@ -6,7 +6,7 @@ COPY sorrel-core ./sorrel-core
 COPY sorrel-cli ./sorrel-cli
 COPY sorrel-runners ./sorrel-runners
 COPY sorrel-sdk-rust ./sorrel-sdk-rust
-RUN cargo build --locked --release -p sorrel-core --bin sorrel-core-policy
+RUN cargo build --locked --release -p sorrel-core --bin sorrel-core-policy --bin sorrel-core-integration
 
 FROM node:22-alpine
 
@@ -23,10 +23,12 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --chown=node:node sorrel-hub/src ./src
 COPY --chown=node:node sorrel-hub/scripts ./scripts
 COPY --from=core-policy /build/target/release/sorrel-core-policy /usr/local/bin/sorrel-core-policy
+COPY --from=core-policy /build/target/release/sorrel-core-integration /usr/local/bin/sorrel-core-integration
 RUN apk add --no-cache libgcc libstdc++ libssl3 libcrypto3
 
 RUN mkdir -p /app/data && chown node:node /app/data
 
+ENV SORREL_HUB_CORE_INTEGRATION_BIN=/usr/local/bin/sorrel-core-integration
 ENV SORREL_HUB_CORE_POLICY_BIN=/usr/local/bin/sorrel-core-policy
 ENV NODE_ENV=production
 ENV PORT=3000

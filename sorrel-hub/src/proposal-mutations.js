@@ -3,6 +3,7 @@ import { bindSessionPrincipal } from './policy-guard.js';
 /** All proposal writes share attribution and best-effort metadata mirroring. */
 export function createProposal(attributes, context) {
   const proposal = context.store.createProposal(bindSessionPrincipal(attributes, context));
+  if (context.session?.principal) context.store.storeRecord('proposalAuthors', { id: proposal.id, principal: { type: context.session.principal.type, id: context.session.principal.id } });
   mirrorProposal(proposal, context);
   return proposal;
 }
@@ -13,7 +14,7 @@ export function updateProposal(id, attributes, context) {
   return proposal;
 }
 
-function mirrorProposal(proposal, context) {
+export function mirrorProposal(proposal, context) {
   if (!context.convexMirror) return;
   void Promise.resolve().then(() => context.convexMirror.upsertProposal(proposal)).catch((error) => {
     console.warn(`[convex-mirror] proposal ${proposal.id}: ${error instanceof Error ? error.message : String(error)}`);

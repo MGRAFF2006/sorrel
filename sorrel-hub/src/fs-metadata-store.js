@@ -8,7 +8,9 @@ import { InMemoryStore } from './store.js';
  * Collection directory names under the metadata root. Keys match the Map
  * property names on InMemoryStore.
  */
+const INTEGRATION_COLLECTIONS = ['proposalAuthors', 'proposalBindings', 'proposalApprovals', 'proposalChecks', 'proposalResults', 'integrationOperations'];
 const COLLECTIONS = [
+  ...INTEGRATION_COLLECTIONS,
   'organizations',
   'projects',
   'repositories',
@@ -66,6 +68,17 @@ export class FsMetadataStore extends InMemoryStore {
     atomicWrite(this.#recordPath(collection, record.id), payload, this.rootDir);
   }
 
+  reload() {
+    const previous = new Map(COLLECTIONS.map(name => [name, new Map(this[name])]));
+    for (const collection of COLLECTIONS) this[collection].clear();
+    this.#hydrate();
+    // Preserve optional JS fields/references when the authoritative bytes match.
+    for (const collection of COLLECTIONS) for (const [id, record] of this[collection]) {
+      const old = previous.get(collection).get(id);
+      if (old && JSON.stringify(old) === JSON.stringify(record)) this[collection].set(id, old);
+    }
+  }
+
   #hydrate() {
     for (const collection of COLLECTIONS) {
       const map = this[collection];
@@ -77,6 +90,7 @@ export class FsMetadataStore extends InMemoryStore {
         if (error && error.code === 'ENOENT') {
           continue;
         }
+        if (INTEGRATION_COLLECTIONS.includes(collection)) throw new Error('integration evidence collection is unreadable');
         console.warn(`fs-metadata-store: skipping unreadable collection ${collection}: ${error.message}`);
         continue;
       }
@@ -89,6 +103,7 @@ export class FsMetadataStore extends InMemoryStore {
         const filePath = path.join(dir, file);
         const record = readRecordFile(filePath);
         if (!record) {
+          if (INTEGRATION_COLLECTIONS.includes(collection)) throw new Error('integration evidence is corrupt; operator repair required');
           continue;
         }
 

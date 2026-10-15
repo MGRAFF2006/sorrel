@@ -257,8 +257,27 @@ source and target snapshot IDs; comparison reads those immutable trees without
 advancing refs or performing a merge. CLI submission uploads both closures when
 pushing, including diverged target history. Preview limits bound tree traversal,
 changed files, and text bytes; binary and large files show unavailable previews.
-The shared UI distinguishes closed reviews from integrated reviews and labels
-the metadata transition “Mark as merged.” Native dialogs and pending/error states
+Filesystem Hub proposal integration uses the packaged `sorrel-core-integration`
+bridge alongside the policy adapter. Core validates complete digest-verified
+closures, computes a native three-way candidate with parents `[target, source]`,
+and owns binding/evidence eligibility. An explicit non-author approval and every
+operator-configured trusted test check bind the exact candidate, review revision,
+ref generations and required-check version. Native `needs_review`, deny, redact
+and missing grants remain blocking. Manual statuses and editable workflows are
+not evidence.
+
+An OS writer lease covers both canonical filesystem roots before standalone
+server hydration. Embedded apps acquire it before reloading metadata and serving
+requests. One asynchronous queue serializes all Hub mutations, including ordinary
+pushes. Publication durably journals the operation, then atomically replaces the
+expected target ref with a record containing both candidate and receipt, then
+completes proposal metadata. Startup and subsequent requests recover unfinished
+operations from matching receipts; contradictory evidence blocks without
+rewriting refs. A target merely equaling the candidate is insufficient proof.
+Only the receipt-backed UI state is labeled “Integrated”; “Mark as merged” remains
+an explicit metadata action. Required test reporting is blocked until an operator
+configures trusted producers; this source feature does not establish production
+readiness. See [the Hub integration contract](../sorrel-hub/README.md#consequential-proposal-integration). Native dialogs and pending/error states
 keep mutations keyboard-accessible and retryable.
 
 The development stack is intentionally modular: Hub API, shared web/desktop UI,

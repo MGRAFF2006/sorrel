@@ -1,6 +1,7 @@
 import { useParams, useSearchParams } from '@solidjs/router';
 import { createEffect, createMemo, createResource, createSignal, For, Show } from 'solid-js';
 import { apiGet, apiPatch, apiPost, fetchCapabilities, unwrapList } from '../api.ts';
+import { ProposalIntegration } from '../components/ProposalIntegration.tsx';
 import { ReviewChanges } from '../components/ReviewChanges.tsx';
 import type { Project, Repository, SyncRef, SyncRepo } from '../domain.ts';
 import { createAction } from '../action.ts';
@@ -416,8 +417,9 @@ export function ReviewsView() {
                 <Show when={proposal().description}>
                   <p>{String(proposal().description)}</p>
                 </Show>
-                <p class="muted">Status actions update the review record. To integrate files, merge the lane in your workspace and push its snapshot, then mark this review as merged.</p>
+                <p class="muted">Manual status actions update only the review record. “Mark as merged” records an external merge and does not publish files.</p>
                 <ReviewChanges proposalId={String(proposal().id)} />
+                <ProposalIntegration proposalId={String(proposal().id)} available={capabilities()?.collaboration?.integration?.available === true} reason={capabilities()?.collaboration?.integration?.limitation} />
                 <div class="card-actions">
                   <For each={PROPOSAL_TRANSITIONS()[String(proposal().status)] ?? []}>
                     {(status) => (

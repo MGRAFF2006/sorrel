@@ -33,7 +33,7 @@ for (const kind of ['memory', 'fs']) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sorrel-hub-read-side-effects-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const sync = kind === 'fs' ? createFsRepoSyncStore(dir) : createRepoSyncStore();
-    const before = fs.readdirSync(dir, { recursive: true });
+
     const app = createApp({
       store: createInMemoryStore({ sync }),
       env: { SORREL_HUB_LOCAL_DEMO: '1' },
@@ -41,6 +41,9 @@ for (const kind of ['memory', 'fs']) {
         principal: { type: 'user', id: 'local' }, action: 'repo.read',
         resource: { kind: 'repo', id: '*' }, effect: 'allow' } },
     });
+    await app.ready;
+    const before = fs.readdirSync(dir, { recursive: true });
+    t.after(() => app.close());
     const server = http.createServer(app.handleRequest);
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     t.after(() => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())));

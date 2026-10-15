@@ -9,7 +9,7 @@ import { principalLabel, relativeTime } from '../domain.ts';
 const columns = [
   { id: 'planned', label: 'Planned', description: 'Draft lanes', statuses: ['draft'] },
   { id: 'active', label: 'Active', description: 'Open or changing', statuses: ['open', 'rejected'] },
-  { id: 'review', label: 'Ready', description: 'Approved for integration', statuses: ['approved'] },
+  { id: 'review', label: 'Approved', description: 'Manual approval status; integration evidence is checked separately', statuses: ['approved'] },
   { id: 'integrated', label: 'Merged', description: 'Marked as merged', statuses: ['merged'] },
   { id: 'closed', label: 'Closed', description: 'Closed review records', statuses: ['closed'] },
 ] as const;

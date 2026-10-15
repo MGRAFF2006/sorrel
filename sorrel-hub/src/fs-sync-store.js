@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import { objectId, verifyObjectId } from './blake3.js';
 import {
@@ -200,7 +200,7 @@ export class FsRepoSyncStore {
     for (const file of files.sort()) {
       const parsed = readRefFile(path.join(refsDir, file), decodePathSegment(file));
       if (parsed) {
-        refs.push(parsed);
+        refs.push({ name: parsed.name, snapshot: parsed.snapshot });
       }
     }
     return refs;
@@ -211,11 +211,26 @@ export class FsRepoSyncStore {
     return parsed ? parsed.snapshot : undefined;
   }
 
-  setRef(repoId, name, snapshotId, objectIds = []) {
+  getRefRecord(repoId, name) {
+    return readRefFile(this.#refPath(repoId, name), name);
+  }
+
+  publishRef(repoId, name, expected, snapshotId, objectIds, receipt, beforeRename) {
+    if (this.getRef(repoId, name) !== expected) throw new Error('target compare-and-swap failed');
+    return this.setRef(repoId, name, snapshotId, objectIds, receipt, undefined, () => {
+      if (this.getRef(repoId, name) !== expected) throw new Error('target compare-and-swap failed');
+      beforeRename?.();
+    });
+  }
+
+  setRef(repoId, name, snapshotId, objectIds = [], receipt, generation = randomUUID(), beforeRename) {
     // HTTP passes its already validated closure, including terminal blobs.
-    for (const id of objectIds) syncStoredFile(this.#objectPath(repoId, normalizeObjectId(id)), this.rootDir);
-    const payload = JSON.stringify({ name, snapshot: snapshotId });
-    atomicWrite(this.#refPath(repoId, name), Buffer.from(`${payload}\n`, 'utf8'), this.rootDir);
+    for (const id of objectIds) {
+      this.get(repoId, id);
+      syncStoredFile(this.#objectPath(repoId, normalizeObjectId(id)), this.rootDir);
+    }
+    const payload = JSON.stringify({ name, snapshot: snapshotId, generation, ...(receipt ? { receipt } : {}) });
+    atomicWrite(this.#refPath(repoId, name), Buffer.from(`${payload}\n`, 'utf8'), this.rootDir, beforeRename);
     return snapshotId;
   }
 }
@@ -248,11 +263,12 @@ function readRefFile(filePath, expectedName) {
   if (
     !value || typeof value !== 'object' || Array.isArray(value) ||
     value.name !== expectedName ||
+    (value.generation !== undefined && (typeof value.generation !== 'string' || !value.generation)) ||
     typeof value.snapshot !== 'string' || !/^[0-9a-f]{64}$/i.test(value.snapshot)
   ) {
     throw new SyncRefCorruptError();
   }
-  return { name: value.name, snapshot: value.snapshot };
+  return { name: value.name, snapshot: value.snapshot, ...(value.generation ? { generation: value.generation } : {}), ...(value.receipt ? { receipt: value.receipt } : {}) };
 }
 
 /**
@@ -262,7 +278,7 @@ function readRefFile(filePath, expectedName) {
  * @param {Buffer | string} bytes
  * @param {string} [rootDir] Directory boundary whose entries must be flushed.
  */
-export function atomicWrite(target, bytes, rootDir = path.dirname(target)) {
+export function atomicWrite(target, bytes, rootDir = path.dirname(target), beforeRename) {
   filesystemName(path.basename(target));
   const dir = path.dirname(target);
   const tmp = path.join(dir, filesystemName(`.tmp-${process.pid}-${randomBytes(6).toString('hex')}`));
@@ -278,6 +294,7 @@ export function atomicWrite(target, bytes, rootDir = path.dirname(target)) {
     } finally {
       fs.closeSync(fd);
     }
+    beforeRename?.();
     fs.renameSync(tmp, target);
     published = true;
     syncDirectoryChain(dir, rootDir);
