@@ -141,3 +141,22 @@ test('HubClient sends bearer credentials without exposing them in errors', async
   });
   assert.equal(authorization, `Bearer ${accessToken}`);
 });
+
+test('proposal integration methods preserve explicit binding payloads over authenticated JSON transport', async () => {
+  const requests = [];
+  const client = new HubClient({ baseUrl: 'http://hub.invalid', accessToken: 'fixture-token', fetch: async (url, init) => {
+    requests.push({ url, method: init.method, body: init.body === undefined ? undefined : JSON.parse(init.body), authorization: init.headers.get('authorization') });
+    return new Response(JSON.stringify({ data: {} }), { status: 200 });
+  } });
+  await client.proposalIntegration('p/1');
+  await client.prepareProposalIntegration('p/1');
+  await client.approveProposalCandidate('p/1', { bindingId: 'b', candidateSnapshot: 'candidate' });
+  await client.reportProposalCheck('p/1', { bindingId: 'b', checkId: 'test', attempt: 1, outcome: 'succeeded' });
+  await client.integrateProposal('p/1', { bindingId: 'b', expectedTargetSnapshot: 'before', idempotencyKey: 'operation' });
+  assert.equal(requests[0].url, 'http://hub.invalid/admin/proposals/p%2F1/integration');
+  assert.deepEqual(requests[1].body, {});
+  assert.deepEqual(requests[2].body, { bindingId: 'b', candidateSnapshot: 'candidate' });
+  assert.equal(requests[3].body.attempt, 1);
+  assert.equal(requests[4].body.idempotencyKey, 'operation');
+  assert.ok(requests.every(request => request.authorization === 'Bearer fixture-token'));
+});

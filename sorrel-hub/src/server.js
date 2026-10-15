@@ -1,6 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 
+import { acquireDatasetWriter } from './core-integration.js';
 import { createApp } from './app.js';
 import { createAuthAdapterFromEnv } from './auth/adapter.js';
 import { assertSafeHubBind } from './bind-safety.js';
@@ -22,6 +23,8 @@ const syncStoreKind = process.env.SORREL_HUB_SYNC_STORE ?? 'fs';
 const dataDir = process.env.SORREL_HUB_DATA_DIR ?? './data/sync';
 const metadataDir =
   process.env.SORREL_HUB_METADATA_DIR ?? path.join(dataDir, '..', 'metadata');
+
+const datasetLease = syncStoreKind === 'memory' ? undefined : await acquireDatasetWriter([dataDir, metadataDir]);
 
 const store =
   syncStoreKind === 'memory'
@@ -47,8 +50,9 @@ assertSafeHubBind({
 });
 
 const convexMirror = createConvexMirror();
-const app = createApp({ store, trustedGrantsById, trustedPoliciesById, authAdapter, convexMirror });
+const app = createApp({ datasetLease, store, trustedGrantsById, trustedPoliciesById, authAdapter, convexMirror });
 
+await app.ready;
 const server = http.createServer(app.handleRequest);
 
 server.listen(port, host, () => {
@@ -65,7 +69,8 @@ server.listen(port, host, () => {
 });
 
 process.on('SIGTERM', () => {
-  server.close(() => {
+  server.close(async () => {
+    await app.close();
     process.exit(0);
   });
 });

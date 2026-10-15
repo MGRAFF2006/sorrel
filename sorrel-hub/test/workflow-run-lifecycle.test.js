@@ -21,9 +21,10 @@ async function withServer(t) {
   const store = createFsMetadataStore(dir);
   store.createProject({ id: 'project_workflow_fixture', organizationId: 'org_workflow_fixture', name: 'Workflow' });
   const app = createApp({ store, trustedGrantsById: { [grant.id]: grant }, env: { SORREL_HUB_LOCAL_DEMO: '1' } });
+  await app.ready;
   const server = http.createServer(app.handleRequest);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); await app.close(); });
   const base = `http://127.0.0.1:${server.address().port}`;
   return { store, dir, async request(method, route, body) {
     const response = await fetch(base + route, { method, headers: { 'content-type': 'application/json', 'x-sorrel-acting-principal': JSON.stringify(principal) }, body: JSON.stringify(body) });

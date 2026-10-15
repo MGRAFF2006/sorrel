@@ -31,6 +31,7 @@ export class StoreNotFoundError extends Error {
 
 export class InMemoryStore {
   constructor(options = {}) {
+    for (const name of ['proposalAuthors', 'proposalBindings', 'proposalApprovals', 'proposalChecks', 'proposalResults', 'integrationOperations']) this[name] = new Map();
     this.organizations = new Map();
     this.projects = new Map();
     this.repositories = new Map();

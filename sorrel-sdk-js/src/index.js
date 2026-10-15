@@ -139,6 +139,26 @@ export class HubClient {
     return this.request(`/admin/proposals/${encodeURIComponent(id)}/changes`);
   }
 
+  proposalIntegration(id) {
+    return this.request(`/admin/proposals/${encodeURIComponent(id)}/integration`);
+  }
+
+  prepareProposalIntegration(id) {
+    return this.request(`/admin/proposals/${encodeURIComponent(id)}/integration`, { method: 'POST', body: JSON.stringify({}) });
+  }
+
+  approveProposalCandidate(id, payload) {
+    return this.request(`/admin/proposals/${encodeURIComponent(id)}/approvals`, { method: 'POST', body: JSON.stringify(payload) });
+  }
+
+  reportProposalCheck(id, payload) {
+    return this.request(`/admin/proposals/${encodeURIComponent(id)}/check-reports`, { method: 'POST', body: JSON.stringify(payload) });
+  }
+
+  integrateProposal(id, payload) {
+    return this.request(`/admin/proposals/${encodeURIComponent(id)}/integrate`, { method: 'POST', body: JSON.stringify(payload) });
+  }
+
   createProposal(payload) {
     return this.request('/admin/proposals', {
       method: 'POST',

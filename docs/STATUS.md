@@ -57,22 +57,39 @@ existing Cloudflare Tunnel. Tested source-built containers are healthy, DNS and
 ingress are active, and no additional public ports are open. The WorkOS account,
 Sorrel Hub staging application, exact callback/sign-out/login URLs, passwordless
 email login and disabled public signup are configured. The operator's pilot user
-has exact Core workspace grants; signing into the application still needs live
-email verification. Private credentials are outside Git.
+has exact Core workspace grants. Private credentials are outside Git.
 
-The origin displays the Hub sign-in gate. Public access is client-dependent:
-laptop curl reaches health/session endpoints, receives 401 for anonymous projects,
-and receives the WorkOS login redirect, while normal Python requests and the
-development browser receive Cloudflare 403 responses. A scoped Cloudflare API
-configuration rule still needs owner access before external invitations; the
-existing tunnel credential cannot change those settings.
+The operator personally upgraded the Cloudflare zone to Pro monthly. The exact
+Sorrel hostname rule skips only `http_request_sbfm`; hostname-only Browser
+Integrity Check disablement remains, with global Browser Integrity Check enabled.
+Old Bot Fight Mode was removed, and Super Bot Fight Mode uses
+`managed_challenge` for definite bots outside Sorrel. All 20 ordinary Python/curl
+probes across `homelab-dev` and the laptop returned the expected app 200,
+anonymous session 200/null, private projects/refs 401 and WorkOS login 302.
+API/login responses had `no-store` / `DYNAMIC` and no `cf-mitigated`; the shared
+Tunnel remained healthy. These are bounded client checks, not a general launch
+claim. Other hostnames were affected: museum and portfolio laptop curl changed
+from 200 to a 403 challenge without exemptions; homelab requests remained 403
+before and after.
+[Sanitized Cloudflare evidence](https://github.com/MGRAFF2006/sorrel/issues/171#issuecomment-6189431323).
+
+The operator completed real WorkOS email sign-in in the laptop's existing Zen
+profile. Same-origin checks returned session 200 with identity and principal
+present and projects 200 with one private project, all with `no-store`; unscoped
+`repo_pilot/refs` returned 403. After the Cloudflare changes, the existing human
+session and granted project/linked-ref reads remained 200 with `no-store`.
+No identity, email, token or cookie values were exposed, and the valid session
+was preserved. This verifies one-user login and scoped private reads only;
+refresh, revocation, two-user isolation, scoped
+upload, integration and recovery remain unverified on the live pilot.
+[Sanitized sign-in evidence](https://github.com/MGRAFF2006/sorrel/issues/171#issuecomment-6189070173).
 
 A daily encrypted Restic backup runs at 00:30 Europe/Berlin using the existing
 homelab repository and shared backup lock. The first snapshot (`73ee29b9`) was
 restored separately with all 627 files verified; metadata, grants and private
 configuration matched, and an isolated restored Hub passed health and anonymous
-access checks. Live session/refresh/revocation, two-team isolation, public CLI
-upload and independent off-host recovery checks remain pending.
+access checks. Live refresh/revocation, two-team isolation, public CLI
+upload and populated/authenticated off-host recovery checks remain pending.
 The updated pilot's scheduled 2026-10-15 backup completed successfully at 00:30
 Berlin time using discovery of the running Hub's actual data mount; both
 containers resumed healthy. This is backup evidence, not an off-host restore.
@@ -85,12 +102,28 @@ transport. Regression coverage is in
 [`sync.rs`](../sorrel-cli/tests/sync.rs), and
 [`workos-browser.test.js`](../sorrel-hub/test/workos-browser.test.js).
 
+The 2026-10-15 restore of immutable pilot image `5d54e633` ran on the distinct
+`homelab-dev` VM: Restic verified 757 entries / 4,851,504 bytes, and all five
+actual data/configuration files matched the source SHA set (three metadata files,
+environment and grants), with no missing or extra files. The pilot sync store
+contained **zero objects and zero refs**. The restored WorkOS/filesystem Hub
+returned health 200, an anonymous null session, and 401 for protected API and CLI
+pull. No legitimate bearer was available. This is limited cross-VM restore and
+anonymous fail-closed evidence on a shared physical hypervisor, not offsite or
+populated-repository recovery, authenticated pull, live identity recovery, or full #171
+acceptance. [Sanitized restore evidence](https://github.com/MGRAFF2006/sorrel/issues/171#issuecomment-6188394580).
+
 Important remaining product gaps:
 
 - Lanes keep independent heads but share a checkout; separate directories,
   hunk staging and authenticated remote agent coordination remain future work. Local leases do not isolate execution or authorize writes.
-- Hub reviews compare recorded snapshots. “Mark as merged” changes metadata;
-  real Core integration and checks/approvals tied to exact snapshots are pending.
+- Filesystem Hub integration prepares real Core candidates and conflicts,
+  requires one authenticated non-author approval plus configured trusted test
+  reporters bound to the exact candidate, and publishes with target CAS, a durable
+  receipt and journal recovery. Required test reporting remains an external
+  operator configuration step; missing reporters block integration. “Mark as
+  merged” remains metadata only. Distributed writers, manual conflict resolution
+  in Hub and CI execution/provider integrations are not included.
 - Hosted access is operator-provisioned; self-service team access, managed CLI
   login, quotas, pagination, safe format migrations, and general disaster-recovery
   validation are pending. Core grants remain authoritative after login.
@@ -204,7 +237,8 @@ dependencies and workspace Cargo commands from the repo root.
    managed CLI onboarding, two-team access boundaries and backup restoration.
 2. Extend recovery to interrupted working-tree writes, directory lifecycle,
    hunk staging and authenticated remote agent coordination.
-3. Implement real proposal integration with snapshot-bound checks and approvals.
+3. Validate operator-wired trusted proposal test reporters in a credentialed pilot;
+   expand conflict resolution and distributed storage only with evidence.
 4. Add a narrow MCP adapter, handoff bundles, useful stacks and materialized slices.
 5. Add migrations, quotas, self-service access, workflow streaming/cancellation
    and native remote-Hub integration as pilot use establishes priorities.

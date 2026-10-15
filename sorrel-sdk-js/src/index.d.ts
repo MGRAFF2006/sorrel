@@ -53,6 +53,11 @@ export declare class HubClient {
     options?: { includeComments?: boolean },
   ): Promise<T>;
   proposalChanges(id: string): Promise<{ data: ProposalChanges }>;
+  proposalIntegration<T = unknown>(id: string): Promise<T>;
+  prepareProposalIntegration<T = unknown>(id: string): Promise<T>;
+  approveProposalCandidate<T = unknown>(id: string, payload: { bindingId: string; candidateSnapshot: string }): Promise<T>;
+  reportProposalCheck<T = unknown>(id: string, payload: { bindingId: string; candidateSnapshot: string; sourceSnapshot: string; targetSnapshot: string; requirementsDigest: string; checkId: string; attempt: number; runId: string; outcome: 'pending' | 'succeeded' | 'failed' | 'cancelled' }): Promise<T>;
+  integrateProposal<T = unknown>(id: string, payload: { bindingId: string; expectedTargetSnapshot: string; idempotencyKey: string }): Promise<T>;
   createProposal<T = unknown>(payload: unknown): Promise<T>;
   updateProposal<T = unknown>(id: string, payload: unknown): Promise<T>;
   createReviewComment<T = unknown>(payload: unknown): Promise<T>;

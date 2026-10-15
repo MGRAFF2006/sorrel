@@ -4,9 +4,9 @@ import type { ProposalChanges } from '../domain.ts';
 import { SourcePreview } from './SourcePreview.tsx';
 import { ErrorText, Loading } from './ui.tsx';
 
-export function ReviewChanges(props: { proposalId: string }) {
-  const [changes, { refetch }] = createResource(() => props.proposalId, async id =>
-    ((await apiGet(`/admin/proposals/${encodeURIComponent(id)}/changes`)) as { data: ProposalChanges }).data,
+export function ReviewChanges(props: { proposalId: string; bindingId?: string }) {
+  const [changes, { refetch }] = createResource(() => ({ id: props.proposalId, binding: props.bindingId }), async ({ id, binding }) =>
+    ((await apiGet(`/admin/proposals/${encodeURIComponent(id)}/${binding ? `integration-changes?bindingId=${encodeURIComponent(binding)}` : 'changes'}`)) as { data: ProposalChanges }).data,
   );
   return <section class="review-changes">
     <h2>Changes</h2>
@@ -17,7 +17,7 @@ export function ReviewChanges(props: { proposalId: string }) {
       </>}>
         <Show when={changes()}>{data => <>
           <p class="muted mono">{shortId(data().targetSnapshot)} → {shortId(data().sourceSnapshot)}</p>
-          <p class="muted">Recorded target and source snapshots. Later pushes do not change this comparison.</p>
+          <p class="muted">{props.bindingId ? 'Prepared target and candidate snapshots. Approval binds this candidate. Refreshing preparation resets all evidence.' : 'Recorded target and source snapshots. Later pushes do not change this comparison.'}</p>
           <Show when={data().changes.length > 0} fallback={<p class="muted">These snapshots have no changed files.</p>}>
             <For each={data().changes}>{(change, index) => {
               const [expanded, setExpanded] = createSignal(index() === 0);

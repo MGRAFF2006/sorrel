@@ -513,6 +513,136 @@ Proposal records may carry lane-submit fields: `syncRepoId`, `sourceLane`,
   availability reports configuration, not backend health. The standalone
   `resolveCapabilities({ env })` helper retains environment-based defaults.
 
+### Consequential proposal integration
+
+The filesystem source implementation can publish a real Core-computed proposal
+candidate. It is a bounded single-target native three-way merge, including
+fast-forward-shaped and divergent histories. Clean candidates have parents
+`[target, source]`; unresolved content, add/add, modify/delete, binary and
+file/directory conflicts do not advance any ref. Multiple/no merge bases block
+instead of choosing a synthetic resolution. This is not market/production
+readiness, a CI service, or an authority-chain verification service.
+
+Both filesystem stores and the packaged `sorrel-core-integration` executable are
+required. Setup and the Hub container package it beside `sorrel-core-policy`;
+`SORREL_HUB_CORE_INTEGRATION_BIN` overrides its location. `/capabilities` exposes
+`collaboration.integration` only for the wired implementation. `available` means
+the prepare/readiness API exists, not that any repository is eligible to publish.
+Legacy proposals without server-recorded authenticated authorship must be
+recreated; old statuses, workflow runs and metadata never become evidence.
+
+The operator must configure **repository-scoped, versioned required tests** via
+`SORREL_HUB_REQUIRED_CHECKS_JSON` (or `createApp({ requiredChecks })`):
+
+```json
+{
+  "repo_example": {
+    "version": 1,
+    "checks": [{"id": "tests", "reporter": {"type": "service", "id": "trusted-ci"}}]
+  }
+}
+```
+
+This is an identity reference, not a credential. The operator separately wires a
+verified AuthAdapter identity and trusted native Core grants for its actual test
+producer. There is no built-in test execution or automatic reporter provisioning.
+No configuration, no required tests, or missing/unsuccessful/untrusted reports
+leaves integration blocked. Engine checks and clean merge labels cannot satisfy
+required test checks. Unknown config fields fail closed. Increment the version
+when requirements change. Standalone configuration/grants/policies load on start;
+apply operator changes by restarting the sole writer, never editing data files.
+
+The proposal's sync repository must belong to its project. The initiating actor
+needs `proposal.read` and `proposal.review` on the actual project, plus `repo.read`,
+`repo.object.write`, `repo.ref.write` and explicit `proposal.integrate` on the
+actual repository. A reviewer needs project `proposal.read`/`proposal.review`
+and repository `repo.read`; a reporter needs project `proposal.read` and
+repository `repo.read`/`proposal.check.report`, and must exactly match the
+configured identity for that check. Every configured grant and policy participates
+in Core evaluation. Revoked evidence authority, `needs_review`, deny, redact and
+missing grants remain blocking; an approval does not consume native policy review
+requirements. Generic proposal creation/PATCH cannot forge integration evidence
+or change authorship.
+
+All endpoints below require a verified session and existing private-read checks:
+
+| Endpoint | Contract |
+| --- | --- |
+| `POST /admin/proposals/:id/integration` | Empty body; explicitly prepare a new immutable binding from current canonical ref tips. Every refresh creates a new binding and requires fresh evidence. |
+| `GET /admin/proposals/:id/integration` | Current readiness, blockers, exact binding, required test states, or historical successful publication receipt. |
+| `GET /admin/proposals/:id/integration-changes?bindingId=` | Compare the bound target with the actual candidate; requires the current binding ID. |
+| `POST /admin/proposals/:id/approvals` | `{bindingId, candidateSnapshot}`; explicit authenticated non-author approval, bound to this candidate. |
+| `POST /admin/proposals/:id/check-reports` | Trusted producer attestation described below. |
+| `POST /admin/proposals/:id/integrate` | `{bindingId, expectedTargetSnapshot, idempotencyKey}`; revalidate Core eligibility, closure and target CAS, then publish. |
+
+A check report contains `bindingId`, `candidateSnapshot`, `sourceSnapshot`,
+`targetSnapshot`, `requirementsDigest`, `checkId`, positive integer `attempt`,
+unique `runId`, and `outcome` (`pending`, `succeeded`, `failed`, `cancelled`). Hub
+binds the producer from the session. The highest attempt supersedes every older
+success. A pending attempt may finish once; terminal results are immutable,
+identical delivery is idempotent, and a new attempt cannot reuse an earlier run
+identity. Producers must execute the actual candidate and attest real results.
+Hub trusts configured producers' attestations; it does not independently execute
+or verify their test harness.
+
+The binding covers project/repository/proposal identities, canonical source and
+target refs, exact tips and ref generations, merge base/result/candidate, the
+entire proposal plus linked workflow records and review comments, a server-owned edit revision and
+requirements digest. Arbitrary metadata edits, workflow link/content changes,
+source/target moves (even away and back), or requirements changes invalidate
+outstanding evidence. Recorded proposal comparisons remain available separately;
+the integration panel shows the actual prepared candidate comparison.
+
+**One Hub writer per dataset is enforced by OS locks**, not PID files. The
+standalone server locks both canonical sync/metadata roots before hydration;
+embedded `createApp` locks and reloads before serving. A second process sharing
+either root or a symlink alias refuses to start/serve. Close embedded apps with
+`await app.close()`. Parent death and close release the lease. The lock helper
+uses Rust's standard library, needs no `flock` program, and writes only inside
+configured writable data volumes. Low-level store helpers are not independent
+Hub servers; never mutate a live dataset through another tool.
+
+The native process holding the OS locks performs every protected metadata,
+object and ref replacement, and Core integration work. Node uses a bounded
+private loopback channel; its per-process capability is never exposed through
+HTTP or persisted. A cached Node liveness flag cannot authorize writes after
+helper death. The native writer repeats source/target generation checks and the
+authority lifetime check immediately before the ref rename. Closing an embedded
+app awaits startup and active requests; startup failure releases the writer.
+Filesystem wiring is fixed at startup and requires a restart to change.
+Configured root symlink aliases resolve before locking. Descendant repository,
+object and ref symlinks are rejected before reads, directory creation or writes;
+they cannot redirect candidate output into another dataset.
+
+Readiness and preparation return a public binding projection without full
+`inputs.review` records. Private comments/workflow records remain internal even
+when a test reporter can read the proposal. Reading an old binding or candidate
+comparison rechecks access to that binding's actual repository. A reporter does
+not need comment-read or workflow-run-read permission to submit its configured
+test result, including when a workflow is linked. Direct workflow reads still
+require their normal collection permission; linked workflow status is metadata.
+
+One queue serializes proposal/evidence writes and ordinary ref pushes. Core
+bounds object bytes, graph/tree/line complexity and verifies terminal blobs;
+Hub bounds subprocess input/output/concurrency and time. Current limits include
+1 MiB per object, 64 MiB cumulative engine object I/O, 4,096 graph objects,
+64 tree levels, 2,000 newlines per blob, 2 MiB bridge messages and a 10-second
+subprocess deadline. Oversized inputs fail closed; large-repository support
+requires measured changes to these limits.
+
+Publication flushes the closure, writes a durable journal, atomically replaces
+the expected ref with **candidate and receipt in the same file**, then completes
+proposal metadata and the journal. Startup and later requests recover pending
+operations before further mutations. A matching receipt completes metadata;
+an unpublished operation records `not_published`, requiring fresh readiness and a
+new key. Contradictory evidence blocks without overwriting refs. A ref merely
+equaling the candidate is not proof. Keep the same key and identical payload when
+a response is lost; retries return the exact recorded outcome. Reusing the key
+with different inputs or identity is rejected. Only a successful receipt earns
+**Integrated** in the UI. Manual “Mark as merged” remains metadata and external
+merges do not acquire receipts. These guarantees rely on the existing local
+filesystem fsync/atomic-rename behavior, not distributed/network storage.
+
 Admin proposal creation, updates, and lane submissions share verified
 attribution and best-effort Convex mirroring. Lane-submit reuse is scoped to
 the project as well as repository, lane, and source snapshot.

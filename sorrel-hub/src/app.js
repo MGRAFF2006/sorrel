@@ -1,5 +1,7 @@
 import { URL } from 'node:url';
 
+import { acquireDatasetWriter, coreIntegration } from './core-integration.js';
+import { createProposalIntegration } from './proposal-integration.js';
 import { createAuthAdapterFromEnv } from './auth/adapter.js';
 import { createWorkOsBrowserAuth } from './auth/workos-browser.js';
 import { resolveCapabilities } from './capabilities.js';
@@ -44,7 +46,45 @@ export function createApp(options = {}) {
       convexEnabled: convexMirror.enabled === true,
     });
 
+  const integration = createProposalIntegration(store, { ...options, convexMirror });
+  capabilities.collaboration ??= {};
+  capabilities.collaboration.integration = integration.capabilities;
+  const roots = [...new Set([store.rootDir, store.sync instanceof FsRepoSyncStore ? store.sync.rootDir : undefined].filter(Boolean))];
+  let datasetLease = options.datasetLease;
+  let closing = false;
+  const wiredSync = store.sync;
+  const metadataRoot = store.rootDir;
+  const syncRoot = wiredSync.rootDir;
+  const assertWiring = () => {
+    if (closing || store.sync !== wiredSync || store.rootDir !== metadataRoot || wiredSync.rootDir !== syncRoot) throw new HttpError(503, 'Hub is closed or filesystem wiring changed; restart Hub', 'dataset_writer_lost');
+  };
+  // ponytail: one queue per Hub writer; partition only when storage supports independent writers.
+  let tail = Promise.resolve();
+  const serialize = work => {
+    const result = tail.then(work);
+    tail = result.catch(() => {});
+    return result;
+  };
+  const ready = (async () => {
+    if (roots.length) {
+      datasetLease ??= await acquireDatasetWriter(roots);
+      for (const root of roots) if (!datasetLease.covers(root)) throw new Error('writer lease does not cover every filesystem root');
+      datasetLease.assert();
+      if (closing) { await datasetLease.close(); return; }
+      if (store.rootDir) store.writer = datasetLease;
+      if (store.sync instanceof FsRepoSyncStore) store.sync.writer = datasetLease;
+      store.reload?.();
+    }
+    if (integration.capabilities.available) {
+      await coreIntegration({ operation: 'probe' });
+      integration.recover();
+    }
+  })().catch(async error => { await datasetLease?.close(); throw error; });
+  // A failed startup remains observable through ready and request errors.
+  void ready.catch(() => {});
   return {
+    ready,
+    async close() { closing = true; await ready.catch(() => {}); await tail; await datasetLease?.close(); },
     store,
     trustedGrantsById,
     trustedPoliciesById,
@@ -68,6 +108,9 @@ export function createApp(options = {}) {
           });
         }
 
+        await ready;
+        assertWiring();
+        datasetLease?.assert();
         if (request.method === 'GET' && url.pathname === '/capabilities') {
           return sendJson(response, 200, { data: capabilities });
         }
@@ -105,36 +148,43 @@ export function createApp(options = {}) {
           throw new HttpError(401, 'a verified Hub session is required', 'authentication_required');
         }
 
-        const routeContext = {
-          store,
-          limits,
-          url,
-          trustedGrantsById,
-          trustedPoliciesById,
-          authAdapter,
-          session,
-          localDemo,
-          convexMirror,
-          capabilities,
-        };
+        return await serialize(async () => {
+          assertWiring();
+          datasetLease?.assert();
+          integration.recover();
+          const routeContext = {
+            integration,
+            datasetLease,
+            store,
+            limits,
+            url,
+            trustedGrantsById,
+            trustedPoliciesById,
+            authAdapter,
+            session,
+            localDemo,
+            convexMirror,
+            capabilities,
+          };
 
-        if (url.pathname === '/projects' || url.pathname.startsWith('/projects/')) {
-          return await handleProjectsRoute(request, response, routeContext);
-        }
+          if (url.pathname === '/projects' || url.pathname.startsWith('/projects/')) {
+            return await handleProjectsRoute(request, response, routeContext);
+          }
 
-        if (url.pathname.startsWith('/collaboration/')) {
-          return await handleCollaborationRoute(request, response, routeContext);
-        }
+          if (url.pathname.startsWith('/collaboration/')) {
+            return await handleCollaborationRoute(request, response, routeContext);
+          }
 
-        if (url.pathname.startsWith('/admin/')) {
-          return await handleAdminRoute(request, response, routeContext);
-        }
+          if (url.pathname.startsWith('/admin/')) {
+            return await handleAdminRoute(request, response, routeContext);
+          }
 
-        if (isSyncPath(url.pathname)) {
-          return await handleSyncRoute(request, response, routeContext);
-        }
+          if (isSyncPath(url.pathname)) {
+            return await handleSyncRoute(request, response, routeContext);
+          }
 
-        return sendNotFound(response);
+          return sendNotFound(response);
+        });
       } catch (error) {
         return sendError(response, error, request.method);
       }

@@ -26,6 +26,7 @@ async function withServer(t, persistent, callback) {
       'proposal.write', 'proposal.review', 'review.comment.write', 'workflow.run.write'],
   };
   const app = createApp({ store, trustedGrantsById, env: { SORREL_HUB_LOCAL_DEMO: '1' } });
+  await app.ready;
   const server = http.createServer(app.handleRequest);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
@@ -33,6 +34,7 @@ async function withServer(t, persistent, callback) {
     await callback(baseUrl, store, dir);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await app.close();
   }
 }
 

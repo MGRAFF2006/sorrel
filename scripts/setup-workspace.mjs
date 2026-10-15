@@ -37,6 +37,6 @@ for (const module of nodePackages) {
 
 console.log('\n=== Rust workspace: cargo fetch ===');
 run('cargo', ['fetch']);
-run('cargo', ['build', '--locked', '-p', 'sorrel-core', '--bin', 'sorrel-core-policy']);
+run('cargo', ['build', '--locked', '-p', 'sorrel-core', '--bin', 'sorrel-core-policy', '--bin', 'sorrel-core-integration']);
 
 console.log('\nWorkspace dependencies are ready.');

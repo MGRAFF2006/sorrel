@@ -42,14 +42,16 @@ contracts. Retain recovery records through migrations and future garbage collect
 
 ## 3. Make reviews consequential
 
-Implement **Integrate proposal** through Core together with approvals and checks
-bound to exact source and target snapshots. Compare the expected target head
-atomically; changed snapshots or stale approvals/checks prevent integration.
-Report conflicts before advancing refs and record a recovery checkpoint.
+Validate the filesystem proposal-integration path with operator-wired trusted
+external test reporters in a credentialed pilot. Extend resolution of first-class
+conflicts and CI/provider ergonomics only after the exact-candidate approval,
+required-check and receipt/recovery contracts hold under pilot use. Distributed
+writers and storage migrations need an independently validated transaction model.
 
-Acceptance: one permitted action advances the intended repository, retries are
-safe, and a stale review cannot integrate different code. Until this exists,
-“Mark as merged” remains a manual review record.
+Acceptance: real trusted test results gate the reviewed candidate in pilot use,
+and operators can diagnose stale evidence or interrupted publication without
+inventing approval/check success. Manual “Mark as merged” remains explicitly
+separate from receipt-backed integration.
 
 ## 4. Give agents a small, useful integration surface
 

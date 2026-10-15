@@ -28,6 +28,7 @@ async function withServer(store, run) {
   }]));
   const app = createApp({ store, env: { SORREL_HUB_AUTH: 'dev', SORREL_HUB_LOCAL_DEMO: '1' },
     trustedGrantsById: { ...grants, grant_ref: legacy } });
+  await app.ready;
   const server = http.createServer(app.handleRequest);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${server.address().port}`;
@@ -35,7 +36,7 @@ async function withServer(store, run) {
     headers: { 'content-type': 'application/json', 'x-sorrel-acting-principal': JSON.stringify(principal) },
     body: JSON.stringify(body) });
   try { await run({ url, post }); }
-  finally { await new Promise(resolve => server.close(resolve)); }
+  finally { await new Promise(resolve => server.close(resolve)); await app.close(); }
 }
 
 test('sync storage accepts complete 255-byte components and rejects larger encoded names before writes', (t) => {
@@ -128,12 +129,12 @@ test('HTTP filesystem bounds return clear 400 while memory keeps accepting long 
   }
 });
 
-test('actual platform ENAMETOOLONG errors map to 400 without path disclosure or partial publication', async (t) => {
+test('platform ENAMETOOLONG writer errors map to 400 without path disclosure or partial publication', async (t) => {
   const root = tempDir(t);
   const store = createFsMetadataStore(root);
   const error = Object.assign(new Error('private fixture path /operator/data'), { code: 'ENAMETOOLONG' });
-  t.mock.method(fs, 'renameSync', () => { throw error; });
   await withServer(store, async ({ post }) => {
+    t.mock.method(store.writer, 'write', () => { throw error; });
     const response = await post('/projects', { id: 'safe', name: 'Fixture', organizationId: 'org_local' });
     assert.equal(response.status, 400);
     const body = await response.json();
@@ -141,7 +142,8 @@ test('actual platform ENAMETOOLONG errors map to 400 without path disclosure or 
     assert.equal(JSON.stringify(body).includes('private fixture path'), false);
     assert.equal(JSON.stringify(body).includes('/operator/data'), false);
     assert.equal(store.getProject('safe'), null);
-    assert.deepEqual(fs.readdirSync(path.join(root, 'projects')), []);
+    assert.equal(fs.existsSync(path.join(root, 'projects/safe.json')), false);
+    assert.deepEqual(fs.existsSync(path.join(root, 'projects')) ? fs.readdirSync(path.join(root, 'projects')) : [], []);
   });
   assert.equal(mapSyncStoreError(error).statusCode, 400);
   const other = Object.assign(new Error('disk full'), { code: 'ENOSPC' });

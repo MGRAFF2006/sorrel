@@ -385,6 +385,7 @@ export function createRepository(attributes) {
  */
 export function createProposal(attributes) {
   rejectHubLocalPermissions(attributes, 'proposal');
+  if (Object.keys(attributes).some(key => /^(integration|approval|checkReport|publicationReceipt|authorAuthenticated)/i.test(key))) throw new ModelValidationError('integration evidence is server-owned');
   const timestamp = nowIso();
   const authorPrincipal = optionalPrincipal(attributes, 'authorPrincipal');
   const authorRef = optionalString(attributes, 'authorRef') ?? principalRef(authorPrincipal);
@@ -426,11 +427,15 @@ export function createProposal(attributes) {
  */
 export function updateProposal(proposal, attributes) {
   rejectHubLocalPermissions(attributes, 'proposal');
+  if (Object.keys(attributes).some(key => /^(integration|approval|checkReport|publicationReceipt|authorAuthenticated)/i.test(key))) throw new ModelValidationError('integration evidence is server-owned');
   if (!isPlainObject(attributes)) {
     throw new ModelValidationError('proposal update body must be an object');
   }
 
-  const next = { ...proposal, updatedAt: nowIso() };
+  for (const field of ['authorPrincipal', 'authorRef']) {
+    if (attributes[field] !== undefined && JSON.stringify(attributes[field]) !== JSON.stringify(proposal[field])) throw new ModelValidationError('proposal author cannot change');
+  }
+  const next = { ...proposal, reviewRevision: (proposal.reviewRevision ?? 0) + 1, updatedAt: nowIso() };
 
   if (attributes.status !== undefined) {
     const status = enumValue(attributes, 'status', PROPOSAL_STATUSES);
@@ -542,7 +547,7 @@ export function updateReviewComment(comment, attributes) {
     throw new ModelValidationError('review comment update body must be an object');
   }
 
-  const next = { ...comment, updatedAt: nowIso() };
+  const next = { ...comment, reviewRevision: (comment.reviewRevision ?? 0) + 1, updatedAt: nowIso() };
 
   if (attributes.body !== undefined) {
     next.body = requiredString(attributes, 'body');
@@ -620,7 +625,7 @@ export function updateWorkflowRun(run, attributes) {
     throw new ModelValidationError('workflow run update body must be an object');
   }
 
-  const next = { ...run, updatedAt: nowIso() };
+  const next = { ...run, reviewRevision: (run.reviewRevision ?? 0) + 1, updatedAt: nowIso() };
   if (attributes.status !== undefined) {
     const status = enumValue(attributes, 'status', WORKFLOW_RUN_STATUSES);
     const allowed = WORKFLOW_RUN_STATUS_TRANSITIONS[run.status] ?? [];
