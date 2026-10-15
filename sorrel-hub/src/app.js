@@ -51,6 +51,13 @@ export function createApp(options = {}) {
   capabilities.collaboration.integration = integration.capabilities;
   const roots = [...new Set([store.rootDir, store.sync instanceof FsRepoSyncStore ? store.sync.rootDir : undefined].filter(Boolean))];
   let datasetLease = options.datasetLease;
+  let closing = false;
+  const wiredSync = store.sync;
+  const metadataRoot = store.rootDir;
+  const syncRoot = wiredSync.rootDir;
+  const assertWiring = () => {
+    if (closing || store.sync !== wiredSync || store.rootDir !== metadataRoot || wiredSync.rootDir !== syncRoot) throw new HttpError(503, 'Hub is closed or filesystem wiring changed; restart Hub', 'dataset_writer_lost');
+  };
   // ponytail: one queue per Hub writer; partition only when storage supports independent writers.
   let tail = Promise.resolve();
   const serialize = work => {
@@ -63,6 +70,9 @@ export function createApp(options = {}) {
       datasetLease ??= await acquireDatasetWriter(roots);
       for (const root of roots) if (!datasetLease.covers(root)) throw new Error('writer lease does not cover every filesystem root');
       datasetLease.assert();
+      if (closing) { await datasetLease.close(); return; }
+      if (store.rootDir) store.writer = datasetLease;
+      if (store.sync instanceof FsRepoSyncStore) store.sync.writer = datasetLease;
       store.reload?.();
     }
     if (integration.capabilities.available) {
@@ -74,7 +84,7 @@ export function createApp(options = {}) {
   void ready.catch(() => {});
   return {
     ready,
-    async close() { await tail; await datasetLease?.close(); },
+    async close() { closing = true; await ready.catch(() => {}); await tail; await datasetLease?.close(); },
     store,
     trustedGrantsById,
     trustedPoliciesById,
@@ -99,6 +109,7 @@ export function createApp(options = {}) {
         }
 
         await ready;
+        assertWiring();
         datasetLease?.assert();
         if (request.method === 'GET' && url.pathname === '/capabilities') {
           return sendJson(response, 200, { data: capabilities });
@@ -138,6 +149,7 @@ export function createApp(options = {}) {
         }
 
         return await serialize(async () => {
+          assertWiring();
           datasetLease?.assert();
           integration.recover();
           const routeContext = {

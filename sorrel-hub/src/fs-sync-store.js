@@ -155,6 +155,7 @@ export class FsRepoSyncStore {
     }
 
     const target = this.#objectPath(repoId, id);
+    if (this.writer) { this.writer.write(target, bytes, this.rootDir); return id; }
     if (!fs.existsSync(target) || !verifyObjectId(id, fs.readFileSync(target))) {
       atomicWrite(target, bytes, this.rootDir);
     } else {
@@ -198,6 +199,7 @@ export class FsRepoSyncStore {
 
     const refs = [];
     for (const file of files.sort()) {
+      if (file.startsWith('.tmp-')) continue;
       const parsed = readRefFile(path.join(refsDir, file), decodePathSegment(file));
       if (parsed) {
         refs.push({ name: parsed.name, snapshot: parsed.snapshot });
@@ -215,22 +217,27 @@ export class FsRepoSyncStore {
     return readRefFile(this.#refPath(repoId, name), name);
   }
 
-  publishRef(repoId, name, expected, snapshotId, objectIds, receipt, beforeRename) {
+  publishRef(repoId, name, expected, snapshotId, objectIds, receipt, beforeRename, publication) {
     if (this.getRef(repoId, name) !== expected) throw new Error('target compare-and-swap failed');
     return this.setRef(repoId, name, snapshotId, objectIds, receipt, undefined, () => {
       if (this.getRef(repoId, name) !== expected) throw new Error('target compare-and-swap failed');
       beforeRename?.();
-    });
+    }, publication ? {
+      target: { path: this.#refPath(repoId, name), snapshot: expected, generation: publication.targetGeneration },
+      source: { path: this.#refPath(repoId, publication.sourceRef), snapshot: publication.sourceSnapshot, generation: publication.sourceGeneration },
+      authorityValidUntil: publication.authorityValidUntil,
+    } : undefined);
   }
 
-  setRef(repoId, name, snapshotId, objectIds = [], receipt, generation = randomUUID(), beforeRename) {
+  setRef(repoId, name, snapshotId, objectIds = [], receipt, generation = randomUUID(), beforeRename, guard) {
     // HTTP passes its already validated closure, including terminal blobs.
     for (const id of objectIds) {
       this.get(repoId, id);
       syncStoredFile(this.#objectPath(repoId, normalizeObjectId(id)), this.rootDir);
     }
     const payload = JSON.stringify({ name, snapshot: snapshotId, generation, ...(receipt ? { receipt } : {}) });
-    atomicWrite(this.#refPath(repoId, name), Buffer.from(`${payload}\n`, 'utf8'), this.rootDir, beforeRename);
+    if (this.writer) { beforeRename?.(); this.writer.write(this.#refPath(repoId, name), `${payload}\n`, this.rootDir, guard); }
+    else atomicWrite(this.#refPath(repoId, name), Buffer.from(`${payload}\n`, 'utf8'), this.rootDir, beforeRename);
     return snapshotId;
   }
 }

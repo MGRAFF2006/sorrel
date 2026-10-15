@@ -281,19 +281,12 @@ test('moving refs away and back still invalidates their generation-bound evidenc
   assert.equal((await f.integrate(b)).status, 409);
 });
 
-for (const afterRename of [false, true]) test(`filesystem barrier failure ${afterRename ? 'after' : 'before'} ref rename recovers from receipt evidence`, async t => {
-  const originalSync = fs.fsyncSync; const originalRename = fs.renameSync;
-  let armed = false; let renamed = false; let failed = false;
-  t.after(() => { fs.fsyncSync = originalSync; fs.renameSync = originalRename; });
-  const f = await fixture(t, { integrationFault(stage) { if (stage === 'journal') armed = true; } });
+for (const afterRename of [false, true]) test(`native filesystem barrier failure ${afterRename ? 'after' : 'before'} ref rename recovers from receipt evidence`, async t => {
+  let store;
+  const f = await fixture(t, { integrationFault(stage) { if (stage === 'journal') store.writer.injectFault(path.join(f.data, 'repo_test/refs/main'), afterRename ? 'after_rename' : 'before_rename'); } });
+  store = f.store;
   const b = await f.prepare(); await f.approve(b); await f.report(b);
-  fs.renameSync = (from, to) => { originalRename(from, to); if (String(to) === path.join(f.data, 'repo_test/refs/main')) renamed = true; };
-  fs.fsyncSync = fd => {
-    if (armed && !failed && (!afterRename || renamed)) { failed = true; throw Object.assign(new Error('injected barrier failure'), { code: 'EIO' }); }
-    originalSync(fd);
-  };
   assert.equal((await f.integrate(b)).status, 500);
-  fs.fsyncSync = originalSync; fs.renameSync = originalRename;
   assert.equal(f.store.getProposal('proposal').status, 'open');
   assert.equal(f.sync.getRef('repo_test', 'main'), afterRename ? b.candidateSnapshot : f.ids.base);
   await f.restart();
@@ -320,4 +313,130 @@ test('native bridge timeout/output limits terminate the process and fail closed'
   await assert.rejects(coreIntegration({ operation: 'probe' }), /output exceeds/);
   fs.writeFileSync(binary, '#!/usr/bin/env node\nsetInterval(()=>{},1000);\n', { mode: 0o700 });
   await assert.rejects(coreIntegration({ operation: 'probe' }), /timed out/);
+});
+
+test('actual Hub processes refuse overlapping dataset aliases before announcing readiness', { timeout: 15000 }, async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sorrel-hub-writers-'));
+  const children = [];
+  t.after(async () => {
+    for (const child of children) if (child.exitCode === null && child.signalCode === null) { const exited = once(child, 'close'); child.kill('SIGKILL'); await exited; }
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const data = path.join(root, 'sync'); const metadata = path.join(root, 'metadata');
+  const script = new URL('../scripts/listen.mjs', import.meta.url).pathname;
+  function launch(syncRoot = data) {
+    const child = spawn(process.execPath, [script], { env: { ...process.env,
+      SORREL_HUB_SYNC_STORE: 'fs', SORREL_HUB_DATA_DIR: syncRoot, SORREL_HUB_METADATA_DIR: metadata,
+      SORREL_HUB_AUTH: 'dev', SORREL_HUB_LOCAL_DEMO: '0', SORREL_HUB_BOOTSTRAP_GRANTS: '0',
+      SORREL_HUB_TRUSTED_GRANTS_FILE: '', SORREL_HUB_TRUSTED_POLICIES_FILE: '', SORREL_HUB_REQUIRED_CHECKS_JSON: '{}',
+    }, stdio: ['ignore', 'pipe', 'pipe'] });
+    children.push(child);
+    return child;
+  }
+  async function ready(child) {
+    return await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', code => reject(new Error(`fixture Hub exited before readiness: ${code}`)));
+      child.stdout.once('data', chunk => resolve(JSON.parse(String(chunk))));
+    });
+  }
+  const first = launch(); assert.match((await ready(first)).url, /^http:\/\/127\.0\.0\.1:/);
+  const alias = path.join(root, 'alias'); fs.symlinkSync(data, alias);
+  const second = launch(alias); let announced = false; second.stdout.on('data', () => { announced = true; }); second.stderr.resume();
+  assert.notEqual((await once(second, 'close'))[0], 0);
+  assert.equal(announced, false);
+  const exited = once(first, 'close'); first.kill('SIGTERM'); assert.equal((await exited)[0], 0);
+  const replacement = launch(alias); assert.match((await ready(replacement)).url, /^http:\/\/127\.0\.0\.1:/);
+  const replaced = once(replacement, 'close'); replacement.kill('SIGTERM'); assert.equal((await replaced)[0], 0);
+});
+
+test('readiness omits private review records while a least-privileged reporter can attest', async t => {
+  const f = await fixture(t);
+  const comment = await f.call('/admin/review-comments', { proposalId: 'proposal', body: 'private-review-body' });
+  assert.equal(comment.status, 201);
+  const b = await f.prepare();
+  assert.equal(b.inputs.review, undefined);
+  const ci = f.trustedGrantsById.ci_project;
+  ci.capabilities = ['proposal.read'];
+  const state = await f.call(`${f.endpoint}/integration`, undefined, 'ci');
+  assert.equal(state.status, 200);
+  assert.equal(state.data.binding.inputs.review, undefined);
+  assert.equal(JSON.stringify(state).includes('private-review-body'), false);
+  assert.deepEqual((await f.call(`${f.endpoint}/comments`, undefined, 'ci')).data, []);
+  assert.equal((await f.report(b)).status, 201);
+});
+
+test('stale binding readiness and candidate previews authorize the bound repository', async t => {
+  for (const published of [false, true]) await t.test(`published=${published}`, async t => {
+    const f = await fixture(t); const b = await f.prepare();
+    if (published) {
+      await f.approve(b); await f.report(b);
+      assert.equal((await f.integrate(b)).status, 200);
+      assert.equal((await f.call(f.endpoint, { status: 'closed' }, 'author', 'PATCH')).status, 200);
+    }
+    f.store.linkProjectRepository('project', 'repo_other');
+    f.sync.put('repo_other', Buffer.from('other content'));
+    f.trustedGrantsById.intruder_repo.resource.id = 'repo_other';
+    assert.equal((await f.call(f.endpoint, { syncRepoId: 'repo_other' }, 'author', 'PATCH')).status, 200);
+    assert.equal((await f.call('/repo_test/tree?ref=main', undefined, 'intruder')).status, 403);
+    for (const route of [`${f.endpoint}/integration`, `${f.endpoint}/integration-changes?bindingId=${b.id}`]) {
+      const denied = await f.call(route, undefined, 'intruder');
+      assert.ok([403, 404].includes(denied.status));
+      assert.equal(denied.data, undefined);
+    }
+  });
+});
+
+test('closing during startup and failing hydration both release the real-process writer lease', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sorrel-close-startup-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const failure of [false, true]) {
+    const dir = path.join(root, String(failure));
+    const store = createFsMetadataStore(dir);
+    if (failure) store.reload = () => { throw new Error('injected hydration failure'); };
+    const app = createApp({ store, browserAuth: null });
+    if (failure) { await assert.rejects(app.ready, /injected hydration/); await app.close(); }
+    else { await app.close(); await app.ready; }
+    const replacement = await acquireDatasetWriter([dir]); await replacement.close();
+  }
+});
+
+test('helper death cannot leave integration, admin metadata or sync writes running under a new Hub owner', { timeout: 15000 }, async t => {
+  let takeover;
+  let f;
+  t.after(async () => {
+    if (takeover && takeover.exitCode === null && takeover.signalCode === null) { const exited = once(takeover, 'close'); takeover.kill('SIGTERM'); await exited; }
+  });
+  f = await fixture(t, { integrationFault(stage) {
+    if (stage !== 'journal') return;
+    process.kill(f.store.writer.pid, 'SIGKILL');
+    const readyFile = path.join(f.root, 'takeover-ready'); const fd = fs.openSync(readyFile, 'w');
+    takeover = spawn(process.execPath, [new URL('../scripts/listen.mjs', import.meta.url).pathname], {
+      env: { ...process.env, SORREL_HUB_SYNC_STORE: 'fs', SORREL_HUB_DATA_DIR: f.data, SORREL_HUB_METADATA_DIR: f.metadata,
+        SORREL_HUB_AUTH: 'dev', SORREL_HUB_LOCAL_DEMO: '0', SORREL_HUB_BOOTSTRAP_GRANTS: '0',
+        SORREL_HUB_TRUSTED_GRANTS_FILE: '', SORREL_HUB_TRUSTED_POLICIES_FILE: '', SORREL_HUB_REQUIRED_CHECKS_JSON: '{}',
+      }, stdio: ['ignore', fd, 'pipe'],
+    }); fs.closeSync(fd); takeover.stderr.resume();
+    const deadline = Date.now() + 5000;
+    while (!fs.readFileSync(readyFile, 'utf8').includes('\n') && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    assert.match(fs.readFileSync(readyFile, 'utf8'), /"url":/);
+  } });
+  const b = await f.prepare(); await f.approve(b); await f.report(b);
+  assert.equal((await f.integrate(b)).status, 503);
+  assert.throws(() => f.store.createProject({ id: 'forbidden-project', organizationId: 'org', name: 'Never write' }), /writer unavailable|writer lease lost/);
+  assert.throws(() => f.sync.put('repo_test', Buffer.from('must-not-publish')), /writer unavailable|writer lease lost/);
+  assert.throws(() => f.sync.setRef('repo_test', 'forbidden-ref', f.ids.source), /writer unavailable|writer lease lost/);
+  assert.equal(f.sync.getRef('repo_test', 'main'), f.ids.base);
+  assert.equal(f.sync.getRef('repo_test', 'forbidden-ref'), undefined);
+  assert.equal(f.store.getProposal('proposal').status, 'open');
+  assert.equal(fs.existsSync(path.join(f.metadata, 'projects/forbidden-project.json')), false);
+  assert.equal(f.sync.has('repo_test', (await import('../src/blake3.js')).objectId(Buffer.from('must-not-publish'))), false);
+});
+
+test('abandoned native ref temporary files cannot become refs after restart', async t => {
+  const f = await fixture(t);
+  fs.writeFileSync(path.join(f.data, 'repo_test/refs/.tmp-native-123-456'), 'unpublished partial bytes');
+  await f.restart();
+  const refs = await f.call('/repo_test/refs');
+  assert.equal(refs.status, 200);
+  assert.deepEqual(refs.refs.map(ref => ref.name).sort(), ['main', 'source']);
 });

@@ -12,6 +12,7 @@ import { createFsRepoSyncStore } from '../src/fs-sync-store.js';
 import { createInMemoryStore } from '../src/store.js';
 
 async function readCapabilities(app) {
+  await app.ready;
   const server = http.createServer(app.handleRequest);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
@@ -20,6 +21,7 @@ async function readCapabilities(app) {
     return (await response.json()).data;
   } finally {
     await new Promise((resolve) => server.close(resolve));
+    await app.close();
   }
 }
 

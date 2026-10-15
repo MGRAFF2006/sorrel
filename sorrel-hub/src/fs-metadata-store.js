@@ -65,7 +65,8 @@ export class FsMetadataStore extends InMemoryStore {
 
   #persist(collection, record) {
     const payload = `${JSON.stringify(record)}\n`;
-    atomicWrite(this.#recordPath(collection, record.id), payload, this.rootDir);
+    if (this.writer) this.writer.write(this.#recordPath(collection, record.id), payload, this.rootDir);
+    else atomicWrite(this.#recordPath(collection, record.id), payload, this.rootDir);
   }
 
   reload() {

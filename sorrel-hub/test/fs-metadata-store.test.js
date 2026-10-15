@@ -26,6 +26,7 @@ function makeApp(metadataDir) {
 }
 
 async function withServer(app, callback) {
+  await app.ready;
   const server = http.createServer(app.handleRequest);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();

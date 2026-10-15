@@ -1,4 +1,6 @@
 //! Bounded native proposal integration and filesystem writer-lease bridge.
+#[path = "support/dataset_writer.rs"]
+mod dataset_writer;
 #[path = "support/policy_wire.rs"]
 mod policy_wire;
 use serde::{Deserialize, Serialize};
@@ -150,6 +152,7 @@ struct HubObjects {
     root: PathBuf,
     bytes: Cell<usize>,
     writes: RefCell<BTreeMap<ObjectId, Vec<u8>>>,
+    started: std::time::Instant,
 }
 impl HubObjects {
     fn path(&self, id: &ObjectId) -> PathBuf {
@@ -157,6 +160,9 @@ impl HubObjects {
         self.root.join("objects").join(&hex[..2]).join(hex)
     }
     fn budget(&self, len: usize) -> io::Result<()> {
+        if self.started.elapsed() > std::time::Duration::from_secs(8) {
+            return Err(io::Error::other("Core integration deadline"));
+        }
         let next = self.bytes.get().saturating_add(len);
         if len > MAX_OBJECT || next > MAX_BYTES {
             return Err(io::Error::other("integration object byte limit"));
@@ -166,6 +172,7 @@ impl HubObjects {
     }
     fn commit(&self) -> Result<()> {
         for (id, bytes) in self.writes.borrow().iter() {
+            self.budget(0)?;
             let path = self.path(id);
             fs::create_dir_all(path.parent().unwrap())?;
             let temp = path.with_extension(format!("{}.tmp", std::process::id()));
@@ -472,6 +479,7 @@ fn execute(r: Request) -> Result<Value> {
         root: r.root.clone(),
         bytes: Cell::new(0),
         writes: RefCell::new(BTreeMap::new()),
+        started: std::time::Instant::now(),
     };
     if r.operation == "prepare" {
         if !integration_access(&r)? {
@@ -669,41 +677,21 @@ fn execute(r: Request) -> Result<Value> {
         _ => Err("unknown integration operation".into()),
     }
 }
-fn lock_roots(roots: impl Iterator<Item = String>) -> Result<()> {
-    let mut roots = roots
-        .map(|root| {
-            fs::create_dir_all(&root)?;
-            fs::canonicalize(root)
-        })
-        .collect::<io::Result<Vec<_>>>()?;
-    roots.sort();
-    roots.dedup();
-    if roots.is_empty() {
-        return Err("dataset roots required".into());
-    }
-    let mut files = Vec::new();
-    for root in roots {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(root.join(".sorrel-hub-writer.lock"))?;
-        file.try_lock()
-            .map_err(|_| "filesystem dataset already has a Hub writer")?;
-        files.push(file);
-    }
-    println!("{{\"locked\":true}}");
-    io::stdout().flush()?;
-    // The parent owns stdin. EOF, close, parent death and unwinding drop every OS lock.
-    io::copy(&mut io::stdin().take(1), &mut io::sink())?;
-    drop(files);
-    Ok(())
-}
 fn main() {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some("lock") {
-        if lock_roots(args).is_err() {
+    let command = args.next();
+    if command.as_deref() == Some("client") {
+        if args
+            .next()
+            .and_then(|port| port.parse().ok())
+            .is_none_or(|port| dataset_writer::client(port).is_err())
+        {
+            std::process::exit(1);
+        }
+        return;
+    }
+    if command.as_deref() == Some("lock") {
+        if dataset_writer::serve(args).is_err() {
             eprintln!("filesystem dataset writer lease unavailable");
             std::process::exit(1);
         }
@@ -752,6 +740,7 @@ mod integration_tests {
             root: root.to_path_buf(),
             bytes: Cell::new(0),
             writes: RefCell::new(BTreeMap::new()),
+            started: std::time::Instant::now(),
         }
     }
     fn request(root: &PathBuf, store: &HubObjects) -> Request {

@@ -60,19 +60,24 @@ email login and disabled public signup are configured. The operator's pilot user
 has exact Core workspace grants; signing into the application still needs live
 email verification. Private credentials are outside Git.
 
-The origin displays the Hub sign-in gate. Public access is client-dependent:
-laptop curl reaches health/session endpoints, receives 401 for anonymous projects,
-and receives the WorkOS login redirect, while normal Python requests and the
-development browser receive Cloudflare 403 responses. A scoped Cloudflare API
-configuration rule still needs owner access before external invitations; the
-existing tunnel credential cannot change those settings.
+Public access remains client-dependent. A hostname-only Cloudflare Configuration
+Rule disables Browser Integrity Check for the pilot hostname; zone-wide Browser
+Integrity Check and Bot Fight Mode remain enabled. The operator's laptop now
+reaches the app (200), anonymous session (200/null), protected projects and refs
+(401), and WorkOS login redirect (302) using ordinary Python, curl and browser
+clients, with `no-store` / `DYNAMIC` responses. Ordinary Python and curl on
+`homelab-dev` still receive 403 Managed Challenges attributed to Bot Fight Mode
+in Security Events. Full client access awaits the operator's choice of a Pro
+scoped skip, zone-wide Bot Fight Mode disablement, or another hostname. Human
+WorkOS sign-in remains unverified; the laptop can reach the actual sign-in gate.
+[Sanitized access evidence](https://github.com/MGRAFF2006/sorrel/issues/171#issuecomment-6188886319).
 
 A daily encrypted Restic backup runs at 00:30 Europe/Berlin using the existing
 homelab repository and shared backup lock. The first snapshot (`73ee29b9`) was
 restored separately with all 627 files verified; metadata, grants and private
 configuration matched, and an isolated restored Hub passed health and anonymous
 access checks. Live session/refresh/revocation, two-team isolation, public CLI
-upload and independent off-host recovery checks remain pending.
+upload and populated/authenticated off-host recovery checks remain pending.
 The updated pilot's scheduled 2026-10-15 backup completed successfully at 00:30
 Berlin time using discovery of the running Hub's actual data mount; both
 containers resumed healthy. This is backup evidence, not an off-host restore.
@@ -84,6 +89,17 @@ transport. Regression coverage is in
 [`restore_safety.rs`](../sorrel-cli/tests/restore_safety.rs),
 [`sync.rs`](../sorrel-cli/tests/sync.rs), and
 [`workos-browser.test.js`](../sorrel-hub/test/workos-browser.test.js).
+
+The 2026-10-15 restore of immutable pilot image `5d54e633` ran on the distinct
+`homelab-dev` VM: Restic verified 757 entries / 4,851,504 bytes, and all five
+actual data/configuration files matched the source SHA set (three metadata files,
+environment and grants), with no missing or extra files. The pilot sync store
+contained **zero objects and zero refs**. The restored WorkOS/filesystem Hub
+returned health 200, an anonymous null session, and 401 for protected API and CLI
+pull. No legitimate bearer was available. This is limited cross-VM restore and
+anonymous fail-closed evidence on a shared physical hypervisor, not offsite or
+populated-repository recovery, authenticated pull, live identity, or full #171
+acceptance. [Sanitized restore evidence](https://github.com/MGRAFF2006/sorrel/issues/171#issuecomment-6188394580).
 
 Important remaining product gaps:
 
