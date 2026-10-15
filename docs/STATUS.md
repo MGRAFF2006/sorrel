@@ -59,24 +59,28 @@ Sorrel Hub staging application, exact callback/sign-out/login URLs, passwordless
 email login and disabled public signup are configured. The operator's pilot user
 has exact Core workspace grants. Private credentials are outside Git.
 
-Public access remains client-dependent. A hostname-only Cloudflare Configuration
-Rule disables Browser Integrity Check for the pilot hostname; zone-wide Browser
-Integrity Check and Bot Fight Mode remain enabled. The operator's laptop now
-reaches the app (200), anonymous session (200/null), protected projects and refs
-(401), and WorkOS login redirect (302) using ordinary Python, curl and browser
-clients, with `no-store` / `DYNAMIC` responses. Ordinary Python and curl on
-`homelab-dev` still receive 403 Managed Challenges attributed to Bot Fight Mode
-in Security Events. Full client access remains blocked. The operator authorized
-a Pro subscription for a scoped skip, but it has not been purchased pending
-Tunnel compatibility review.
-[Sanitized access evidence](https://github.com/MGRAFF2006/sorrel/issues/171#issuecomment-6188886319).
+The operator personally upgraded the Cloudflare zone to Pro monthly. The exact
+Sorrel hostname rule skips only `http_request_sbfm`; hostname-only Browser
+Integrity Check disablement remains, with global Browser Integrity Check enabled.
+Old Bot Fight Mode was removed, and Super Bot Fight Mode uses
+`managed_challenge` for definite bots outside Sorrel. All 20 ordinary Python/curl
+probes across `homelab-dev` and the laptop returned the expected app 200,
+anonymous session 200/null, private projects/refs 401 and WorkOS login 302.
+API/login responses had `no-store` / `DYNAMIC` and no `cf-mitigated`; the shared
+Tunnel remained healthy. These are bounded client checks, not a general launch
+claim. Other hostnames were affected: museum and portfolio laptop curl changed
+from 200 to a 403 challenge without exemptions; homelab requests remained 403
+before and after.
+[Sanitized Cloudflare evidence](https://github.com/MGRAFF2006/sorrel/issues/171#issuecomment-6189431323).
 
 The operator completed real WorkOS email sign-in in the laptop's existing Zen
 profile. Same-origin checks returned session 200 with identity and principal
-present, projects 200 with one private project, and 403 for unscoped
-`repo_pilot/refs`, all with `no-store`. No identity, email, token or cookie values
-were exposed, and the valid session was preserved. This verifies one-user login
-and private-project read only; refresh, revocation, two-user isolation, scoped
+present and projects 200 with one private project, all with `no-store`; unscoped
+`repo_pilot/refs` returned 403. After the Cloudflare changes, the existing human
+session and granted project/linked-ref reads remained 200 with `no-store`.
+No identity, email, token or cookie values were exposed, and the valid session
+was preserved. This verifies one-user login and scoped private reads only;
+refresh, revocation, two-user isolation, scoped
 upload, integration and recovery remain unverified on the live pilot.
 [Sanitized sign-in evidence](https://github.com/MGRAFF2006/sorrel/issues/171#issuecomment-6189070173).
 
