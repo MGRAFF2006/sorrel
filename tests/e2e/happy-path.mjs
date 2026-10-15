@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
+import { runPilotWorkflow } from './pilot-workflow.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const SORREL_BIN = join(ROOT, 'target/debug/sorrel');
@@ -479,6 +480,7 @@ jobs:
   assert.ok(existsSync(join(RUNNERS_DIR, 'Cargo.toml')));
   log('sorrel-runners', 'exercised via CLI workflow run');
 
+  await runPilotWorkflow();
   console.log('\nAll E2E checks passed.');
   cleanup();
 }
