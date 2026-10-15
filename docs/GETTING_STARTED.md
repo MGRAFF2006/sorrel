@@ -226,6 +226,9 @@ or isolated lane checkouts. See [selector rules](../sorrel-cli/README.md#workspa
 ### Hosted pilot from current source
 
 Use one API instance with a persistent volume for the first invite-only pilot.
+Docker Compose **2.24.4 or newer** is required for both direct hosted TLS and
+Cloudflare Tunnel source deployments; their overlays use `!override`.
+
 The source includes WorkOS browser login and an HTTPS Compose overlay; the
 published alpha images do not include these changes.
 
@@ -256,7 +259,7 @@ dc build
 ```
 
 For an existing Cloudflare Tunnel, add `deploy/sorrel-tunnel.compose.yml` as the
-last Compose file in `dc`. This requires Compose 2.24.4+ for volume overrides.
+last Compose file in `dc`. The same Compose 2.24.4+ prerequisite applies.
 Set `SORREL_TUNNEL_NETWORK` to the tunnel container's existing Docker network
 and `SORREL_HUB_DATA_PATH` to a persistent host directory. The overlay disables
 Caddy unless the `direct-tls` profile is explicitly selected, attaches only the

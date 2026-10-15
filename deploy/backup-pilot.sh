@@ -2,7 +2,7 @@
 set -euo pipefail
 umask 077
 
-checkout=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+checkout=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 cd "$checkout"
 : "${RESTIC_REPOSITORY:?Use an existing encrypted Restic repository}"
 : "${RESTIC_PASSWORD_FILE:?Set the existing Restic password-file path}"
@@ -39,6 +39,21 @@ if [[ -n ${SORREL_HUB_DATA_PATH:-} && $(realpath -e -- "$SORREL_HUB_DATA_PATH") 
   printf 'SORREL_HUB_DATA_PATH does not match the running Hub data mount\n' >&2
   exit 1
 fi
+# Exclude only known checkout artifacts, never names inside authoritative data.
+excludes=()
+for generated in "$checkout/.git" "$checkout/node_modules" "$checkout/target" \
+    "$checkout"/sorrel-*/node_modules "$checkout"/sorrel-*/target "$checkout/deploy/backups"; do
+  [[ -e $generated ]] || continue
+  # A supported data mount may itself live inside the checkout or a cache path.
+  [[ $data_source/ == "$generated/"* || $generated/ == "$data_source/"* ]] && continue
+  # Restic treats exclusions as globs even when the shell argument is quoted.
+  pattern=${generated//\\/\\\\}
+  pattern=${pattern//\*/\\*}
+  pattern=${pattern//\?/\\?}
+  pattern=${pattern//\[/\\[}
+  pattern=${pattern//\]/\\]}
+  excludes+=(--exclude "$pattern")
+done
 paused=0
 resume() {
   local result=$?
@@ -51,9 +66,7 @@ resume() {
 trap resume EXIT
 paused=1
 dc stop hub-web hub
-restic --no-cache backup "$data_source" "$checkout" --tag sorrel-pilot \
-  --exclude '**/.git' --exclude '**/node_modules' --exclude '**/target' \
-  --exclude "$checkout/deploy/backups"
+restic --no-cache backup "$data_source" "$checkout" --tag sorrel-pilot "${excludes[@]}"
 dc up -d --no-build --wait --wait-timeout 60 hub hub-web
 paused=0
 printf 'Encrypted Sorrel backup completed; Hub resumed\n'

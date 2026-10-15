@@ -602,6 +602,21 @@ uses Rust's standard library, needs no `flock` program, and writes only inside
 configured writable data volumes. Low-level store helpers are not independent
 Hub servers; never mutate a live dataset through another tool.
 
+The native process holding the OS locks performs every protected metadata,
+object and ref replacement, and Core integration work. Node uses a bounded
+private loopback channel; its per-process capability is never exposed through
+HTTP or persisted. A cached Node liveness flag cannot authorize writes after
+helper death. The native writer repeats source/target generation checks and the
+authority lifetime check immediately before the ref rename. Closing an embedded
+app awaits startup and active requests; startup failure releases the writer.
+Filesystem wiring is fixed at startup and requires a restart to change.
+
+Readiness and preparation return a public binding projection without full
+`inputs.review` records. Private comments/workflow records remain internal even
+when a test reporter can read the proposal. Reading an old binding or candidate
+comparison rechecks access to that binding's actual repository. A reporter does
+not need comment-read permission to submit its configured test result.
+
 One queue serializes proposal/evidence writes and ordinary ref pushes. Core
 bounds object bytes, graph/tree/line complexity and verifies terminal blobs;
 Hub bounds subprocess input/output/concurrency and time. Current limits include

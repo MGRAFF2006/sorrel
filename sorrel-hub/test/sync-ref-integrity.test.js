@@ -19,11 +19,13 @@ async function withServer(t, sync) {
     trustedGrantsById: createLocalBootstrapGrants(),
     env: { SORREL_HUB_LOCAL_DEMO: '1' },
   });
+  await app.ready;
   const server = http.createServer(app.handleRequest);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve());
-  }));
+  t.after(async () => {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await app.close();
+  });
   return { app, baseUrl: `http://127.0.0.1:${server.address().port}` };
 }
 

@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { createInMemoryStore } from '../src/store.js';
 import { createApp } from '../src/app.js';
 import * as bootstrap from '../src/bootstrap-grants.js';
 import { createFsMetadataStore } from '../src/fs-metadata-store.js';
@@ -162,11 +163,12 @@ test('HTTP reports post-publication failure without exposing its cause and live 
   const grants = { ...bootstrap.createLocalBootstrapGrants(), ...(bootstrap.createLocalDemoGrants?.() ?? {}) };
   const app = createApp({ store, trustedGrantsById: grants,
     env: { SORREL_HUB_AUTH: 'dev', SORREL_HUB_LOCAL_DEMO: '1' } });
+  await app.ready;
   const server = http.createServer(app.handleRequest);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); await app.close(); });
   const io = trackIo(t);
-  io.fail(event => event.directory);
+  store.writer.injectFault(path.join(root, 'projects/project.json'), 'after_rename');
   const base = `http://127.0.0.1:${server.address().port}`;
   const headers = { 'content-type': 'application/json', 'x-sorrel-acting-principal': JSON.stringify({ type: 'user', id: 'local' }) };
   const created = await fetch(`${base}/projects`, { method: 'POST', headers,
@@ -193,11 +195,11 @@ test('HTTP refs flush the validated closure, including a failed-upload terminal 
   const treeId = sync.put(repoId, Buffer.from(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Tree', entries: [{ type: 'file', name: 'fixture', id: blobId }] })));
   const snapshot = sync.put(repoId, Buffer.from(JSON.stringify({ schemaVersion: 'sorrel.protocol.v0', kind: 'Snapshot', tree: treeId, parents: [] })));
   const grants = { ...bootstrap.createLocalBootstrapGrants(), ...(bootstrap.createLocalDemoGrants?.() ?? {}) };
-  const app = createApp({ trustedGrantsById: grants, env: { SORREL_HUB_AUTH: 'dev', SORREL_HUB_LOCAL_DEMO: '1' } });
-  app.store.sync = sync;
+  const app = createApp({ store: createInMemoryStore({ sync }), trustedGrantsById: grants, env: { SORREL_HUB_AUTH: 'dev', SORREL_HUB_LOCAL_DEMO: '1' } });
+  await app.ready;
   const server = http.createServer(app.handleRequest);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); await app.close(); });
   const base = `http://127.0.0.1:${server.address().port}`;
   const request = () => fetch(`${base}/${repoId}/refs/main`, { method: 'POST',
     headers: { 'content-type': 'application/json', 'x-sorrel-acting-principal': JSON.stringify({ type: 'user', id: 'local' }) },
@@ -213,12 +215,12 @@ test('HTTP refs flush the validated closure, including a failed-upload terminal 
   io.fail(() => false);
   const accepted = await request();
   assert.equal(accepted.status, 200, await accepted.text());
-  const rename = io.events.findIndex(event => event.kind === 'rename');
-  assert.ok(rename > 0);
+  const barriers = io.events;
+  assert.equal(io.events.some(event => event.kind === 'rename'), false);
   for (const id of [snapshot, treeId, blobId]) {
-    assert.ok(io.events.slice(0, rename).some(event => !event.directory && event.path.endsWith(`${path.sep}${id}`)), `missing object barrier for ${id}`);
+    assert.ok(barriers.some(event => !event.directory && event.path.endsWith(`${path.sep}${id}`)), `missing object barrier for ${id}`);
   }
-  assert.ok(io.events.slice(0, rename).some(event => event.directory && event.path === path.dirname(blobPath)));
+  assert.ok(barriers.some(event => event.directory && event.path === path.dirname(blobPath)));
   assert.equal(sync.getRef(repoId, 'main'), snapshot);
   assert.equal(io.descriptors.size, 0);
 });

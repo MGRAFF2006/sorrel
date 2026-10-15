@@ -5,7 +5,7 @@ import { FsRepoSyncStore, encodePathSegment } from './fs-sync-store.js';
 import { HttpError, readJsonBody, sendJson } from './http.js';
 import { mirrorProposal } from './proposal-mutations.js';
 import { browseSnapshotChanges } from './sync-browser.js';
-import { assertCollectionRead, assertProposalReferences } from './policy-guard.js';
+import { assertCollectionRead, assertCoreAccess, assertProposalReferences } from './policy-guard.js';
 
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const principal = context => ({ type: context.session.principal.type, id: context.session.principal.id });
@@ -25,6 +25,11 @@ export function createProposalIntegration(store, options) {
   const capabilities = { version: 1, available, requiredCheckReporting: 'operator-configured', nonAuthorApprovals: 1,
     limitation: available ? null : 'filesystem metadata and sync stores are required' };
   const write = (collection, record) => { store.storeRecord(collection, record); return record; };
+  const publicBinding = binding => { const { review, ...inputs } = binding.inputs; return { ...binding, inputs }; };
+  const authorizeBinding = async (context, binding) => {
+    await assertCoreAccess(context, 'repo.read', { kind: 'repo', id: binding.inputs.repoId });
+    if (binding.inputs.repositoryId) await assertCoreAccess(context, 'repo.read', { kind: 'repo', id: binding.inputs.repositoryId });
+  };
   const lookup = (collection, id) => store[collection].get(id);
   function proposalInputs(proposal) {
     const provenance = lookup('proposalAuthors', proposal.id);
@@ -98,9 +103,11 @@ export function createProposalIntegration(store, options) {
     if (completed) {
       const operation = lookup('integrationOperations', completed.receipt?.operationId);
       if (!operation || operation.state !== 'complete' || operation.outcome?.state !== 'integrated' || JSON.stringify(operation.receipt) !== JSON.stringify(completed.receipt)) throw blocked('publication receipt has no completed journal evidence');
+      await authorizeBinding(context, operation.binding);
     }
     if (requestMessage.method === 'GET' && subResource === 'integration-changes') {
       const binding = lookup('proposalBindings', proposalId)?.binding;
+      if (binding) await authorizeBinding(context, binding);
       if (!binding?.candidateSnapshot || context.url.searchParams.get('bindingId') !== binding.id) throw blocked('explicit current candidate binding is required');
       return sendJson(response, 200, { data: browseSnapshotChanges({ syncRepoId: binding.inputs.repoId, targetSnapshot: binding.inputs.targetSnapshot, sourceSnapshot: binding.candidateSnapshot }, store.sync) });
     }
@@ -108,8 +115,9 @@ export function createProposalIntegration(store, options) {
       if (completed) return sendJson(response, 200, { data: { state: 'integrated', receipt: completed.receipt } });
       const binding = lookup('proposalBindings', proposalId)?.binding;
       if (!binding) return sendJson(response, 200, { data: { state: 'unprepared', requiredChecksConfigured: Boolean(requiredChecks[proposal.syncRepoId]?.checks?.length) } });
-      const readiness = await coreIntegration(request(context, proposal, 'readiness', evidence(binding)));
-      return sendJson(response, 200, { data: { state: binding.conflicts.length ? 'conflicted' : readiness.ready ? 'ready' : 'blocked', binding, ...readiness } });
+      await authorizeBinding(context, binding);
+      const readiness = await coreIntegration(request(context, proposal, 'readiness', evidence(binding)), context.datasetLease);
+      return sendJson(response, 200, { data: { state: binding.conflicts.length ? 'conflicted' : readiness.ready ? 'ready' : 'blocked', binding: publicBinding(binding), ...readiness } });
     }
     if (requestMessage.method !== 'POST') throw new HttpError(405, 'integration subresource requires GET or POST', 'method_not_allowed');
     const body = await readJsonBody(requestMessage, context.limits.requestBodyBytes);
@@ -121,6 +129,7 @@ export function createProposalIntegration(store, options) {
       const operationInput = { bindingId: body.bindingId, expectedTargetSnapshot: body.expectedTargetSnapshot, idempotencyKey: body.idempotencyKey, principal: principal(context) };
       if (retry) {
         if (JSON.stringify(retry.request) !== JSON.stringify(operationInput)) throw blocked('idempotency key was already used with different inputs');
+        await authorizeBinding(context, retry.binding);
         return sendJson(response, 200, { data: retry.outcome });
       }
       if (completed) throw blocked('proposal already has a publication receipt');
@@ -128,7 +137,7 @@ export function createProposalIntegration(store, options) {
       if (!binding || binding.id !== body.bindingId || binding.inputs.targetSnapshot !== body.expectedTargetSnapshot) throw blocked('binding or expected target mismatch');
       const evaluation = request(context, proposal, 'integrate', evidence(binding));
       const evaluatedInputs = JSON.stringify(evaluation);
-      const result = await coreIntegration(evaluation);
+      const result = await coreIntegration(evaluation, context.datasetLease);
       if (!result.ready) throw blocked('integration remains blocked', { blockers: result.blockers });
       // All ref writers and proposal/evidence mutations share the enclosing queue.
       // Re-read after the asynchronous Core evaluation immediately before CAS.
@@ -146,7 +155,7 @@ export function createProposalIntegration(store, options) {
       store.sync.publishRef(receipt.repoId, receipt.targetRef, body.expectedTargetSnapshot, receipt.candidateSnapshot, result.closure, receipt, () => {
         context.datasetLease?.assert();
         if (result.authorityValidUntil && Date.now() >= Date.parse(result.authorityValidUntil)) throw blocked('authority lifetime changed; retry with fresh validation');
-      });
+      }, { targetGeneration: binding.inputs.targetGeneration, sourceRef: binding.inputs.sourceRef, sourceSnapshot: binding.inputs.sourceSnapshot, sourceGeneration: binding.inputs.sourceGeneration, authorityValidUntil: result.authorityValidUntil });
       options.integrationFault?.('ref');
       const outcome = finish(operation, receipt).outcome;
       options.integrationFault?.('metadata');
@@ -156,21 +165,21 @@ export function createProposalIntegration(store, options) {
     if (subResource === 'integration') {
       fields(body, []);
       if (!['open', 'approved'].includes(proposal.status)) throw blocked('open the proposal before preparing integration');
-      const result = await coreIntegration(request(context, proposal, 'prepare', { nonce: randomUUID() }));
+      const result = await coreIntegration(request(context, proposal, 'prepare', { nonce: randomUUID() }), context.datasetLease);
       write('proposalBindings', { id: proposalId, binding: result.binding });
-      return sendJson(response, 201, { data: { state: result.binding.conflicts.length ? 'conflicted' : 'prepared', binding: result.binding } });
+      return sendJson(response, 201, { data: { state: result.binding.conflicts.length ? 'conflicted' : 'prepared', binding: publicBinding(result.binding) } });
     }
     const binding = lookup('proposalBindings', proposalId)?.binding;
     if (!binding || binding.id !== body.bindingId) throw blocked('explicit current bindingId is required');
     if (subResource === 'approvals') {
       fields(body, ['bindingId', 'candidateSnapshot']);
       if (body.candidateSnapshot !== binding.candidateSnapshot) throw blocked('approval candidate mismatch');
-      const result = await coreIntegration(request(context, proposal, 'approve', evidence(binding)));
+      const result = await coreIntegration(request(context, proposal, 'approve', evidence(binding)), context.datasetLease);
       write('proposalApprovals', { id: hash([binding.id, context.session.principal.type, context.session.principal.id]), ...result.approval });
       return sendJson(response, 201, { data: result.approval });
     }
     fields(body, ['bindingId', 'candidateSnapshot', 'sourceSnapshot', 'targetSnapshot', 'requirementsDigest', 'checkId', 'attempt', 'runId', 'outcome']);
-    const result = await coreIntegration(request(context, proposal, 'report', { ...evidence(binding), report: { ...body, principal: principal(context) } }));
+    const result = await coreIntegration(request(context, proposal, 'report', { ...evidence(binding), report: { ...body, principal: principal(context) } }), context.datasetLease);
     write('proposalChecks', { id: hash([binding.id, body.checkId, body.attempt]), ...result.report });
     return sendJson(response, 201, { data: result.report });
   }

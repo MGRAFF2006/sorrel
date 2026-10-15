@@ -271,7 +271,11 @@ not evidence.
 An OS writer lease covers both canonical filesystem roots before standalone
 server hydration. Embedded apps acquire it before reloading metadata and serving
 requests. One asynchronous queue serializes all Hub mutations, including ordinary
-pushes. Publication durably journals the operation, then atomically replaces the
+pushes. The OS-lock owner performs all protected filesystem replacements and
+Core integration work over a bounded private channel; helper death cannot leave
+Node able to publish under a stale liveness flag. Public bindings omit the full
+private review input records, and old bindings recheck their own repository
+authorization. Publication durably journals the operation, then atomically replaces the
 expected target ref with a record containing both candidate and receipt, then
 completes proposal metadata. Startup and subsequent requests recover unfinished
 operations from matching receipts; contradictory evidence blocks without

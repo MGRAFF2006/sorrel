@@ -1,15 +1,17 @@
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 const skip = process.platform !== 'linux' && 'Pilot backup requires Linux flock and GNU realpath';
+const restic = spawnSync('which', ['restic'], { encoding: 'utf8' }).stdout?.trim();
 
-function fixture(t) {
-  const root = mkdtempSync(join(tmpdir(), 'sorrel-backup-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+function fixture(t, checkoutName = '') {
+  const parent = mkdtempSync(join(tmpdir(), 'sorrel-backup-'));
+  const root = join(parent, checkoutName);
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
   for (const path of ['deploy', 'bin', 'volume/_data', 'bind', 'unrelated']) mkdirSync(join(root, path), { recursive: true });
   copyFileSync(new URL('../deploy/backup-pilot.sh', import.meta.url), join(root, 'deploy/backup-pilot.sh'));
   writeFileSync(join(root, 'password'), 'test-placeholder');
@@ -70,4 +72,63 @@ test('rejects an unrelated existing data directory before stopping services', { 
   assert.match(result.stderr, /does not match the running Hub data mount/);
   assert.doesNotMatch(readFileSync(join(root, 'calls'), 'utf8'), /stop hub-web hub/);
   assert.equal(existsSync(join(root, 'restic-args')), false);
+});
+
+test('real Restic restores cache-like repository/ref names while excluding checkout artifacts', {
+  skip: skip || (!restic && process.env.SORREL_REQUIRE_RESTIC !== '1' && 'Install Restic to verify saved and restored backup content'),
+}, t => {
+  assert.ok(restic, 'Restic is required when SORREL_REQUIRE_RESTIC=1');
+  const { root, run } = fixture(t, 'checkout[a]');
+  const storage = mkdtempSync(join(tmpdir(), 'sorrel-restic-'));
+  t.after(() => rmSync(storage, { recursive: true, force: true }));
+  // Use the actual Restic binary; Docker remains a disposable lifecycle fixture.
+  rmSync(join(root, 'bin/restic'));
+  symlinkSync(restic, join(root, 'bin/restic'));
+  const backupEnv = {
+    RESTIC_REPOSITORY: join(storage, 'repository'),
+    RESTIC_PASSWORD_FILE: join(root, 'password'),
+  };
+  const env = { ...process.env, ...backupEnv };
+  function saved(command, ...args) {
+    const result = spawnSync(restic, ['--no-cache', command, ...args], { env, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result;
+  }
+  saved('init');
+  for (const location of ['bind', 'target/hub-data', 'sorrel-hub/node_modules/hub-data', '../checkouta/target/hub-data']) {
+    const data = join(root, location);
+    const files = [
+      'sync/repos/target/refs/main', 'sync/repos/node_modules/refs/main',
+      'sync/repos/pilot/refs/target', 'sync/repos/pilot/refs/node_modules',
+      'sync/repos/pilot/objects/.git/blob', 'metadata/projects/pilot.json',
+    ];
+    for (const file of files) {
+      mkdirSync(dirname(join(data, file)), { recursive: true });
+      writeFileSync(join(data, file), `authoritative ${file}`);
+    }
+    const artifacts = ['.git/HEAD', 'node_modules/cache', 'target/build-output',
+      'sorrel-hub/node_modules/cache', 'sorrel-core/target/build-output', 'deploy/backups/old-copy'];
+    for (const file of artifacts) {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), 'generated');
+    }
+    writeFileSync(join(root, 'deploy/.env'), 'PRIVATE_TEST_PLACEHOLDER=preserve');
+    mkdirSync(join(root, 'deploy/config'), { recursive: true });
+    writeFileSync(join(root, 'deploy/config/grants.json'), '{"grants":[]}');
+    const result = run(data, undefined, backupEnv);
+    assert.equal(result.status, 0, result.stderr);
+    const destination = join(storage, 'restore', location);
+    saved('restore', 'latest', '--target', destination, '--verify');
+    for (const file of files) assert.equal(readFileSync(join(destination, data, file), 'utf8'), `authoritative ${file}`);
+    for (const file of ['deploy/.env', 'deploy/config/grants.json']) {
+      assert.equal(readFileSync(join(destination, root, file), 'utf8'), readFileSync(join(root, file), 'utf8'));
+    }
+    for (const file of artifacts) {
+      // Overlapping artifact roots must be retained rather than risk data loss.
+      const artifactRoot = file.startsWith('target/') ? 'target/'
+        : file.startsWith('sorrel-hub/node_modules/') ? 'sorrel-hub/node_modules/' : null;
+      if (artifactRoot && location.startsWith(artifactRoot)) continue;
+      assert.equal(existsSync(join(destination, root, file)), false, `${location}: ${file}`);
+    }
+  }
 });

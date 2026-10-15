@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 import { Readable } from 'node:stream';
+import { createInMemoryStore } from '../src/store.js';
 import { createApp } from '../src/app.js';
 import { BOOTSTRAP_REF_WRITE_GRANT_ID, createLocalBootstrapGrants } from '../src/bootstrap-grants.js';
 import { readJsonBody } from '../src/http.js';
@@ -99,8 +100,8 @@ test('HTTP traversal limit rejects ref publication and can be raised by operator
   const grants = createLocalBootstrapGrants();
   const principal = { type: 'user', id: 'local' };
   for (const limit of ['2', '3']) {
-    const app = createApp({ env: { SORREL_HUB_MAX_TRAVERSAL_OBJECTS: limit, SORREL_HUB_LOCAL_DEMO: '1' }, trustedGrantsById: grants });
-    app.store.sync = sync;
+    const app = createApp({ store: createInMemoryStore({ sync }), env: { SORREL_HUB_MAX_TRAVERSAL_OBJECTS: limit, SORREL_HUB_LOCAL_DEMO: '1' }, trustedGrantsById: grants });
+    await app.ready;
     const server = http.createServer(app.handleRequest);
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     t.after(() => new Promise((resolve) => server.close(resolve)));

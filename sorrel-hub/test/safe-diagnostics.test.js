@@ -10,13 +10,14 @@ import { PolicyEvaluationError } from '../src/core-policy.js';
 import { createFsMetadataStore } from '../src/fs-metadata-store.js';
 
 async function withServer(app, run, methodOverride) {
+  await app.ready;
   const server = http.createServer((request, response) => {
     if (methodOverride) request.method = methodOverride;
     void app.handleRequest(request, response);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try { await run(`http://127.0.0.1:${server.address().port}`); }
-  finally { await new Promise(resolve => server.close(resolve)); }
+  finally { await new Promise(resolve => server.close(resolve)); await app.close(); }
 }
 
 test('a real metadata filesystem failure logs useful sanitized diagnostics and preserves HTTP redaction', async (t) => {

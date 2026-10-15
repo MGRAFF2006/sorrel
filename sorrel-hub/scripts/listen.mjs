@@ -18,6 +18,7 @@
 import http from 'node:http';
 import path from 'node:path';
 
+import { acquireDatasetWriter } from '../src/core-integration.js';
 import { createApp } from '../src/app.js';
 import { resolveTrustedGrants, resolveTrustedPolicies } from '../src/bootstrap-grants.js';
 import { createFsMetadataStore } from '../src/fs-metadata-store.js';
@@ -29,6 +30,7 @@ const dataDir = process.env.SORREL_HUB_DATA_DIR ?? './data/sync';
 const metadataDir =
   process.env.SORREL_HUB_METADATA_DIR ?? path.join(dataDir, '..', 'metadata');
 
+const datasetLease = syncStoreKind === 'memory' ? undefined : await acquireDatasetWriter([dataDir, metadataDir]);
 const store =
   syncStoreKind === 'memory'
     ? createInMemoryStore()
@@ -36,7 +38,8 @@ const store =
 
 const trustedGrantsById = resolveTrustedGrants();
 const trustedPoliciesById = resolveTrustedPolicies();
-const app = createApp({ store, trustedGrantsById, trustedPoliciesById });
+const app = createApp({ datasetLease, store, trustedGrantsById, trustedPoliciesById });
+await app.ready;
 const server = http.createServer(app.handleRequest);
 
 server.listen(0, '127.0.0.1', () => {
@@ -50,7 +53,7 @@ server.listen(0, '127.0.0.1', () => {
 });
 
 function shutdown() {
-  server.close(() => process.exit(0));
+  server.close(async () => { await app.close(); process.exit(0); });
 }
 
 process.on('SIGTERM', shutdown);

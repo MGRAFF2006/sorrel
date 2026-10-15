@@ -23,7 +23,7 @@
     "release:notes": "node scripts/release-notes.mjs",
     "release:changelogs": "node scripts/prepare-changelogs.mjs",
     "test:changelogs": "node --test scripts/prepare-changelogs.test.mjs",
-    "test:pilot-backup": "node --test scripts/backup-pilot.test.mjs"
+    "test:pilot-backup": "node --test scripts/backup-pilot.test.mjs deploy/hosted-compose.test.mjs"
   },
   "engines": {
     "node": ">=22"
