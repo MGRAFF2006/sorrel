@@ -273,7 +273,9 @@ server hydration. Embedded apps acquire it before reloading metadata and serving
 requests. One asynchronous queue serializes all Hub mutations, including ordinary
 pushes. The OS-lock owner performs all protected filesystem replacements and
 Core integration work over a bounded private channel; helper death cannot leave
-Node able to publish under a stale liveness flag. Public bindings omit the full
+Node able to publish under a stale liveness flag. Configured root aliases resolve
+before locking; descendant symlinks cannot redirect native reads or mutations
+outside the dataset. Public bindings omit the full
 private review input records, and old bindings recheck their own repository
 authorization. Publication durably journals the operation, then atomically replaces the
 expected target ref with a record containing both candidate and receipt, then

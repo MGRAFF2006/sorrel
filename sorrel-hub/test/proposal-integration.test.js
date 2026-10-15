@@ -29,7 +29,8 @@ async function fixture(t, options = {}) {
   const generated = spawnSync(executable, [root], { encoding: 'utf8' });
   assert.equal(generated.status, 0, generated.stderr);
   const ids = JSON.parse(generated.stdout);
-  const data = path.join(root, 'sync');
+  let data = path.join(root, 'sync');
+  if (options.alias) { fs.mkdirSync(data); const alias = path.join(root, 'sync-alias'); fs.symlinkSync(data, alias); data = alias; }
   const metadata = path.join(root, 'metadata');
   const lease = await acquireDatasetWriter([data, metadata]);
   const sync = createFsRepoSyncStore(data);
@@ -354,6 +355,8 @@ test('readiness omits private review records while a least-privileged reporter c
   const f = await fixture(t);
   const comment = await f.call('/admin/review-comments', { proposalId: 'proposal', body: 'private-review-body' });
   assert.equal(comment.status, 201);
+  assert.equal((await f.call('/admin/workflow-runs', { id: 'private-run', projectId: 'project', proposalId: 'proposal', name: 'private-workflow-name', status: 'queued' })).status, 201);
+  assert.equal((await f.call(f.endpoint, { workflowRunIds: ['private-run'] }, 'author', 'PATCH')).status, 200);
   const b = await f.prepare();
   assert.equal(b.inputs.review, undefined);
   const ci = f.trustedGrantsById.ci_project;
@@ -362,7 +365,11 @@ test('readiness omits private review records while a least-privileged reporter c
   assert.equal(state.status, 200);
   assert.equal(state.data.binding.inputs.review, undefined);
   assert.equal(JSON.stringify(state).includes('private-review-body'), false);
+  assert.equal(JSON.stringify(state).includes('private-workflow-name'), false);
   assert.deepEqual((await f.call(`${f.endpoint}/comments`, undefined, 'ci')).data, []);
+  assert.equal((await f.call('/admin/workflow-runs/private-run', undefined, 'ci')).status, 404);
+  assert.equal((await f.call('/admin/workflow-runs/private-run', undefined, 'reviewer')).data.status, 'queued');
+  assert.equal((await f.report(b, { outcome: 'pending' })).status, 201);
   assert.equal((await f.report(b)).status, 201);
 });
 
@@ -439,4 +446,43 @@ test('abandoned native ref temporary files cannot become refs after restart', as
   const refs = await f.call('/repo_test/refs');
   assert.equal(refs.status, 200);
   assert.deepEqual(refs.refs.map(ref => ref.name).sort(), ['main', 'source']);
+});
+
+test('configured root aliases can publish without resolving descendant aliases', async t => {
+  const f = await fixture(t, { alias: true });
+  const b = await f.prepare(); await f.approve(b); await f.report(b);
+  assert.equal((await f.integrate(b)).status, 200);
+  assert.equal(f.sync.getRef('repo_test', 'main'), b.candidateSnapshot);
+});
+
+test('a descendant repository symlink cannot read or mutate another actual Hub dataset', async t => {
+  const f = await fixture(t);
+  await f.prepare();
+  const binding = f.store.proposalBindings.get('proposal').binding;
+  const outside = path.join(f.root, 'outside'); fs.mkdirSync(outside);
+  fs.renameSync(path.join(f.data, 'repo_test'), path.join(outside, 'repo_test'));
+  fs.symlinkSync(path.join(outside, 'repo_test'), path.join(f.data, 'repo_test'));
+  const child = spawn(process.execPath, [new URL('../scripts/listen.mjs', import.meta.url).pathname], {
+    env: { ...process.env, SORREL_HUB_SYNC_STORE: 'fs', SORREL_HUB_DATA_DIR: outside, SORREL_HUB_METADATA_DIR: path.join(f.root, 'outside-metadata'),
+      SORREL_HUB_AUTH: 'dev', SORREL_HUB_LOCAL_DEMO: '0', SORREL_HUB_BOOTSTRAP_GRANTS: '0',
+      SORREL_HUB_TRUSTED_GRANTS_FILE: '', SORREL_HUB_TRUSTED_POLICIES_FILE: '', SORREL_HUB_REQUIRED_CHECKS_JSON: '{}',
+    }, stdio: ['ignore', 'pipe', 'pipe'],
+  }); child.stderr.resume();
+  t.after(async () => { if (child.exitCode === null && child.signalCode === null) { const exited = once(child, 'close'); child.kill('SIGTERM'); await exited; } });
+  const ready = JSON.parse(String((await once(child.stdout, 'data'))[0]));
+  const snapshot = () => Object.fromEntries(fs.readdirSync(outside, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => {
+    const filename = path.join(entry.parentPath, entry.name); return [path.relative(outside, filename), fs.readFileSync(filename).toString('hex')];
+  }));
+  const before = snapshot();
+  const denied = await f.call(`${f.endpoint}/integration`, {});
+  assert.equal(denied.status, 500);
+  assert.equal(denied.data, undefined);
+  for (const write of [() => f.sync.put('repo_test', Buffer.from('never')), () => f.sync.setRef('repo_test', 'new-ref', f.ids.source)]) assert.throws(write, /symlink/);
+  assert.throws(() => f.sync.get('repo_test', f.ids.source), /symlink/);
+  assert.throws(() => f.store.writer.write(path.join(f.data, 'repo_test/new-directory/record'), 'never', f.data), /protected filesystem write/);
+  await assert.rejects(coreIntegration({ operation: 'prepare', root: path.join(f.data, 'repo_test'), inputs: binding.inputs,
+    principal: identity('author'), grants: Object.values(f.trustedGrantsById), policies: [], requirements: f.requiredChecks.repo_test, nonce: 'another-candidate' }, f.store.writer), /outside the locked dataset/);
+  assert.deepEqual(snapshot(), before);
+  assert.equal((await fetch(`${ready.url}/healthz`)).status, 200);
+  assert.equal(f.store.getProposal('proposal').status, 'open');
 });

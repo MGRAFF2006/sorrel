@@ -39,7 +39,7 @@ test('a real metadata filesystem failure logs useful sanitized diagnostics and p
     assert.equal(response.status, 500);
     assert.deepEqual(await response.json(), { error: { code: 'internal_server_error', message: 'internal server error' } });
   });
-  assert.deepEqual(logs, [['[sorrel-hub] unexpected request failure', { method: 'POST', category: 'filesystem', code: 'EEXIST' }]]);
+  assert.deepEqual(logs, [['[sorrel-hub] unexpected request failure', { method: 'POST', category: 'filesystem', code: 'ENOTDIR' }]]);
   for (const sentinel of [root, 'private-sentinel', 'fixture-credential-sentinel', 'Private body sentinel', 'local', 'projects']) {
     assert.equal(JSON.stringify(logs).includes(sentinel), false);
   }
