@@ -5,10 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   msrv:
     name: Rust minimum (1.92.0)
-    runs-on: ubuntu-latest
+    runs-on: boat
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -19,7 +24,8 @@ jobs:
         run: cargo check --locked --workspace --all-targets
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: boat
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
