@@ -10,46 +10,99 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  msrv:
-    name: Rust minimum (1.92.0)
+  checks:
+    name: Rust minimum and full repository gate
     runs-on: boat
-    timeout-minutes: 45
+    # The former independent jobs each allowed 45 minutes; they now run serially.
+    timeout-minutes: 90
     permissions:
       contents: read
+    env:
+      # setup/module/E2E scripts spawn unqualified cargo; keep those on stable.
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@v7
+        id: checkout
       - uses: dtolnay/rust-toolchain@1.92.0
+        id: msrv_toolchain
+        env:
+          RUSTUP_TOOLCHAIN: 1.92.0
       - uses: Swatinem/rust-cache@v2
+        id: msrv_cache
+        env:
+          RUSTUP_TOOLCHAIN: 1.92.0
+        with:
+          key: ci-msrv-1.92.0
+          # Keep MSRV output outside the checkout and repository doc scans.
+          workspaces: ". -> ${{ runner.temp }}/sorrel-msrv-target"
       - name: Check locked workspace on minimum Rust
-        run: cargo check --locked --workspace --all-targets
+        id: msrv
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/sorrel-msrv-target
+          RUSTUP_TOOLCHAIN: 1.92.0
+        run: cargo +1.92.0 check --locked --workspace --all-targets
 
-  e2e:
-    runs-on: boat
-    timeout-minutes: 45
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
+      # Explicit prerequisites let the stable gate run even if MSRV fails.
       - uses: actions/setup-node@v7
+        id: node
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
         with:
           node-version: "22"
       - uses: dtolnay/rust-toolchain@stable
+        id: stable_toolchain
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+        id: stable_cache
+        if: ${{ !cancelled() && steps.stable_toolchain.outcome == 'success' }}
+        with:
+          key: ci-stable
+          # Preserve target/debug for the core bridges and root E2E CLI.
+          workspaces: ". -> target"
       - name: Install Restic for verified pilot backup coverage
+        id: restic
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends restic
       - name: Repository consistency
+        id: quick
+        if: ${{ !cancelled() && steps.node.outcome == 'success' && steps.restic.outcome == 'success' }}
         env:
           SORREL_REQUIRE_RESTIC: "1"
         run: npm run check:quick
       - name: Rust lint and format
+        id: lint
+        if: ${{ !cancelled() && steps.stable_toolchain.outcome == 'success' && steps.stable_cache.outcome == 'success' }}
         run: |
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo fmt --all -- --check
+          cargo +stable clippy --workspace --all-targets -- -D warnings
+          cargo +stable fmt --all -- --check
       - name: Install workspace dependencies
+        id: setup
+        if: ${{ !cancelled() && steps.node.outcome == 'success' && steps.stable_toolchain.outcome == 'success' && steps.stable_cache.outcome == 'success' }}
         run: npm run setup
       - name: Module suites
+        id: modules
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm run test:modules
       - name: Root E2E
+        id: e2e
+        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: npm test
+      - name: Require every check
+        if: ${{ always() }}
+        env:
+          MSRV: ${{ steps.msrv.outcome }}
+          QUICK: ${{ steps.quick.outcome }}
+          LINT: ${{ steps.lint.outcome }}
+          SETUP: ${{ steps.setup.outcome }}
+          MODULES: ${{ steps.modules.outcome }}
+          E2E: ${{ steps.e2e.outcome }}
+        run: |
+          set -euo pipefail
+          printf 'MSRV=%s quick=%s lint=%s setup=%s modules=%s E2E=%s\n' "$MSRV" "$QUICK" "$LINT" "$SETUP" "$MODULES" "$E2E"
+          for result in "$MSRV" "$QUICK" "$LINT" "$SETUP" "$MODULES" "$E2E"; do
+            if [[ "$result" != success ]]; then
+              echo "Every required check must succeed (failed, cancelled, or skipped checks fail the gate)." >&2
+              exit 1
+            fi
+          done
