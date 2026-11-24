@@ -148,7 +148,7 @@ fn sync_client_list_refs_and_missing_against_live_hub() {
         url: hub.url().to_owned(),
         repo_id: "repo_test".to_owned(),
     };
-    let client = SyncClient::new(&remote);
+    let client = SyncClient::new(&remote).expect("client");
     let refs = client.list_refs().expect("list refs");
     assert!(refs.get("refs").and_then(Value::as_array).is_some());
 

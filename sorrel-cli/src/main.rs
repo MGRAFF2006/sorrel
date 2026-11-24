@@ -133,6 +133,15 @@ enum Commands {
         #[command(subcommand)]
         command: RemoteCommand,
     },
+    /// Sign in to a Hub in the browser and store a revocable CLI token for it.
+    Login(sorrel_cli::auth_cmd::LoginArgs),
+    /// Revoke and remove the stored CLI token for a Hub.
+    Logout(sorrel_cli::auth_cmd::LogoutArgs),
+    /// Inspect stored Hub credentials.
+    Auth {
+        #[command(subcommand)]
+        command: sorrel_cli::auth_cmd::AuthCommand,
+    },
     /// Push local HEAD to a configured remote.
     Push(PushArgs),
     /// Pull a remote ref and update local HEAD.
@@ -588,6 +597,24 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> io::Result<ExitCode> {
+    // Hub sign-in is per user, not per workspace: run it anywhere, without
+    // touching or locking workspace metadata.
+    let output = match cli.command {
+        Commands::Login(args) => sorrel_cli::auth_cmd::login(args)?,
+        Commands::Logout(args) => sorrel_cli::auth_cmd::logout(args)?,
+        Commands::Auth { command } => sorrel_cli::auth_cmd::status(&command)?,
+        command => return run_workspace(cli.json, command),
+    };
+    if cli.json {
+        write_json(io::stdout().lock(), &output.json)?;
+    } else {
+        writeln!(io::stdout().lock(), "{}", output.human)?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn run_workspace(json: bool, command: Commands) -> io::Result<ExitCode> {
+    let cli = Cli { json, command };
     // Check before recovery, registry writes, or launching external commands.
     workspace::configure()?;
     let _ = repo::load_manifest()?;
@@ -731,6 +758,9 @@ fn execute(command: Commands) -> io::Result<CommandOutput> {
             RemoteCommand::Add(args) => remote_add_output(args),
             RemoteCommand::List => remote_list_output(),
         },
+        Commands::Login(_) | Commands::Logout(_) | Commands::Auth { .. } => {
+            unreachable!("account commands run before workspace setup")
+        }
         Commands::Push(args) => push_output(args),
         Commands::Pull(args) => pull_output(args),
         Commands::Merge(args) => merge_output(args),

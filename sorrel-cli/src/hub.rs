@@ -8,7 +8,7 @@ use std::io;
 use serde_json::{json, Value};
 
 use crate::repo::Remote;
-use crate::sync::{apply_hub_authorization, hub_bearer_token, DEFAULT_ACTING_PRINCIPAL};
+use crate::sync::{apply_hub_authorization, hub_bearer_token_for, DEFAULT_ACTING_PRINCIPAL};
 
 /// Result of `POST /collaboration/lane-submit`.
 #[derive(Debug, Clone)]
@@ -22,7 +22,7 @@ pub struct LaneSubmitResult {
 pub fn ensure_project(hub_base_url: &str, organization_id: &str, name: &str) -> io::Result<String> {
     let base = hub_base_url.trim_end_matches('/');
     let agent = ureq::Agent::new();
-    let token = hub_bearer_token();
+    let token = hub_bearer_token_for(hub_base_url)?;
 
     // Prefer an existing project with the same name in the org.
     let list_url = format!("{base}/projects?organizationId={organization_id}");
@@ -92,7 +92,7 @@ pub fn lane_submit_with_target_snapshot(
     target_snapshot: Option<&str>,
 ) -> io::Result<LaneSubmitResult> {
     let base = remote.url.trim_end_matches('/');
-    let token = hub_bearer_token();
+    let token = hub_bearer_token_for(&remote.url)?;
     let body = json!({
         "projectId": project_id,
         "syncRepoId": remote.repo_id,

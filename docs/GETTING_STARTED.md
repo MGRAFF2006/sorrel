@@ -305,10 +305,16 @@ Cookie-authenticated writes require the configured origin. Signing out clears
 the local cookie even when the identity provider is unavailable; in that case
 the UI distinguishes local sign-out from incomplete identity-provider sign-out.
 
-CLI/mobile bearer auth remains available. Automatic CLI login is not yet
-implemented: an operator must supply an appropriately scoped AuthKit access
-token via `SORREL_HUB_TOKEN`. Never paste credentials into chat or command
-arguments. The web host's `/api` URL is also the CLI remote URL.
+Invited users sign the CLI in themselves: `sorrel login https://<hub>/api` prints
+a code and an activation link; approving it in the signed-in browser stores a
+30-day, revocable Hub token for that Hub only (see
+[`sorrel-cli/SYNC.md`](../sorrel-cli/SYNC.md#sign-in-to-a-hosted-hub)). Signing
+in grants no access by itself; Core grants still decide. Users review and
+revoke their CLI tokens on their Hub profile. `SORREL_HUB_TOKEN` still overrides
+stored logins, for example for automation with an AuthKit access token. Never
+paste credentials into chat or command arguments. The web host's `/api` URL is
+also the CLI remote URL. Pending CLI login codes, like pending browser logins,
+belong to one API instance and expire after ten minutes.
 
 The overlay builds local `sorrel-hub:pilot` and `sorrel-hub-web:pilot` images from
 the checkout. Record its Git revision with deployment/backups. Pending login
@@ -437,6 +443,10 @@ sorrel init
 sorrel remote add origin http://127.0.0.1:3000 --repo-id <repoId-from-source>
 sorrel pull origin   # downloads objects and restores the working tree
 ```
+
+For a Hub with browser sign-in, run `sorrel login <hub-url>` first;
+`sorrel auth status` shows where you are signed in and `sorrel logout` revokes
+the token.
 
 The alpha Hub has no production authentication. Do not expose it to an
 untrusted network. See [`SECURITY.md`](../SECURITY.md).
