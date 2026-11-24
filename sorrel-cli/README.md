@@ -160,7 +160,8 @@ behavior has not been verified.
   `--continue` / `--abort`. Conflicted merges apply clean changes alongside
   conflict markers; continuing preserves those changes, and aborting restores
   the original tracked files and removes paths the merge added, while keeping
-  files you created during resolution. Incoming tracked files remain included even when the
+  files you created during resolution (if HEAD moved since the merge started,
+  abort only clears the pending merge). Incoming tracked files remain included even when the
   receiving lane's ignore rules exclude them.
 - Git bridge: history `git import`, `git export`, and bidirectional,
   fast-forward-oriented `git sync` for colocated or separate mirrors. See

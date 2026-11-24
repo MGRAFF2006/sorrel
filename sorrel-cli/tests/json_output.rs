@@ -1301,12 +1301,13 @@ fn merge_abort_keeps_files_created_while_resolving() {
 }
 
 #[test]
-fn merge_abort_rebuilds_tentative_tree_for_records_without_one() {
+fn merge_abort_keeps_and_reports_incoming_paths_for_records_without_tentative_snapshot() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     conflicted_merge_adding_incoming(root);
-    // Records written before `workingSnapshot` existed still had the clean
-    // incoming changes applied to the working tree.
+    // Records written by older CLIs have no `workingSnapshot`, and some of
+    // those CLIs never applied clean incoming files, so a file at an incoming
+    // path may be the user's own work.
     let state_path = root.join(".sorrel/MERGE_STATE");
     let mut state: Value = serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
     state
@@ -1315,19 +1316,23 @@ fn merge_abort_rebuilds_tentative_tree_for_records_without_one() {
         .remove("workingSnapshot")
         .unwrap();
     std::fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
-    std::fs::write(root.join("notes.txt"), b"keep\n").unwrap();
+    std::fs::write(root.join("incoming.txt"), b"my draft\n").unwrap();
 
-    command_json(root, &["merge", "--abort", "--json"]);
+    let aborted = command_json(root, &["merge", "--abort", "--json"]);
 
+    assert_eq!(aborted["workingTree"], "restored");
+    assert_eq!(aborted["leftInPlace"], json!(["incoming.txt"]));
     assert_eq!(std::fs::read(root.join("a.txt")).unwrap(), b"ours\n");
-    assert!(!root.join("incoming.txt").exists());
-    assert_eq!(std::fs::read(root.join("notes.txt")).unwrap(), b"keep\n");
+    assert_eq!(
+        std::fs::read(root.join("incoming.txt")).unwrap(),
+        b"my draft\n"
+    );
     assert!(!state_path.exists());
 }
 
 #[test]
 fn merge_abort_refuses_unreadable_state_and_keeps_it() {
-    let corruptions: [fn(&mut Value) -> Vec<u8>; 3] = [
+    let corruptions: [fn(&mut Value) -> Vec<u8>; 5] = [
         |_| b"{\"mergeResult\": \"".to_vec(),
         |state| {
             state["workingSnapshot"] = json!("not-a-snapshot-id");
@@ -1335,6 +1340,15 @@ fn merge_abort_refuses_unreadable_state_and_keeps_it() {
         },
         |state| {
             state.as_object_mut().unwrap().remove("mergeResult");
+            serde_json::to_vec(state).unwrap()
+        },
+        // Valid ids that point at the wrong objects.
+        |state| {
+            state["workingSnapshot"] = state["oursSnapshot"].clone();
+            serde_json::to_vec(state).unwrap()
+        },
+        |state| {
+            state["mergeResult"] = state["oursSnapshot"].clone();
             serde_json::to_vec(state).unwrap()
         },
     ];
@@ -1383,7 +1397,7 @@ fn merge_abort_refuses_to_delete_a_protected_provider_file() {
 }
 
 #[test]
-fn merge_abort_refuses_after_head_moved_to_another_lane() {
+fn merge_abort_only_clears_state_after_head_moved_to_another_lane() {
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     let feature = conflicted_merge_adding_incoming(root);
@@ -1394,14 +1408,38 @@ fn merge_abort_refuses_after_head_moved_to_another_lane() {
     command_json(root, &["lane", "switch", &feature, "--json"]);
     std::fs::write(root.join("incoming.txt"), b"new work on feature\n").unwrap();
 
-    let stderr = failed_abort_stderr(root);
-    assert!(stderr.contains("no longer matches"), "{stderr}");
+    let aborted = command_json(root, &["merge", "--abort", "--json"]);
 
+    assert_eq!(aborted["workingTree"], "unchanged");
     assert_eq!(
         std::fs::read(root.join("incoming.txt")).unwrap(),
         b"new work on feature\n"
     );
-    assert!(root.join(".sorrel/MERGE_STATE").is_file());
+    assert_eq!(std::fs::read(root.join("a.txt")).unwrap(), b"theirs\n");
+    assert!(!root.join(".sorrel/MERGE_STATE").exists());
+}
+
+#[test]
+fn merge_abort_keeps_a_resolution_recorded_during_the_merge() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    conflicted_merge_adding_incoming(root);
+    std::fs::write(root.join("a.txt"), b"resolved\n").unwrap();
+    // Older CLIs let a plain `change create` record during a pending merge,
+    // which moves HEAD and leaves MERGE_STATE behind.
+    command_json(
+        root,
+        &["change", "create", "-m", "record resolution", "--json"],
+    );
+
+    let aborted = command_json(root, &["merge", "--abort", "--json"]);
+
+    assert_eq!(aborted["workingTree"], "unchanged");
+    assert_eq!(std::fs::read(root.join("a.txt")).unwrap(), b"resolved\n");
+    assert!(root.join("incoming.txt").is_file());
+    let status = command_json(root, &["status", "--json"]);
+    assert_eq!(status["status"], "clean");
+    assert_eq!(status["worktree"]["mergeInProgress"], false);
 }
 
 #[test]
