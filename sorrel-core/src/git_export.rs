@@ -314,18 +314,13 @@ fn update_branch(
     // Point HEAD at the branch when this is a fresh repo with no HEAD target yet.
     if head_was_unborn {
         repo.set_head(&refname)?;
-        // Write only the files that do not exist yet. Existing paths already
-        // hold the exported bytes; leaving them alone keeps checkout filters
-        // (for example autocrlf) and mode changes from rewriting them, and
-        // limiting the checkout to these paths keeps everything else intact.
+        // Write only the files that do not exist yet, with the exported bytes.
+        // Existing paths already hold those bytes; leaving them alone keeps
+        // checkout filters (for example autocrlf) and mode changes from
+        // rewriting them, and nothing outside the exported tree is touched.
         if let Some(missing) = bootstrap_missing {
-            if !missing.is_empty() {
-                let mut checkout = git2::build::CheckoutBuilder::new();
-                checkout.force().disable_pathspec_match(true);
-                for path in &missing {
-                    checkout.path(path);
-                }
-                repo.checkout_tree(commit.as_object(), Some(&mut checkout))?;
+            for file in &missing {
+                write_missing_file(repo, file)?;
             }
             // Align the index with the checked-out tree; otherwise a fresh
             // colocated repo is left with an empty index and the next `git
@@ -344,7 +339,36 @@ struct CheckoutPlan {
     /// Existing paths whose contents differ from the commit.
     conflicts: Vec<String>,
     /// Files in the commit that do not exist in the working tree yet.
-    missing: Vec<String>,
+    missing: Vec<MissingFile>,
+}
+
+/// An exported file to create during the first checkout.
+struct MissingFile {
+    path: PathBuf,
+    blob: git2::Oid,
+    executable: bool,
+}
+
+/// Creates `file` with its exact blob bytes. `create_new` refuses anything
+/// that appeared at the path after planning instead of overwriting it.
+fn write_missing_file(repo: &git2::Repository, file: &MissingFile) -> GitExportResult<()> {
+    let io_error = |error: io::Error| -> GitExportError {
+        git2::Error::from_str(&format!("{}: {error}", file.path.display())).into()
+    };
+    if let Some(parent) = file.path.parent() {
+        fs::create_dir_all(parent).map_err(io_error)?;
+    }
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Like Git, request 0777/0666 and let the umask narrow it.
+        options.mode(if file.executable { 0o777 } else { 0o666 });
+    }
+    let blob = repo.find_blob(file.blob)?;
+    let mut handle = options.open(&file.path).map_err(io_error)?;
+    io::Write::write_all(&mut handle, blob.content()).map_err(io_error)
 }
 
 /// Compares `tree` with the working tree under `dir`. A file with other
@@ -377,7 +401,11 @@ fn plan_bootstrap_checkout(
                 let subtree = repo.find_tree(entry.id())?;
                 plan_bootstrap_checkout(repo, &subtree, &path, &format!("{display}/"), plan)?;
             }
-            (Some(git2::ObjectType::Blob), None) => plan.missing.push(display),
+            (Some(git2::ObjectType::Blob), None) => plan.missing.push(MissingFile {
+                path,
+                blob: entry.id(),
+                executable: entry.filemode() == 0o100755,
+            }),
             (Some(git2::ObjectType::Blob), Some(metadata))
                 if metadata.is_file()
                     && git2::Oid::hash_file(git2::ObjectType::Blob, &path)? == entry.id() => {}
@@ -766,6 +794,64 @@ mod tests {
             dest.path().join("new.txt").is_file(),
             "missing files are created"
         );
+    }
+
+    #[test]
+    fn first_checkout_creates_missing_files_with_literal_names() {
+        // Each name is exported alone, so it is the only file to create.
+        for name in [
+            "a\\b",
+            "star*",
+            "[x]",
+            "with space",
+            "-dash",
+            "nested/ä.txt",
+        ] {
+            let store = InMemoryObjectStore::new();
+            let tip = snapshot_of_files(&store, &[(name, b"content\n")]);
+            let dest = TempDir::new().unwrap();
+            git2::Repository::init(dest.path()).unwrap();
+
+            git_export(&store, GitExportOptions::new(dest.path(), tip)).expect("export");
+
+            assert_eq!(
+                std::fs::read(dest.path().join(name)).unwrap(),
+                b"content\n",
+                "{name} must be written"
+            );
+            let repo = git2::Repository::open(dest.path()).unwrap();
+            let statuses = repo.statuses(None).unwrap();
+            let dirty: Vec<_> = statuses
+                .iter()
+                .filter_map(|s| s.path().ok().map(str::to_owned))
+                .collect();
+            assert!(dirty.is_empty(), "{name}: working tree differs: {dirty:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn first_checkout_creates_executable_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let store = InMemoryObjectStore::new();
+        let source = TempDir::new().unwrap();
+        let script = source.path().join("run.sh");
+        std::fs::write(&script, b"#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let tree = crate::write_tree_from_directory(&store, source.path()).unwrap();
+        let tip = write_snapshot(&store, tree.id, SnapshotOptions::new("repo_export"))
+            .unwrap()
+            .id;
+        let dest = TempDir::new().unwrap();
+        git2::Repository::init(dest.path()).unwrap();
+
+        git_export(&store, GitExportOptions::new(dest.path(), tip)).expect("export");
+
+        let mode = std::fs::metadata(dest.path().join("run.sh"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_ne!(mode & 0o100, 0, "owner execute bit is set: {mode:o}");
     }
 
     #[test]

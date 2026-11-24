@@ -92,8 +92,9 @@ exported contents: otherwise the export stops before creating the branch and
 lists those paths, so unrecorded edits in a colocated checkout or files in a
 fresh mirror are never overwritten. Record, move or remove them, then export
 again. The export also stops if the Git index already has staged entries.
-Only missing files are written; existing identical files and files outside the
-exported tree are left untouched.
+Only missing files are written, with the exported bytes and no Git checkout
+filters; existing identical files and files outside the exported tree are left
+untouched.
 
 ## Colocated sync
 
