@@ -16,11 +16,11 @@ use sorrel_core::{
     is_descendant, materialize_workspace_snapshot_with_registry, merge_base,
     merge_snapshots_with_worktree, parse_object_id_hex, read_conflict, read_merge_result,
     read_snapshot, read_snapshot_files, read_stack, read_tree, restore_snapshot_to_directory,
-    snapshot_diff, validate_snapshot_restore, write_snapshot, write_tree, ChangeOptions,
-    ConflictType, EntryMode, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
-    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
-    ObjectStoreError, ObjectStoreResult, PathChangeKind, Principal, SnapshotOptions, StackOptions,
-    StatCache, Visibility,
+    snapshot_diff, validate_snapshot_restore, validate_workspace_snapshot_secrets, write_snapshot,
+    write_tree, ChangeOptions, ConflictType, EntryMode, FileObjectStore, GitExportOptions,
+    GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions, ObjectId,
+    ObjectKind, ObjectRef, ObjectStore, ObjectStoreError, ObjectStoreResult, PathChangeKind,
+    Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, workspace, CommandOutput};
@@ -2789,12 +2789,55 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
     let head_snapshot =
         head_snapshot_id(&head)?.ok_or_else(|| io::Error::other("HEAD has no base snapshot"))?;
 
-    // Conflicted merges leave marker-annotated files in the worktree but do not
-    // advance HEAD. Restore HEAD's snapshot and drop MERGE_STATE.
-    let dirty_snapshot = materialize_worktree(&store, &repo_id, None, &[], None)?;
-    restore_worktree_to_snapshot(&store, &dirty_snapshot, &head_snapshot)?;
+    let (merge_snapshot, left_in_place) = match plan_merge_abort(&store, &head_snapshot)? {
+        AbortPlan::HeadMoved { ours } => {
+            // Recording or switching lanes moved HEAD after the merge started;
+            // the working tree now belongs to that HEAD, so only drop the
+            // stale merge state.
+            repo::clear_merge_state()?;
+            return Ok(CommandOutput {
+                json: json!({
+                    "command": "merge",
+                    "mocked": false,
+                    "status": "aborted",
+                    "repoId": repo_id,
+                    "headSnapshot": { "kind": "Snapshot", "id": head_snapshot.to_hex() },
+                    "workingTree": "unchanged",
+                    "leftInPlace": [],
+                }),
+                human: format!(
+                    "Merge state cleared; HEAD ({}) moved since the merge started from {}, so the working tree was left unchanged",
+                    &head_snapshot.to_hex()[..12],
+                    &ours.to_hex()[..12]
+                ),
+            });
+        }
+        AbortPlan::Restore {
+            from,
+            left_in_place,
+        } => (from, left_in_place),
+    };
+    // Removing merge-added paths must not delete a file that is now a
+    // protected secret provider.
+    to_io(validate_workspace_snapshot_secrets(
+        &store,
+        Path::new("."),
+        &merge_snapshot,
+        &repo::registry_dir(repo::SECRETS_DIR),
+    ))?;
+    restore_worktree_to_snapshot(&store, &merge_snapshot, &head_snapshot)?;
     repo::clear_merge_state()?;
 
+    let mut human = format!(
+        "Merge aborted; restored working tree to {}",
+        &head_snapshot.to_hex()[..12]
+    );
+    if !left_in_place.is_empty() {
+        human.push_str(&format!(
+            "; this merge was started by an older Sorrel that did not record which files it wrote, so these incoming paths were left in place for review: {}",
+            left_in_place.join(", ")
+        ));
+    }
     Ok(CommandOutput {
         json: json!({
             "command": "merge",
@@ -2802,11 +2845,92 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
             "status": "aborted",
             "repoId": repo_id,
             "headSnapshot": { "kind": "Snapshot", "id": head_snapshot.to_hex() },
+            "workingTree": "restored",
+            "leftInPlace": left_in_place,
         }),
-        human: format!(
-            "Merge aborted; restored working tree to {}",
-            &head_snapshot.to_hex()[..12]
-        ),
+        human,
+    })
+}
+
+/// What `merge --abort` may safely undo.
+enum AbortPlan {
+    /// HEAD no longer matches the snapshot the merge started from.
+    HeadMoved { ours: ObjectId },
+    /// Restore the working tree from `from` to HEAD. `left_in_place` lists
+    /// incoming paths that may have been written but are not removed.
+    Restore {
+        from: ObjectId,
+        left_in_place: Vec<String>,
+    },
+}
+
+/// Reads MERGE_STATE and checks it against its stored objects. A conflicted
+/// merge applies its tentative snapshot and writes conflict markers without
+/// advancing HEAD; restoring from that snapshot to HEAD undoes exactly that,
+/// removing paths the merge added while files it never wrote (for example
+/// notes created while resolving) stay. Unreadable or inconsistent records
+/// are refused with MERGE_STATE and the working tree unchanged.
+fn plan_merge_abort(store: &FileObjectStore, head_snapshot: &ObjectId) -> io::Result<AbortPlan> {
+    let refuse = |detail: String| {
+        io::Error::other(format!(
+            "cannot abort: `.sorrel/MERGE_STATE` {detail}; the working tree and merge state were left unchanged"
+        ))
+    };
+    let state = repo::load_merge_state_record()
+        .map_err(|error| refuse(format!("is unreadable ({error})")))?
+        .ok_or_else(|| refuse("is unreadable (missing mergeResult)".to_owned()))?;
+    let parse = |field: &str, value: &str| {
+        value
+            .parse::<ObjectId>()
+            .map_err(|error| refuse(format!("is unreadable (invalid {field}: {error})")))
+    };
+    let ours = parse("oursSnapshot", &state.ours_snapshot)?;
+    if ours != *head_snapshot {
+        return Ok(AbortPlan::HeadMoved { ours });
+    }
+    let base = parse("baseSnapshot", &state.base_snapshot)?;
+    let theirs = parse("theirsSnapshot", &state.theirs_snapshot)?;
+    let result_id = parse("mergeResult", &state.merge_result)?;
+    let result = read_merge_result(store, &result_id)
+        .map_err(|error| refuse(format!("names an unreadable merge result ({error})")))?;
+    if (
+        result.base_snapshot,
+        result.ours_snapshot,
+        result.theirs_snapshot,
+    ) != (base, ours, theirs)
+    {
+        return Err(refuse("does not match its stored merge result".to_owned()));
+    }
+
+    let Some(working) = &state.working_snapshot else {
+        // Older CLIs did not record the tentative snapshot, and some of them
+        // did not apply clean incoming files either. Restore HEAD's tracked
+        // files only and report incoming paths instead of deleting them.
+        let head_files = to_io(read_snapshot_files(store, head_snapshot))?;
+        let left_in_place = to_io(read_snapshot_files(store, &theirs))?
+            .into_keys()
+            .filter(|path| !head_files.contains_key(path) && fs::symlink_metadata(path).is_ok())
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
+        return Ok(AbortPlan::Restore {
+            from: *head_snapshot,
+            left_in_place,
+        });
+    };
+    let working = parse("workingSnapshot", working)?;
+    let parents: Vec<ObjectId> = to_io(read_snapshot(store, &working))?
+        .parents
+        .iter()
+        .map(|parent| parent.id)
+        .collect();
+    if parents != [ours, theirs] {
+        return Err(refuse(
+            "names a tentative snapshot that was not produced by this merge".to_owned(),
+        ));
+    }
+    Ok(AbortPlan::Restore {
+        from: working,
+        left_in_place: Vec::new(),
     })
 }
 
