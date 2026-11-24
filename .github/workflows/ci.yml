@@ -91,6 +91,13 @@ jobs:
       - name: Module suites
         id: modules
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        env:
+          # Offline, expo-doctor checks dependency versions against the version
+          # map bundled with the locked `expo` package instead of the newest
+          # published SDK patches, so upstream releases cannot fail this gate
+          # while real SDK mismatches still do. The weekly Expo SDK drift
+          # workflow runs the online check.
+          EXPO_OFFLINE: "1"
         run: npm run test:modules
       - name: Root E2E
         id: e2e
