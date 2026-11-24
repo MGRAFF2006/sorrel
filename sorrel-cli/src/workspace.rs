@@ -328,7 +328,7 @@ fn metadata_files(root: &Path, relative: &Path, out: &mut Vec<PathBuf>) -> io::R
     Ok(())
 }
 fn preflight(common: &Path) -> io::Result<()> {
-    if repo::merge_state_path().exists() {
+    if repo::merge_in_progress() {
         return Err(invalid("finish or abort the pending merge before enabling"));
     }
     if common.join("metadata-transaction.json").exists() {

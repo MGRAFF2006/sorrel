@@ -773,7 +773,7 @@ fn operation_log_output() -> io::Result<CommandOutput> {
 }
 
 fn require_clean_recovery(context: &RepoContext) -> io::Result<ObjectId> {
-    if repo::merge_state_path().exists() {
+    if repo::merge_in_progress() {
         return Err(io::Error::other(
             "pending merge; continue or abort it before checkpoint/recovery commands",
         ));
@@ -884,6 +884,9 @@ fn init_output() -> io::Result<CommandOutput> {
             human: format!("Sorrel repository {repo_id} already initialized in .sorrel"),
         });
     }
+    // A leftover MERGE_STATE without a manifest belongs to an unknown merge;
+    // never publish a fresh HEAD underneath it.
+    refuse_during_pending_merge("initializing")?;
 
     fs::create_dir_all(repo::sorrel_dir().join(repo::SLICES_DIR))?;
     fs::create_dir_all(repo::registry_dir(repo::LANES_DIR))?;
@@ -1104,7 +1107,7 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
             Some(&mut stat_cache),
         )?
     } else {
-        if repo::merge_state_path().exists() {
+        if repo::merge_in_progress() {
             return Err(io::Error::other(
                 "cannot selectively record during a pending merge; use `sorrel merge --continue`",
             ));
@@ -1993,6 +1996,7 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
     };
 
     let colocated = fs::canonicalize(&git_path)? == fs::canonicalize(".")?;
+    refuse_during_pending_merge("importing from Git")?;
 
     let created_workspace = if !repo::is_initialized() {
         let _ = init_output()?;
@@ -2007,7 +2011,6 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
         head,
         ..
     } = open_repo()?;
-    refuse_during_pending_merge("importing from Git")?;
 
     if !args.force {
         if repo::git_map_path().is_file() {
@@ -2150,6 +2153,9 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
         head,
         ..
     } = open_repo()?;
+    // A first export into this checkout's own Git repository writes working
+    // files, which would mix into a partial conflict resolution.
+    refuse_during_pending_merge("exporting to Git")?;
 
     let tip = if let Some(hex) = args.snapshot.as_deref() {
         to_io(parse_object_id_hex(hex))?

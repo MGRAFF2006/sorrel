@@ -944,10 +944,11 @@ pub fn merge_state_path() -> PathBuf {
     sorrel_dir().join(MERGE_STATE_FILE)
 }
 
-/// Returns true when a conflicted merge is in progress.
+/// Returns true when a conflicted merge is in progress. Any entry at the
+/// MERGE_STATE path counts, so a damaged one cannot be bypassed.
 #[must_use]
 pub fn merge_in_progress() -> bool {
-    merge_state_path().is_file()
+    fs::symlink_metadata(merge_state_path()).is_ok()
 }
 
 /// On-disk record for an in-progress conflicted merge.

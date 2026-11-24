@@ -236,6 +236,22 @@ fn head_moving_commands_refuse_while_a_merge_is_pending() {
         .as_str()
         .unwrap()
         .to_owned();
+    // Recording a partial resolution with markers must not advance HEAD.
+    let markers = fs::read(root.join("a.txt")).unwrap();
+    let stderr = blocked(root, &["change", "create", "-m", "partial resolution"]);
+    assert!(stderr.contains("a merge is in progress"), "{stderr}");
+    assert_eq!(fs::read(root.join("a.txt")).unwrap(), markers);
+    // A first export into this checkout's Git repository would write files.
+    std::process::Command::new("git")
+        .args(["init", "-q", "."])
+        .current_dir(root)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .status()
+        .unwrap();
+    let stderr = blocked(root, &["git", "export", "."]);
+    assert!(stderr.contains("a merge is in progress"), "{stderr}");
+    assert!(!root.join(".git/refs/heads/main").exists());
+
     // A tree that matches HEAD again used to let `lane switch` move HEAD to
     // another lane, leaving MERGE_STATE for a merge that no longer applies.
     fs::write(root.join("a.txt"), b"ours\n").unwrap();
@@ -254,4 +270,33 @@ fn head_moving_commands_refuse_while_a_merge_is_pending() {
     assert_eq!(fs::read(root.join("a.txt")).unwrap(), b"ours\n");
     command(root, &["merge", "--abort"]);
     command(root, &["lane", "switch", &incoming]);
+}
+
+#[test]
+fn any_merge_state_entry_blocks_head_writes() {
+    // A damaged MERGE_STATE that is a directory still counts as pending.
+    let repo = TempDir::new().unwrap();
+    command(repo.path(), &["init"]);
+    fs::write(repo.path().join("a.txt"), b"a\n").unwrap();
+    fs::create_dir(repo.path().join(".sorrel/MERGE_STATE")).unwrap();
+    let head = fs::read(repo.path().join(".sorrel/HEAD")).unwrap();
+    let output = run(repo.path(), &["change", "create", "-m", "x"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("a merge is in progress"));
+    assert_eq!(fs::read(repo.path().join(".sorrel/HEAD")).unwrap(), head);
+
+    // A leftover MERGE_STATE without a workspace manifest: neither `init` nor
+    // `git import` may publish a HEAD under it.
+    for args in [&["init"][..], &["git", "import", "."][..]] {
+        let orphan = TempDir::new().unwrap();
+        fs::create_dir(orphan.path().join(".sorrel")).unwrap();
+        fs::write(orphan.path().join(".sorrel/MERGE_STATE"), b"{}").unwrap();
+        let output = run(orphan.path(), args);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("a merge is in progress"),
+            "{args:?}"
+        );
+        assert!(!orphan.path().join(".sorrel/HEAD").exists(), "{args:?}");
+    }
 }
