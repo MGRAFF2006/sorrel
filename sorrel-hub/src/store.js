@@ -39,6 +39,8 @@ export class InMemoryStore {
     this.reviewComments = new Map();
     this.workflowRuns = new Map();
     this.policies = new Map();
+    // Hub-issued CLI credentials (hashed secrets only); see auth/cli-tokens.js.
+    this.cliCredentials = new Map();
     this.sync = options.sync ?? createRepoSyncStore();
   }
 

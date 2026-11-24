@@ -4,6 +4,7 @@ import { assertCoreAccess, assertCollectionRead, assertCollectionWrite, assertPr
 import { createProposal, updateProposal } from '../proposal-mutations.js';
 import { browseSnapshotChanges } from '../sync-browser.js';
 import { StoreNotFoundError } from '../store.js';
+import { refuseCliCredential } from '../auth/cli-tokens.js';
 
 const NORMALIZE = { organizations: createOrganization, repositories: createRepository,
   proposals: normalizeProposal, 'review-comments': createReviewComment,
@@ -95,6 +96,8 @@ export async function handleAdminRoute(request, response, context) {
   }
 
   if (collectionName === 'proposals' && itemId && ['integration', 'integration-changes', 'approvals', 'check-reports', 'integrate'].includes(subResource)) {
+    // Core evaluates these mutations directly; keep CLI tokens out of them in v1.
+    if (request.method !== 'GET') refuseCliCredential(context.session, 'CLI tokens cannot approve, report checks for, or integrate proposals; use the Hub web UI');
     return await context.integration.handle(request, response, context, itemId, subResource);
   }
 

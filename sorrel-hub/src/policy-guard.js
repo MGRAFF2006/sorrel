@@ -1,3 +1,4 @@
+import { assertCredentialScope } from './auth/cli-tokens.js';
 import { HttpError } from './http.js';
 import { POLICY_ACTION_GRANT, PolicyDeniedError, PolicyEvaluationError, evaluateWithTrustedGrants } from './core-policy.js';
 
@@ -63,6 +64,8 @@ export async function assertPrivilegedAdminAccess(request, body, collectionName,
     return undefined;
   }
 
+  // Admin actions are outside every CLI token's scope, even with a grant.
+  assertCredentialScope(context.session, POLICY_ACTION_GRANT);
   const actingPrincipal = resolveActingPrincipal(request, context);
   const grantRefs = body.grantRefs ?? [];
   const resource = collectionName === 'repositories'
@@ -93,6 +96,8 @@ export async function assertPrivilegedAdminAccess(request, body, collectionName,
 
 /** Evaluate exact action/resource pairs once per request; never cache across sessions. */
 export async function assertCoreAccess(context, action, resource) {
+  // Credential scopes only narrow access; Core grants still decide below.
+  assertCredentialScope(context.session, action);
   const key = JSON.stringify([action, resource]);
   context.authorization ??= new Map();
   if (!context.authorization.has(key)) {

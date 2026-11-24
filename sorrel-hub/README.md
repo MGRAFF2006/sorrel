@@ -168,6 +168,50 @@ Pending browser logins are bounded to 1,000 transactions for ten minutes in one
 API instance; a restart requires starting login again. Multiple API instances
 require a shared transaction store before hosting this flow.
 
+### CLI tokens
+
+Hub issues its own opaque, revocable CLI credentials of the form
+`srl_cli_<id>_<secret>`. A bearer with that prefix is resolved only through the
+Hub token store; it never falls through to JWT verification, browser cookies or
+local-demo identities. Unknown, malformed, expired and revoked tokens return
+`401 authentication_required`.
+
+- Records live in the metadata store (`cliCredentials/<id>.json`) and survive
+  restarts and backups. They hold a SHA-256 hash of the secret (compared in
+  constant time), the principal copied from the verified session that approved
+  the token, a label, scopes, `createdAt`, `expiresAt`, `lastUsedAt` (written at
+  most hourly) and `revokedAt`. The plaintext secret is shown once and never
+  stored or logged.
+- Tokens expire 30 days after issue, with no refresh.
+  `SORREL_HUB_CLI_TOKEN_TTL_DAYS` (1–90) changes the lifetime for new tokens.
+  Each principal can hold at most 50 active tokens.
+- A token authenticates its principal; it never grants access. Core grants stay
+  authoritative, so a valid token without a matching grant gets `403
+  policy_denied`. Token scopes can only narrow access: v1 tokens may attempt
+  repository read/write, project read/create, proposal read/write, review
+  comment read/write and read-only organization, policy and workflow-run
+  actions. `policy.grant` (policy and repository administration),
+  `org.write`, `project.write`, `proposal.review`, `workflow.run.write` and
+  proposal approval, check-report and integration mutations are refused with
+  `403 credential_scope_denied`, even when a grant exists.
+- Audit lines (`[sorrel-hub] audit {"event":"cli_token.…"}`) record issue,
+  revoke and first use with the token id and principal, never the secret.
+
+Owners manage their tokens with a browser or identity-provider session:
+
+| Route | Behavior |
+| --- | --- |
+| `GET /auth/cli/tokens` | The caller's tokens, newest first, with `status` (`active`, `expired`, `revoked`); no hashes. |
+| `DELETE /auth/cli/tokens/:id` | Revoke one of the caller's tokens; other principals' tokens are `404`. |
+| `DELETE /auth/cli/tokens` | Revoke all of the caller's active tokens; returns `{ revoked }`. |
+| `DELETE /auth/cli/tokens/current` | Revoke the CLI token that authenticated this request (`sorrel logout`). |
+
+A CLI-token session may only call `DELETE /auth/cli/tokens/current`; listing
+and revoking other tokens is refused with `403 credential_scope_denied`.
+`GET /session` adds a `credential` object (`kind`, `id`, `label`, `scopes`,
+`expiresAt`) for CLI-token sessions. All `/auth/cli/*` responses are
+`no-store`, and cookie-authenticated revocation requires the configured origin.
+
 Every collaboration, metadata and sync read or write requires an authenticated
 session and a native Core allow decision. Without one, private endpoints return
 `401 authentication_required`. Verified AuthAdapter identity wins over acting
