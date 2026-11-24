@@ -6,7 +6,6 @@ All notable changes to `sorrel-core` are documented in this file.
 
 ### Fixed
 
-- Preserve existing read/write permissions and the umask for new files in `restore_snapshot_to_directory`; only the execute bits follow the snapshot, and set-id bits are cleared.
 - Add shared workspace snapshot selection with nested Git/Sorrel ignore rules, protected dotenv-provider files, and tracked-file preservation.
 
 - Reject malformed Unicode and non-hexadecimal object IDs without panicking at text boundaries.

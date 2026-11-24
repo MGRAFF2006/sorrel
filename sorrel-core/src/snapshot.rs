@@ -1538,6 +1538,8 @@ mod tests {
             (0o644, 0o750, 0o640),
             (0o755, 0o620, 0o720),
             (0o644, 0o2750, 0o640),
+            // The sticky bit survives a plain write, so this proves Sorrel clears it.
+            (0o755, 0o1600, 0o700),
         ] {
             let source = tempfile::tempdir().unwrap();
             write_file(source.path().join("file"), b"new");

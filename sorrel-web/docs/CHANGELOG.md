@@ -13,9 +13,6 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Keep private file permissions when checkout, pull, or restore rewrites a
-  tracked file; new files follow the umask and executable snapshots add execute
-  only where the file is readable.
 - Keep slice generation inside the project root when following symlinks, and
   accept valid project paths whose names begin with `..`.
 
