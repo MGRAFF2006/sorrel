@@ -773,7 +773,7 @@ fn operation_log_output() -> io::Result<CommandOutput> {
 }
 
 fn require_clean_recovery(context: &RepoContext) -> io::Result<ObjectId> {
-    if repo::merge_state_path().exists() {
+    if repo::merge_in_progress() {
         return Err(io::Error::other(
             "pending merge; continue or abort it before checkpoint/recovery commands",
         ));
@@ -884,6 +884,9 @@ fn init_output() -> io::Result<CommandOutput> {
             human: format!("Sorrel repository {repo_id} already initialized in .sorrel"),
         });
     }
+    // A leftover MERGE_STATE without a manifest belongs to an unknown merge;
+    // never publish a fresh HEAD underneath it.
+    refuse_during_pending_merge("initializing")?;
 
     fs::create_dir_all(repo::sorrel_dir().join(repo::SLICES_DIR))?;
     fs::create_dir_all(repo::registry_dir(repo::LANES_DIR))?;
@@ -1061,6 +1064,18 @@ fn status_output() -> io::Result<CommandOutput> {
     })
 }
 
+/// Refuses commands that would move HEAD or record outside the merge flow
+/// while a conflicted merge is pending; its MERGE_STATE would otherwise
+/// describe a different HEAD than the one `merge --continue/--abort` acts on.
+fn refuse_during_pending_merge(action: &str) -> io::Result<()> {
+    if repo::merge_in_progress() {
+        return Err(io::Error::other(format!(
+            "a merge is in progress; finish it with `sorrel merge --continue` or `sorrel merge --abort` before {action}"
+        )));
+    }
+    Ok(())
+}
+
 fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
     let Some(manifest) = repo::load_manifest()? else {
         return Err(io::Error::other(
@@ -1079,6 +1094,9 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
 
     let store = to_io(FileObjectStore::new(repo::object_store_root()))?;
 
+    if args.paths.is_empty() {
+        refuse_during_pending_merge("recording a change")?;
+    }
     let mut stat_cache = repo::load_stat_cache();
     let new_snapshot = if args.paths.is_empty() {
         materialize_worktree(
@@ -1089,7 +1107,7 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
             Some(&mut stat_cache),
         )?
     } else {
-        if repo::merge_state_path().exists() {
+        if repo::merge_in_progress() {
             return Err(io::Error::other(
                 "cannot selectively record during a pending merge; use `sorrel merge --continue`",
             ));
@@ -1829,6 +1847,7 @@ fn lane_switch_output(args: LaneSwitchArgs) -> io::Result<CommandOutput> {
         store,
     } = open_repo()?;
     workspace::check_head_lane(&args.lane_id)?;
+    refuse_during_pending_merge("switching lanes")?;
     repo::ensure_heads_migrated()?;
 
     if !repo::lane_exists(&args.lane_id) {
@@ -1977,6 +1996,7 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
     };
 
     let colocated = fs::canonicalize(&git_path)? == fs::canonicalize(".")?;
+    refuse_during_pending_merge("importing from Git")?;
 
     let created_workspace = if !repo::is_initialized() {
         let _ = init_output()?;
@@ -2133,6 +2153,9 @@ fn git_export_output(args: GitExportArgs) -> io::Result<CommandOutput> {
         head,
         ..
     } = open_repo()?;
+    // A first export into this checkout's own Git repository writes working
+    // files, which would mix into a partial conflict resolution.
+    refuse_during_pending_merge("exporting to Git")?;
 
     let tip = if let Some(hex) = args.snapshot.as_deref() {
         to_io(parse_object_id_hex(hex))?
@@ -2251,6 +2274,7 @@ fn git_sync_output(args: GitSyncArgs) -> io::Result<CommandOutput> {
         repo_id,
         head,
     } = open_repo()?;
+    refuse_during_pending_merge("syncing with Git")?;
     repo::ensure_heads_migrated()?;
     let head_id = head_snapshot_id(&head)?;
 
@@ -2785,6 +2809,7 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
             "no merge in progress (`.sorrel/MERGE_STATE` not found)",
         ));
     }
+    require_regular_merge_state()?;
 
     let head_snapshot =
         head_snapshot_id(&head)?.ok_or_else(|| io::Error::other("HEAD has no base snapshot"))?;
@@ -2810,6 +2835,17 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
     })
 }
 
+/// Refuses to act on a MERGE_STATE that is not a regular file: it blocks
+/// other commands as a pending merge, but cannot describe one.
+fn require_regular_merge_state() -> io::Result<()> {
+    if fs::symlink_metadata(repo::merge_state_path())?.is_file() {
+        return Ok(());
+    }
+    Err(io::Error::other(
+        "`.sorrel/MERGE_STATE` is not a regular file; inspect and remove it manually. The working tree was left unchanged",
+    ))
+}
+
 fn merge_continue_output(resolved: &[PathBuf]) -> io::Result<CommandOutput> {
     let RepoContext {
         repo_id,
@@ -2817,6 +2853,9 @@ fn merge_continue_output(resolved: &[PathBuf]) -> io::Result<CommandOutput> {
         store,
     } = open_repo()?;
     repo::ensure_heads_migrated()?;
+    if repo::merge_in_progress() {
+        require_regular_merge_state()?;
+    }
 
     let state = repo::load_merge_state_record()?.ok_or_else(|| {
         io::Error::other("no merge in progress (`.sorrel/MERGE_STATE` not found)")
