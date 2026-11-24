@@ -199,7 +199,7 @@ fn core_agrees_with_policy_change_vectors() {
 
         let mut change = PolicyChange::new(
             format!("change_{id}"),
-            actor.clone(),
+            actor,
             PolicyRoot::new("authority_root_hash_v1", 1),
             PolicyRoot::new("authority_root_hash_v2", 2),
             action,
