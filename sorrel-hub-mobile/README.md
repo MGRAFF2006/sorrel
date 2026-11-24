@@ -50,5 +50,13 @@ npm run check
 
 This typechecks and lints the app, runs pure behavior tests, checks Expo SDK and
 config compatibility, and produces both iOS and Android JavaScript exports.
+
+`expo-doctor` compares installed Expo packages with the latest patch releases of
+the SDK, so a new upstream patch can fail `npm run check` without any local
+change. Required CI sets `EXPO_DOCTOR_SKIP_DEPENDENCY_VERSION_CHECK=1` and
+checks the locked dependencies; the weekly
+[Expo SDK drift](../.github/workflows/expo-drift.yml) workflow reports patch
+drift. To catch up, run `npx expo install --fix` here and open a PR with the
+updated lockfile.
 Store-signed binaries use `eas.json` and require maintainer-owned Expo, Apple,
 and Google credentials.

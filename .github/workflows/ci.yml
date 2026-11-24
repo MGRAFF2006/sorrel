@@ -91,6 +91,12 @@ jobs:
       - name: Module suites
         id: modules
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
+        env:
+          # New Expo SDK patch releases made this gate fail without any code
+          # change. The locked mobile dependencies are still typechecked, linted,
+          # tested and exported here; the weekly Expo SDK drift workflow reports
+          # patch drift without blocking merges.
+          EXPO_DOCTOR_SKIP_DEPENDENCY_VERSION_CHECK: "1"
         run: npm run test:modules
       - name: Root E2E
         id: e2e
