@@ -1061,6 +1061,18 @@ fn status_output() -> io::Result<CommandOutput> {
     })
 }
 
+/// Refuses commands that would move HEAD or record outside the merge flow
+/// while a conflicted merge is pending; its MERGE_STATE would otherwise
+/// describe a different HEAD than the one `merge --continue/--abort` acts on.
+fn refuse_during_pending_merge(action: &str) -> io::Result<()> {
+    if repo::merge_in_progress() {
+        return Err(io::Error::other(format!(
+            "a merge is in progress; finish it with `sorrel merge --continue` or `sorrel merge --abort` before {action}"
+        )));
+    }
+    Ok(())
+}
+
 fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
     let Some(manifest) = repo::load_manifest()? else {
         return Err(io::Error::other(
@@ -1079,6 +1091,9 @@ fn change_create_output(args: ChangeCreateArgs) -> io::Result<CommandOutput> {
 
     let store = to_io(FileObjectStore::new(repo::object_store_root()))?;
 
+    if args.paths.is_empty() {
+        refuse_during_pending_merge("recording a change")?;
+    }
     let mut stat_cache = repo::load_stat_cache();
     let new_snapshot = if args.paths.is_empty() {
         materialize_worktree(
@@ -1829,6 +1844,7 @@ fn lane_switch_output(args: LaneSwitchArgs) -> io::Result<CommandOutput> {
         store,
     } = open_repo()?;
     workspace::check_head_lane(&args.lane_id)?;
+    refuse_during_pending_merge("switching lanes")?;
     repo::ensure_heads_migrated()?;
 
     if !repo::lane_exists(&args.lane_id) {
@@ -1991,6 +2007,7 @@ fn git_import_output(args: GitImportArgs) -> io::Result<CommandOutput> {
         head,
         ..
     } = open_repo()?;
+    refuse_during_pending_merge("importing from Git")?;
 
     if !args.force {
         if repo::git_map_path().is_file() {
@@ -2251,6 +2268,7 @@ fn git_sync_output(args: GitSyncArgs) -> io::Result<CommandOutput> {
         repo_id,
         head,
     } = open_repo()?;
+    refuse_during_pending_merge("syncing with Git")?;
     repo::ensure_heads_migrated()?;
     let head_id = head_snapshot_id(&head)?;
 

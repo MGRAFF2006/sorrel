@@ -222,3 +222,36 @@ fn continuation_rejects_an_unreadable_stored_merge_result() {
             .contains("invalid merge result")
     );
 }
+
+#[test]
+fn head_moving_commands_refuse_while_a_merge_is_pending() {
+    let root = conflicted("text", &["a.txt"]);
+    let root = root.path();
+    let incoming = command(root, &["lane", "list"])["objects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|lane| lane["name"] == "incoming")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // A tree that matches HEAD again used to let `lane switch` move HEAD to
+    // another lane, leaving MERGE_STATE for a merge that no longer applies.
+    fs::write(root.join("a.txt"), b"ours\n").unwrap();
+    for args in [
+        vec!["lane", "switch", incoming.as_str()],
+        vec!["change", "create", "-m", "outside the merge"],
+        vec!["git", "sync"],
+        vec!["git", "import", ".", "--force"],
+    ] {
+        let stderr = blocked(root, &args);
+        assert!(
+            stderr.contains("a merge is in progress"),
+            "{args:?}: {stderr}"
+        );
+    }
+    assert_eq!(fs::read(root.join("a.txt")).unwrap(), b"ours\n");
+    command(root, &["merge", "--abort"]);
+    command(root, &["lane", "switch", &incoming]);
+}
