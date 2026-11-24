@@ -1232,10 +1232,9 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
     assert_eq!(status["headSnapshot"]["id"], main_snapshot);
 }
 
-#[test]
-fn merge_abort_keeps_files_created_while_resolving() {
-    let dir = TempDir::new().unwrap();
-    let root = dir.path();
+/// Leaves `root` in a conflicted merge: `a.txt` conflicts and the incoming
+/// lane cleanly adds `incoming.txt`. Returns the incoming lane id.
+fn conflicted_merge_adding_incoming(root: &Path) -> String {
     command_json(root, &["init", "--json"]);
     std::fs::write(root.join("a.txt"), b"base\n").unwrap();
     command_json(root, &["change", "create", "-m", "base", "--json"]);
@@ -1257,6 +1256,25 @@ fn merge_abort_keeps_files_created_while_resolving() {
         .unwrap();
     assert!(!merge.status.success(), "a.txt must conflict");
     assert!(root.join("incoming.txt").is_file());
+    lane_id
+}
+
+fn failed_abort_stderr(root: &Path) -> String {
+    let output = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .args(["merge", "--abort", "--json"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "abort must refuse");
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn merge_abort_keeps_files_created_while_resolving() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    conflicted_merge_adding_incoming(root);
 
     // Unrecorded work created during resolution belongs to the user, not the merge.
     std::fs::write(root.join("notes.txt"), b"resolution notes\n").unwrap();
@@ -1280,6 +1298,110 @@ fn merge_abort_keeps_files_created_while_resolving() {
     );
     let status = command_json(root, &["status", "--json"]);
     assert_eq!(status["worktree"]["mergeInProgress"], false);
+}
+
+#[test]
+fn merge_abort_rebuilds_tentative_tree_for_records_without_one() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    conflicted_merge_adding_incoming(root);
+    // Records written before `workingSnapshot` existed still had the clean
+    // incoming changes applied to the working tree.
+    let state_path = root.join(".sorrel/MERGE_STATE");
+    let mut state: Value = serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+    state
+        .as_object_mut()
+        .unwrap()
+        .remove("workingSnapshot")
+        .unwrap();
+    std::fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+    std::fs::write(root.join("notes.txt"), b"keep\n").unwrap();
+
+    command_json(root, &["merge", "--abort", "--json"]);
+
+    assert_eq!(std::fs::read(root.join("a.txt")).unwrap(), b"ours\n");
+    assert!(!root.join("incoming.txt").exists());
+    assert_eq!(std::fs::read(root.join("notes.txt")).unwrap(), b"keep\n");
+    assert!(!state_path.exists());
+}
+
+#[test]
+fn merge_abort_refuses_unreadable_state_and_keeps_it() {
+    let corruptions: [fn(&mut Value) -> Vec<u8>; 3] = [
+        |_| b"{\"mergeResult\": \"".to_vec(),
+        |state| {
+            state["workingSnapshot"] = json!("not-a-snapshot-id");
+            serde_json::to_vec(state).unwrap()
+        },
+        |state| {
+            state.as_object_mut().unwrap().remove("mergeResult");
+            serde_json::to_vec(state).unwrap()
+        },
+    ];
+    for corrupt in corruptions {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        conflicted_merge_adding_incoming(root);
+        let state_path = root.join(".sorrel/MERGE_STATE");
+        let mut state: Value =
+            serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+        let corrupted = corrupt(&mut state);
+        std::fs::write(&state_path, &corrupted).unwrap();
+        let markers = std::fs::read(root.join("a.txt")).unwrap();
+
+        let stderr = failed_abort_stderr(root);
+        assert!(stderr.contains("MERGE_STATE"), "{stderr}");
+
+        assert_eq!(std::fs::read(&state_path).unwrap(), corrupted);
+        assert_eq!(std::fs::read(root.join("a.txt")).unwrap(), markers);
+        assert!(root.join("incoming.txt").is_file());
+    }
+}
+
+#[test]
+fn merge_abort_refuses_to_delete_a_protected_provider_file() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    conflicted_merge_adding_incoming(root);
+    // The merge added `incoming.txt`; it then becomes a secret provider file.
+    std::fs::create_dir_all(root.join(".sorrel/secrets")).unwrap();
+    std::fs::write(
+        root.join(".sorrel/secrets/provider.json"),
+        serde_json::to_vec(&json!({"provider": "dotenv:incoming.txt"})).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(root.join("incoming.txt"), b"SYNTHETIC_SECRET=keep\n").unwrap();
+
+    let stderr = failed_abort_stderr(root);
+    assert!(stderr.contains("protected"), "{stderr}");
+
+    assert_eq!(
+        std::fs::read(root.join("incoming.txt")).unwrap(),
+        b"SYNTHETIC_SECRET=keep\n"
+    );
+    assert!(root.join(".sorrel/MERGE_STATE").is_file());
+}
+
+#[test]
+fn merge_abort_refuses_after_head_moved_to_another_lane() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    let feature = conflicted_merge_adding_incoming(root);
+    // Make the tree match HEAD again so `lane switch` is allowed, then move
+    // HEAD to the incoming lane while MERGE_STATE is still pending.
+    std::fs::write(root.join("a.txt"), b"ours\n").unwrap();
+    std::fs::remove_file(root.join("incoming.txt")).unwrap();
+    command_json(root, &["lane", "switch", &feature, "--json"]);
+    std::fs::write(root.join("incoming.txt"), b"new work on feature\n").unwrap();
+
+    let stderr = failed_abort_stderr(root);
+    assert!(stderr.contains("no longer matches"), "{stderr}");
+
+    assert_eq!(
+        std::fs::read(root.join("incoming.txt")).unwrap(),
+        b"new work on feature\n"
+    );
+    assert!(root.join(".sorrel/MERGE_STATE").is_file());
 }
 
 #[test]

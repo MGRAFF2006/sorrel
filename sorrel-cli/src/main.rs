@@ -16,11 +16,11 @@ use sorrel_core::{
     is_descendant, materialize_workspace_snapshot_with_registry, merge_base,
     merge_snapshots_with_worktree, parse_object_id_hex, read_conflict, read_merge_result,
     read_snapshot, read_snapshot_files, read_stack, read_tree, restore_snapshot_to_directory,
-    snapshot_diff, validate_snapshot_restore, write_snapshot, write_tree, ChangeOptions,
-    ConflictType, EntryMode, FileObjectStore, GitExportOptions, GitImportOptions, ImportResult,
-    ImportedCommit, LaneOptions, MergeOptions, ObjectId, ObjectKind, ObjectRef, ObjectStore,
-    ObjectStoreError, ObjectStoreResult, PathChangeKind, Principal, SnapshotOptions, StackOptions,
-    StatCache, Visibility,
+    snapshot_diff, validate_snapshot_restore, validate_workspace_snapshot_secrets, write_snapshot,
+    write_tree, ChangeOptions, ConflictType, EntryMode, FileObjectStore, GitExportOptions,
+    GitImportOptions, ImportResult, ImportedCommit, LaneOptions, MergeOptions, ObjectId,
+    ObjectKind, ObjectRef, ObjectStore, ObjectStoreError, ObjectStoreResult, PathChangeKind,
+    Principal, SnapshotOptions, StackOptions, StatCache, Visibility,
 };
 
 use sorrel_cli::{cli_policy, hub, linediff, repo, sync, workspace, CommandOutput};
@@ -2793,17 +2793,17 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
     // markers without advancing HEAD. Undo exactly that: restore from the
     // tentative snapshot to HEAD, so tracked paths return to HEAD and paths
     // added by the merge are removed, while files the merge never tracked
-    // (for example notes created while resolving) stay.
-    //
-    // Records written before tentative snapshots existed only overlaid markers
-    // on HEAD's own paths. If the record is unreadable, abort must still work,
-    // so fall back to restoring HEAD's paths without removing anything else.
-    let merge_snapshot = repo::load_merge_state_record()
-        .ok()
-        .flatten()
-        .and_then(|state| state.working_snapshot)
-        .and_then(|snapshot| snapshot.parse::<ObjectId>().ok())
-        .unwrap_or(head_snapshot);
+    // (for example notes created while resolving) stay. If the record cannot
+    // establish those paths, refuse and keep MERGE_STATE rather than guess.
+    let merge_snapshot = merge_abort_snapshot(&store, &repo_id, &head_snapshot)?;
+    // Removing merge-added paths must not delete a file that is now a
+    // protected secret provider.
+    to_io(validate_workspace_snapshot_secrets(
+        &store,
+        Path::new("."),
+        &merge_snapshot,
+        &repo::registry_dir(repo::SECRETS_DIR),
+    ))?;
     restore_worktree_to_snapshot(&store, &merge_snapshot, &head_snapshot)?;
     repo::clear_merge_state()?;
 
@@ -2820,6 +2820,48 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
             &head_snapshot.to_hex()[..12]
         ),
     })
+}
+
+/// Returns the tentative snapshot a conflicted merge applied to the working
+/// tree. Records written before tentative snapshots were stored are rebuilt
+/// from their base/ours/theirs snapshots, the same inputs the merge used.
+fn merge_abort_snapshot(
+    store: &FileObjectStore,
+    repo_id: &str,
+    head_snapshot: &ObjectId,
+) -> io::Result<ObjectId> {
+    let unreadable = |detail: String| {
+        io::Error::other(format!(
+            "cannot abort: `.sorrel/MERGE_STATE` is unreadable ({detail}); the working tree and merge state were left unchanged"
+        ))
+    };
+    let state = repo::load_merge_state_record()
+        .map_err(|error| unreadable(error.to_string()))?
+        .ok_or_else(|| unreadable("missing mergeResult".to_owned()))?;
+    let parse = |field: &str, value: &str| {
+        value
+            .parse::<ObjectId>()
+            .map_err(|error| unreadable(format!("invalid {field}: {error}")))
+    };
+    let ours = parse("oursSnapshot", &state.ours_snapshot)?;
+    if ours != *head_snapshot {
+        return Err(io::Error::other(format!(
+            "cannot abort: HEAD ({}) no longer matches the snapshot the merge started from ({}); the working tree and merge state were left unchanged",
+            &head_snapshot.to_hex()[..12],
+            &ours.to_hex()[..12]
+        )));
+    }
+    if let Some(working) = &state.working_snapshot {
+        return parse("workingSnapshot", working);
+    }
+    let base = parse("baseSnapshot", &state.base_snapshot)?;
+    let theirs = parse("theirsSnapshot", &state.theirs_snapshot)?;
+    let mut options = MergeOptions::new(Principal::system(), repo_id.to_owned(), state.message);
+    options.created_at = repo::now_rfc3339();
+    let (_, working) = to_io(merge_snapshots_with_worktree(
+        store, &base, &ours, &theirs, &options,
+    ))?;
+    Ok(working)
 }
 
 fn merge_continue_output(resolved: &[PathBuf]) -> io::Result<CommandOutput> {
