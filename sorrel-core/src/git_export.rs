@@ -78,6 +78,16 @@ pub enum GitExportError {
         /// Working-tree paths (relative, `/`-separated) that would be overwritten.
         paths: Vec<String>,
     },
+
+    /// The first checkout of a fresh Git working tree would replace staged
+    /// index entries.
+    #[error(
+        "refusing to check out the exported commit: the Git index already has {entries} staged entr(ies); commit them in Git, or unstage them with `git rm -r --cached .`, then export again"
+    )]
+    StagedIndex {
+        /// Number of index entries present before export.
+        entries: usize,
+    },
 }
 
 /// Options controlling a one-way Sorrel → Git export.
@@ -264,16 +274,25 @@ fn update_branch(
     // matches the exported branch, HEAD resolves fine right after the ref
     // exists and the bootstrap checkout below would be skipped.
     let head_was_unborn = repo.head().is_err();
-    let bootstrap_checkout = head_was_unborn && !repo.is_bare();
-    // Check the working tree before moving any ref, so a refused export leaves
-    // the destination repository unchanged.
-    if let (true, Some(workdir)) = (bootstrap_checkout, repo.workdir()) {
-        let mut conflicts = Vec::new();
-        find_checkout_conflicts(repo, &commit.tree()?, workdir, "", &mut conflicts)?;
-        if !conflicts.is_empty() {
-            return Err(GitExportError::WorktreeConflict { paths: conflicts });
+    // Plan the first checkout of a non-bare repository before moving any ref,
+    // so a refused export leaves the destination repository unchanged.
+    let bootstrap_missing = match (head_was_unborn, repo.workdir()) {
+        (true, Some(workdir)) => {
+            let entries = repo.index()?.len();
+            if entries > 0 {
+                return Err(GitExportError::StagedIndex { entries });
+            }
+            let mut plan = CheckoutPlan::default();
+            plan_bootstrap_checkout(repo, &commit.tree()?, workdir, "", &mut plan)?;
+            if !plan.conflicts.is_empty() {
+                return Err(GitExportError::WorktreeConflict {
+                    paths: plan.conflicts,
+                });
+            }
+            Some(plan.missing)
         }
-    }
+        _ => None,
+    };
     match repo.find_reference(&refname) {
         Ok(reference) => {
             let current = reference.peel_to_commit()?.id();
@@ -295,13 +314,19 @@ fn update_branch(
     // Point HEAD at the branch when this is a fresh repo with no HEAD target yet.
     if head_was_unborn {
         repo.set_head(&refname)?;
-        // Checkout for non-bare repos so the worktree matches. Forcing is safe
-        // here: the preflight above refused every existing path whose contents
-        // differ, and files outside the exported tree are left untouched.
-        if bootstrap_checkout {
-            let mut checkout = git2::build::CheckoutBuilder::new();
-            checkout.force();
-            repo.checkout_tree(commit.as_object(), Some(&mut checkout))?;
+        // Write only the files that do not exist yet. Existing paths already
+        // hold the exported bytes; leaving them alone keeps checkout filters
+        // (for example autocrlf) and mode changes from rewriting them, and
+        // limiting the checkout to these paths keeps everything else intact.
+        if let Some(missing) = bootstrap_missing {
+            if !missing.is_empty() {
+                let mut checkout = git2::build::CheckoutBuilder::new();
+                checkout.force().disable_pathspec_match(true);
+                for path in &missing {
+                    checkout.path(path);
+                }
+                repo.checkout_tree(commit.as_object(), Some(&mut checkout))?;
+            }
             // Align the index with the checked-out tree; otherwise a fresh
             // colocated repo is left with an empty index and the next `git
             // commit` would silently delete every exported file.
@@ -313,17 +338,25 @@ fn update_branch(
     Ok(())
 }
 
-/// Returns ancestors of `tip` (including `tip`) in topological order: parents first.
-/// Collects working-tree paths that a checkout of `tree` would overwrite with
-/// different contents: files with other bytes, and directories, symlinks or
-/// other non-file entries where the tree has a file (or a file where it has a
-/// directory). Absent paths and byte-identical files are not conflicts.
-fn find_checkout_conflicts(
+/// Working-tree paths for the first checkout of an exported commit.
+#[derive(Default)]
+struct CheckoutPlan {
+    /// Existing paths whose contents differ from the commit.
+    conflicts: Vec<String>,
+    /// Files in the commit that do not exist in the working tree yet.
+    missing: Vec<String>,
+}
+
+/// Compares `tree` with the working tree under `dir`. A file with other
+/// bytes, or a directory, symlink or other entry where the tree has a file
+/// (or a non-directory where it has a directory), is a conflict. Absent files
+/// are recorded as missing; byte-identical files need no change.
+fn plan_bootstrap_checkout(
     repo: &git2::Repository,
     tree: &git2::Tree<'_>,
     dir: &Path,
     prefix: &str,
-    conflicts: &mut Vec<String>,
+    plan: &mut CheckoutPlan,
 ) -> GitExportResult<()> {
     for entry in tree.iter() {
         let name = entry.name().map_err(|_| GitExportError::UnsupportedEntry {
@@ -333,24 +366,28 @@ fn find_checkout_conflicts(
         let path = dir.join(name);
         let display = format!("{prefix}{name}");
         let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
             Err(error) => return Err(git2::Error::from_str(&format!("{display}: {error}")).into()),
         };
-        match entry.kind() {
-            Some(git2::ObjectType::Tree) if metadata.is_dir() => {
+        match (entry.kind(), metadata) {
+            (Some(git2::ObjectType::Tree), metadata)
+                if metadata.as_ref().is_none_or(fs::Metadata::is_dir) =>
+            {
                 let subtree = repo.find_tree(entry.id())?;
-                find_checkout_conflicts(repo, &subtree, &path, &format!("{display}/"), conflicts)?;
+                plan_bootstrap_checkout(repo, &subtree, &path, &format!("{display}/"), plan)?;
             }
-            Some(git2::ObjectType::Blob)
+            (Some(git2::ObjectType::Blob), None) => plan.missing.push(display),
+            (Some(git2::ObjectType::Blob), Some(metadata))
                 if metadata.is_file()
                     && git2::Oid::hash_file(git2::ObjectType::Blob, &path)? == entry.id() => {}
-            _ => conflicts.push(display),
+            _ => plan.conflicts.push(display),
         }
     }
     Ok(())
 }
 
+/// Returns ancestors of `tip` (including `tip`) in topological order: parents first.
 fn topological_ancestors(
     store: &impl ObjectStore,
     tip: ObjectId,
@@ -680,6 +717,55 @@ mod tests {
         );
         let repo = git2::Repository::open(dest.path()).unwrap();
         assert_eq!(repo.head().unwrap().shorthand().unwrap(), "main");
+    }
+
+    #[test]
+    fn first_checkout_refuses_to_replace_staged_index_entries() {
+        let store = InMemoryObjectStore::new();
+        let tip = snapshot_of_files(&store, &[("a.txt", b"recorded\n")]);
+        let dest = TempDir::new().unwrap();
+        let repo = git2::Repository::init(dest.path()).unwrap();
+        std::fs::write(dest.path().join("staged.txt"), b"staged\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("staged.txt")).unwrap();
+        index.write().unwrap();
+        std::fs::write(dest.path().join("staged.txt"), b"edited after staging\n").unwrap();
+
+        let error = git_export(&store, GitExportOptions::new(dest.path(), tip)).unwrap_err();
+        assert!(
+            matches!(error, GitExportError::StagedIndex { entries: 1 }),
+            "{error:?}"
+        );
+        assert_eq!(
+            std::fs::read(dest.path().join("staged.txt")).unwrap(),
+            b"edited after staging\n"
+        );
+        assert!(!dest.path().join("a.txt").exists());
+        assert!(repo.find_reference("refs/heads/main").is_err());
+        assert_eq!(repo.index().unwrap().len(), 1, "staged entry is kept");
+    }
+
+    #[test]
+    fn first_checkout_leaves_identical_files_unfiltered() {
+        let store = InMemoryObjectStore::new();
+        let tip = snapshot_of_files(&store, &[("a.txt", b"one\ntwo\n"), ("new.txt", b"new\n")]);
+        let dest = TempDir::new().unwrap();
+        git2::Repository::init(dest.path()).unwrap();
+        // An untracked attributes file asks Git to write CRLF on checkout.
+        std::fs::write(dest.path().join(".gitattributes"), b"* text eol=crlf\n").unwrap();
+        std::fs::write(dest.path().join("a.txt"), b"one\ntwo\n").unwrap();
+
+        git_export(&store, GitExportOptions::new(dest.path(), tip)).expect("export");
+
+        assert_eq!(
+            std::fs::read(dest.path().join("a.txt")).unwrap(),
+            b"one\ntwo\n",
+            "an existing identical file is not rewritten"
+        );
+        assert!(
+            dest.path().join("new.txt").is_file(),
+            "missing files are created"
+        );
     }
 
     #[test]
