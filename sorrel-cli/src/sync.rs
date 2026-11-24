@@ -1,8 +1,8 @@
 //! HTTP sync transport client for sorrel-hub (see sorrel-protocol sync-transport spec).
 //!
-//! Development requests send `x-sorrel-acting-principal` as a JSON string. When
-//! `SORREL_HUB_TOKEN` is set, every request also carries the bearer token for a
-//! Hub configured with OIDC or WorkOS authentication.
+//! Development requests send `x-sorrel-acting-principal` as a JSON string.
+//! Authenticated requests carry a bearer token: `SORREL_HUB_TOKEN` when set,
+//! otherwise the credential `sorrel login` stored for exactly this Hub URL.
 
 use std::io;
 
@@ -62,11 +62,19 @@ pub struct SyncClient {
 }
 
 impl SyncClient {
-    /// Builds a client for `remote` using a fresh ureq agent.
-    #[must_use]
-    pub fn new(remote: &Remote) -> Self {
-        let token = hub_bearer_token();
-        Self::with_auth(remote, DEFAULT_ACTING_PRINCIPAL, token.as_deref())
+    /// Builds a client for `remote` using a fresh ureq agent and the bearer
+    /// token for that Hub (`SORREL_HUB_TOKEN`, else the stored login).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when stored credentials exist but cannot be used safely.
+    pub fn new(remote: &Remote) -> io::Result<Self> {
+        let token = hub_bearer_token_for(&remote.url)?;
+        Ok(Self::with_auth(
+            remote,
+            DEFAULT_ACTING_PRINCIPAL,
+            token.as_deref(),
+        ))
     }
 
     /// Builds a client with a custom acting-principal JSON header value.
@@ -197,10 +205,17 @@ impl SyncClient {
     }
 }
 
-pub(crate) fn hub_bearer_token() -> Option<String> {
-    std::env::var(HUB_TOKEN_ENV)
+/// Bearer token for a Hub URL: `SORREL_HUB_TOKEN` overrides; otherwise the
+/// credential stored by `sorrel login` for exactly this normalized Hub URL.
+/// A stored token is never sent to any other URL.
+pub(crate) fn hub_bearer_token_for(hub_url: &str) -> io::Result<Option<String>> {
+    if let Some(token) = std::env::var(HUB_TOKEN_ENV)
         .ok()
         .and_then(|token| normalize_hub_token(&token).map(str::to_owned))
+    {
+        return Ok(Some(token));
+    }
+    Ok(crate::credentials::lookup(hub_url)?.map(|credential| credential.token))
 }
 
 pub(crate) fn apply_hub_authorization(
@@ -235,7 +250,7 @@ pub fn push(
 ) -> io::Result<PushResult> {
     let client = match principal_header {
         Some(header) => SyncClient::with_principal(remote, header),
-        None => SyncClient::new(remote),
+        None => SyncClient::new(remote)?,
     };
 
     let refs = client.list_refs()?;
@@ -294,7 +309,7 @@ pub fn upload_snapshot_closure(
     remote: &Remote,
     snapshot_id: &ObjectId,
 ) -> io::Result<usize> {
-    let client = SyncClient::new(remote);
+    let client = SyncClient::new(remote)?;
     let object_ids = local_closure(store, snapshot_id)?;
     upload_object_ids(&client, store, &object_ids)
 }
@@ -326,7 +341,7 @@ pub fn fetch(
 ) -> io::Result<PullResult> {
     let client = match principal_header {
         Some(header) => SyncClient::with_principal(remote, header),
-        None => SyncClient::new(remote),
+        None => SyncClient::new(remote)?,
     };
 
     let refs = client.list_refs()?;
@@ -530,6 +545,12 @@ fn parse_missing_ids(value: &Value) -> io::Result<Vec<ObjectId>> {
 }
 
 fn http_error(error: ureq::Error) -> io::Error {
+    if let ureq::Error::Status(401, response) = &error {
+        return io::Error::other(format!(
+            "{}: Hub authentication required; run `sorrel login <hub-url>` or set {HUB_TOKEN_ENV}",
+            response.get_url()
+        ));
+    }
     io::Error::other(error.to_string())
 }
 

@@ -19,15 +19,50 @@ command to integrate file contents.
 3. The monorepo dependencies installed with `npm run setup`; the CLI consumes
    `sorrel-core` through the workspace path dependency.
 
-For a Hub using OIDC or WorkOS bearer authentication, provide the access token
-through the process environment. It is never written to `.sorrel/remotes.json`:
+### Sign in to a hosted Hub
+
+For a Hub with browser sign-in (`GET /capabilities` reports
+`auth.cliLogin: "device"`), sign the CLI in once per Hub:
+
+```bash
+$SORREL login https://hub.example/api            # add --open to launch the browser
+```
+
+The CLI prints a short code and an activation link. Open the link in a browser,
+sign in with your usual Hub account, check that the code matches and approve it.
+The CLI then stores a Hub-issued token (`srl_cli_…`) that expires after 30 days
+and can be revoked at any time. Use the same URL you use for remotes; for the
+hosted web UI that is its `/api` URL.
+
+- `--label <text>` names the token in the Hub UI (default `Sorrel CLI on <host>`).
+- Tokens go to `<config dir>/sorrel/credentials.json` (`~/.config` on Linux,
+  `~/Library/Application Support` on macOS, `%APPDATA%` on Windows;
+  `SORREL_CONFIG_DIR` replaces `<config dir>/sorrel`). The directory is `0700`
+  and the file `0600`, written atomically. On Unix the CLI refuses a credentials
+  file that group or others can access; run `chmod 600` on it or sign in again.
+- A token is looked up by the normalized Hub URL (lower-case scheme and host,
+  no default port or trailing slash) and is only sent to that Hub. `push`,
+  `pull`, `lane submit` and its project lookup use it automatically.
+- `sorrel login` refuses plain `http://` Hubs except on loopback.
+- `sorrel auth status` shows each Hub, principal, label and expiry (never the
+  token). `sorrel logout [<hub-url>]` revokes the token on the Hub and removes
+  it locally; without a URL it signs out of the only stored Hub. All three
+  commands accept `--json`.
+- Signing in never grants access: Core grants on the Hub still decide what the
+  token may do, and CLI tokens cannot administer policies or approve and
+  integrate proposals. Review and revoke tokens on your Hub profile page.
+
+`SORREL_HUB_TOKEN` still works and overrides stored credentials for every Hub,
+for example to pass an OIDC/WorkOS access token in automation. It is never
+written to `.sorrel/remotes.json`:
 
 ```bash
 export SORREL_HUB_TOKEN="$(your-idp-token-command)"
 $SORREL push
 ```
 
-Unset `SORREL_HUB_TOKEN` when returning to development acting-principal auth.
+Unset `SORREL_HUB_TOKEN` when returning to development acting-principal auth or
+to your stored login.
 
 ## Build
 
@@ -109,7 +144,8 @@ Push flow (per sync-transport spec):
 Current CLI mutating calls send an empty `grantRefs` list and rely on the Hub's
 configured effective Core grants. They do not require local-demo grant IDs.
 Development acting-principal headers are accepted only in explicit demo mode;
-hosted calls require `SORREL_HUB_TOKEN`. Bootstrap grants are disabled by default.
+hosted calls require `sorrel login` or `SORREL_HUB_TOKEN`. Bootstrap grants are
+disabled by default.
 
 Local workflow and secret permissions can be recorded separately:
 

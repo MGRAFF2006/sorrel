@@ -18,7 +18,8 @@ release assets; an intended build matrix does not establish download availabilit
 
 Acceptance: an invited teammate signs in, finds the shared project, connects a
 disposable checkout, uploads a lane and reviews recorded changes without editing
-policy JSON. Managed CLI login must replace manual bearer-token provisioning.
+policy JSON, signing the CLI in with `sorrel login` instead of manual bearer
+tokens.
 Desktop remote-Hub selection and secure credentials follow the verified session
 path. The old alpha artifacts do not contain new source changes.
 

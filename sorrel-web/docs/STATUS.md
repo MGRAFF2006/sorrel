@@ -126,9 +126,15 @@ Important remaining product gaps:
   operator configuration step; missing reporters block integration. “Mark as
   merged” remains metadata only. Distributed writers, manual conflict resolution
   in Hub and CI execution/provider integrations are not included.
-- Hosted access is operator-provisioned; self-service team access, managed CLI
-  login, quotas, pagination, safe format migrations, and general disaster-recovery
-  validation are pending. Core grants remain authoritative after login.
+- Hosted access is operator-provisioned; self-service team access, quotas,
+  pagination, safe format migrations, and general disaster-recovery validation
+  are pending. Core grants remain authoritative after login.
+- Managed CLI login: `sorrel login <hub-url>` uses a device flow approved in the
+  signed-in browser and stores a Hub-issued, 30-day, revocable `srl_cli_` token
+  (hashed on the Hub, `0600` file locally) for that Hub only. CLI tokens cannot
+  perform policy administration or proposal approval/integration. Covered by a
+  local root E2E with a stubbed browser session; a real invited user's WorkOS
+  sign-in and push/pull on the hosted pilot are not yet verified.
 - Restore preflight handles known invalid paths, missing blobs, inconsistent
   trees, ignored collisions, symlinks and Unix hardlinks. It does not provide
   full filesystem rollback on arbitrary I/O failure, process death, or concurrent

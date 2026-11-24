@@ -6,8 +6,10 @@
 //! (`cli_policy`, `cli_runner`) retain CLI-shaped contracts. Workflow adapters
 //! delegate parsing/execution to `sorrel-runners` and decisions to Core policy.
 
+pub mod auth_cmd;
 pub mod cli_policy;
 pub mod cli_runner;
+pub mod credentials;
 pub mod env_cmd;
 pub mod hub;
 pub mod linediff;
