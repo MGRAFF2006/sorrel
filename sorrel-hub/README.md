@@ -197,7 +197,42 @@ local-demo identities. Unknown, malformed, expired and revoked tokens return
 - Audit lines (`[sorrel-hub] audit {"event":"cli_token.…"}`) record issue,
   revoke and first use with the token id and principal, never the secret.
 
-Owners manage their tokens with a browser or identity-provider session:
+#### Device login (`sorrel login`)
+
+When browser sign-in is configured, `GET /capabilities` and `GET /session`
+advertise `auth.cliLogin: "device"` (otherwise `"none"`, and these routes return
+`404 cli_login_unavailable`). The flow follows RFC 8628 with JSON bodies:
+
+1. `POST /auth/cli/device` with an optional `{ "label": "work laptop" }` returns
+   `device_code`, `user_code` (`XXXX-XXXX`), `verification_uri`
+   (`<SORREL_HUB_PUBLIC_URL>/cli/activate`), `verification_uri_complete`,
+   `expires_in` (600) and `interval` (5). Each caller address may start 10
+   logins a minute; at most 1,000 codes are pending (`429 slow_down`).
+2. The user opens the activation page in `sorrel-hub-ui`, signs in with the
+   existing WorkOS browser flow (which returns to the page), checks the code and
+   approves or denies it. `POST /auth/cli/approve` with
+   `{ "user_code", "decision": "approve" | "deny" }` requires a cookie session
+   from the configured origin. The principal always comes from that session;
+   any other body field is rejected. Ten invalid codes per user within ten
+   minutes return `429 rate_limited`.
+3. The CLI polls `POST /auth/cli/token` with
+   `{ "grant_type": "urn:ietf:params:oauth:grant-type:device_code", "device_code" }`.
+   Until approval it gets `400` with `error` `authorization_pending`, `slow_down`
+   (polling faster than `interval`, which then grows by five seconds),
+   `access_denied` or `expired_token`. After approval it receives
+   `access_token` (the `srl_cli_…` token), `token_type`, `expires_in`,
+   `token_id`, `label`, `principal` and `expires_at` exactly once; later polls
+   get `invalid_grant`.
+
+Codes expire after ten minutes and work once. Pending codes live in memory on
+one Hub instance, like pending browser logins; a restart means running
+`sorrel login` again. Audit lines record `cli_device.approved` and
+`cli_device.denied` with a request id that also appears on the matching
+`cli_token.issued` line; codes and tokens are never logged. All `/auth/cli/*`
+responses are `no-store`.
+
+Owners manage their tokens with a browser or identity-provider session (the
+Hub UI profile lists and revokes them):
 
 | Route | Behavior |
 | --- | --- |

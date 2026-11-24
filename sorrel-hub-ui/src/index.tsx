@@ -20,6 +20,7 @@ export {
   apiGet,
   apiPost,
   apiPatch,
+  apiDelete,
   apiRequest,
   configureApiClient,
   unwrapList,

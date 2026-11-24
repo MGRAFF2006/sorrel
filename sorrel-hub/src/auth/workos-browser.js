@@ -8,6 +8,8 @@ const SESSION_COOKIE = '__Host-sorrel-session';
 const LOGIN_COOKIE = '__Host-sorrel-login';
 const LOGIN_TTL_MS = 10 * 60 * 1000;
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60;
+// Post-login destinations are an exact allow-list; never an arbitrary URL.
+const RETURN_TO = /^\/cli\/activate(\?code=[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4})?$/;
 
 function cookie(request, name) {
   const matches = String(request.headers.cookie ?? '').split(';')
@@ -105,6 +107,8 @@ export function createWorkOsBrowserAuth(env = process.env, options = {}) {
   }
 
   return {
+    origin,
+    requireSameOrigin,
     resolveSession: authenticate,
     async handleRequest(request, response, url) {
       if (!url.pathname.startsWith('/auth/')) return false;
@@ -115,7 +119,9 @@ export function createWorkOsBrowserAuth(env = process.env, options = {}) {
         if (pending.size >= 1000) throw new HttpError(429, 'Sign-in is busy; try again shortly', 'auth_busy');
         const state = randomBytes(32).toString('base64url');
         const nonce = randomBytes(32).toString('base64url');
-        const transaction = { nonce, verifier: null, expires: Date.now() + LOGIN_TTL_MS };
+        const returnTo = url.searchParams.get('returnTo');
+        const transaction = { nonce, verifier: null, expires: Date.now() + LOGIN_TTL_MS,
+          returnTo: returnTo && url.searchParams.getAll('returnTo').length === 1 && RETURN_TO.test(returnTo) ? returnTo : '/' };
         // Reserve capacity before asynchronous PKCE generation.
         pending.set(state, transaction);
         try {
@@ -159,7 +165,7 @@ export function createWorkOsBrowserAuth(env = process.env, options = {}) {
         }
         if (!result.sealedSession) throw new HttpError(502, 'Could not establish a session; start again', 'auth_unavailable');
         setCookie(response, SESSION_COOKIE, result.sealedSession, SESSION_MAX_AGE);
-        response.writeHead(303, { location: `${origin}/` }).end();
+        response.writeHead(303, { location: `${origin}${transaction.returnTo}` }).end();
         return true;
       }
       if (url.pathname === '/auth/logout' && request.method === 'POST') {

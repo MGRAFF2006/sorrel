@@ -1,13 +1,14 @@
 import { A } from '@solidjs/router';
 import { createMemo, createResource, For, Show } from 'solid-js';
 import { apiGet, unwrapList } from '../api.ts';
+import { CliTokensPanel } from '../components/CliTokens.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { EmptyState, ErrorText, Loading, StatusPill } from '../components/ui.tsx';
 import type { Project, Proposal } from '../domain.ts';
 import { initials, relativeTime } from '../domain.ts';
 import { useEffectivePrincipal } from '../session.ts';
 
-export function ProfileView() {
+export function ProfileView(props: { cliTokens?: boolean } = {}) {
   const principal = useEffectivePrincipal();
   const [data] = createResource(async () => {
     const [projectsPayload, proposalsPayload] = await Promise.all([
@@ -67,6 +68,7 @@ export function ProfileView() {
                   }}</For>
                 </Show>
               </section>
+              <Show when={props.cliTokens}><CliTokensPanel /></Show>
             </main>
           </div>
         </Show>
