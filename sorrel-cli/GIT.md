@@ -85,6 +85,14 @@ destination does not authorize an overwrite. Failed ancestry checks leave the
 destination branch and Sorrel mapping unchanged; newly generated Git objects
 may remain unreachable in the destination object database.
 
+When the destination is a non-bare repository with no commits yet (for example
+right after `git init`), export, and the first `git sync` push, also check out
+the exported commit. Existing files at exported paths must already have the
+exported contents: otherwise the export stops before creating the branch and
+lists those paths, so unrecorded edits in a colocated checkout or files in a
+fresh mirror are never overwritten. Record, move or remove them, then export
+again. Files outside the exported tree are left untouched.
+
 ## Colocated sync
 
 Once a mapping exists (created by `git import` or `git export`), `sorrel git

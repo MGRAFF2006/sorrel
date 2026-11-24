@@ -14,7 +14,8 @@ use crate::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
-    path::PathBuf,
+    fs, io,
+    path::{Path, PathBuf},
 };
 
 /// Result type for Git export operations.
@@ -64,6 +65,18 @@ pub enum GitExportError {
         current: String,
         /// Exported Git commit.
         exported: String,
+    },
+
+    /// The first checkout of a fresh Git working tree would overwrite files
+    /// whose contents differ from the exported commit.
+    #[error(
+        "refusing to check out the exported commit over {} existing path(s) whose contents differ: {}; record, move or remove them first",
+        paths.len(),
+        paths.join(", ")
+    )]
+    WorktreeConflict {
+        /// Working-tree paths (relative, `/`-separated) that would be overwritten.
+        paths: Vec<String>,
     },
 }
 
@@ -251,6 +264,16 @@ fn update_branch(
     // matches the exported branch, HEAD resolves fine right after the ref
     // exists and the bootstrap checkout below would be skipped.
     let head_was_unborn = repo.head().is_err();
+    let bootstrap_checkout = head_was_unborn && !repo.is_bare();
+    // Check the working tree before moving any ref, so a refused export leaves
+    // the destination repository unchanged.
+    if let (true, Some(workdir)) = (bootstrap_checkout, repo.workdir()) {
+        let mut conflicts = Vec::new();
+        find_checkout_conflicts(repo, &commit.tree()?, workdir, "", &mut conflicts)?;
+        if !conflicts.is_empty() {
+            return Err(GitExportError::WorktreeConflict { paths: conflicts });
+        }
+    }
     match repo.find_reference(&refname) {
         Ok(reference) => {
             let current = reference.peel_to_commit()?.id();
@@ -272,8 +295,10 @@ fn update_branch(
     // Point HEAD at the branch when this is a fresh repo with no HEAD target yet.
     if head_was_unborn {
         repo.set_head(&refname)?;
-        // Best-effort checkout for non-bare repos so the worktree matches.
-        if !repo.is_bare() {
+        // Checkout for non-bare repos so the worktree matches. Forcing is safe
+        // here: the preflight above refused every existing path whose contents
+        // differ, and files outside the exported tree are left untouched.
+        if bootstrap_checkout {
             let mut checkout = git2::build::CheckoutBuilder::new();
             checkout.force();
             repo.checkout_tree(commit.as_object(), Some(&mut checkout))?;
@@ -289,6 +314,43 @@ fn update_branch(
 }
 
 /// Returns ancestors of `tip` (including `tip`) in topological order: parents first.
+/// Collects working-tree paths that a checkout of `tree` would overwrite with
+/// different contents: files with other bytes, and directories, symlinks or
+/// other non-file entries where the tree has a file (or a file where it has a
+/// directory). Absent paths and byte-identical files are not conflicts.
+fn find_checkout_conflicts(
+    repo: &git2::Repository,
+    tree: &git2::Tree<'_>,
+    dir: &Path,
+    prefix: &str,
+    conflicts: &mut Vec<String>,
+) -> GitExportResult<()> {
+    for entry in tree.iter() {
+        let name = entry.name().map_err(|_| GitExportError::UnsupportedEntry {
+            path: prefix.to_owned(),
+            detail: "non-UTF-8 entry name".to_owned(),
+        })?;
+        let path = dir.join(name);
+        let display = format!("{prefix}{name}");
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(git2::Error::from_str(&format!("{display}: {error}")).into()),
+        };
+        match entry.kind() {
+            Some(git2::ObjectType::Tree) if metadata.is_dir() => {
+                let subtree = repo.find_tree(entry.id())?;
+                find_checkout_conflicts(repo, &subtree, &path, &format!("{display}/"), conflicts)?;
+            }
+            Some(git2::ObjectType::Blob)
+                if metadata.is_file()
+                    && git2::Oid::hash_file(git2::ObjectType::Blob, &path)? == entry.id() => {}
+            _ => conflicts.push(display),
+        }
+    }
+    Ok(())
+}
+
 fn topological_ancestors(
     store: &impl ObjectStore,
     tip: ObjectId,
@@ -545,6 +607,79 @@ mod tests {
         opts.message = Some("second".into());
         opts.created_at = "2024-01-02T00:00:00Z".into();
         write_snapshot(store, tree2.id, opts).unwrap().id
+    }
+
+    fn snapshot_of_files(store: &InMemoryObjectStore, files: &[(&str, &[u8])]) -> ObjectId {
+        let source = TempDir::new().unwrap();
+        for (path, bytes) in files {
+            let path = source.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, bytes).unwrap();
+        }
+        let tree = crate::write_tree_from_directory(store, source.path()).unwrap();
+        let mut opts = SnapshotOptions::new("repo_export");
+        opts.created_at = "2024-01-01T00:00:00Z".into();
+        write_snapshot(store, tree.id, opts).unwrap().id
+    }
+
+    #[test]
+    fn first_checkout_refuses_to_overwrite_differing_files() {
+        let store = InMemoryObjectStore::new();
+        let tip = snapshot_of_files(
+            &store,
+            &[("a.txt", b"recorded\n"), ("dir/b.txt", b"recorded b\n")],
+        );
+        let dest = TempDir::new().unwrap();
+        git2::Repository::init(dest.path()).unwrap();
+        std::fs::write(dest.path().join("a.txt"), b"unrecorded work\n").unwrap();
+        std::fs::create_dir(dest.path().join("dir")).unwrap();
+        std::fs::write(dest.path().join("dir/b.txt"), b"local b\n").unwrap();
+
+        let error = git_export(&store, GitExportOptions::new(dest.path(), tip)).unwrap_err();
+        match error {
+            GitExportError::WorktreeConflict { paths } => {
+                assert_eq!(paths, ["a.txt", "dir/b.txt"]);
+            }
+            other => panic!("expected a worktree conflict, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read(dest.path().join("a.txt")).unwrap(),
+            b"unrecorded work\n"
+        );
+        assert_eq!(
+            std::fs::read(dest.path().join("dir/b.txt")).unwrap(),
+            b"local b\n"
+        );
+        let repo = git2::Repository::open(dest.path()).unwrap();
+        assert!(
+            repo.find_reference("refs/heads/main").is_err(),
+            "a refused export must not create the branch"
+        );
+        assert!(repo.head().is_err(), "HEAD stays unborn");
+    }
+
+    #[test]
+    fn first_checkout_keeps_identical_and_unrelated_files() {
+        let store = InMemoryObjectStore::new();
+        let tip = snapshot_of_files(&store, &[("a.txt", b"same\n"), ("dir/b.txt", b"b\n")]);
+        let dest = TempDir::new().unwrap();
+        git2::Repository::init(dest.path()).unwrap();
+        std::fs::write(dest.path().join("a.txt"), b"same\n").unwrap();
+        std::fs::write(dest.path().join("notes.txt"), b"mine\n").unwrap();
+
+        git_export(&store, GitExportOptions::new(dest.path(), tip)).expect("export");
+
+        assert_eq!(std::fs::read(dest.path().join("a.txt")).unwrap(), b"same\n");
+        assert_eq!(
+            std::fs::read(dest.path().join("dir/b.txt")).unwrap(),
+            b"b\n"
+        );
+        assert_eq!(
+            std::fs::read(dest.path().join("notes.txt")).unwrap(),
+            b"mine\n"
+        );
+        let repo = git2::Repository::open(dest.path()).unwrap();
+        assert_eq!(repo.head().unwrap().shorthand().unwrap(), "main");
     }
 
     #[test]
