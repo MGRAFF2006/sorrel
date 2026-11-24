@@ -2809,6 +2809,7 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
             "no merge in progress (`.sorrel/MERGE_STATE` not found)",
         ));
     }
+    require_regular_merge_state()?;
 
     let head_snapshot =
         head_snapshot_id(&head)?.ok_or_else(|| io::Error::other("HEAD has no base snapshot"))?;
@@ -2834,6 +2835,17 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
     })
 }
 
+/// Refuses to act on a MERGE_STATE that is not a regular file: it blocks
+/// other commands as a pending merge, but cannot describe one.
+fn require_regular_merge_state() -> io::Result<()> {
+    if fs::symlink_metadata(repo::merge_state_path())?.is_file() {
+        return Ok(());
+    }
+    Err(io::Error::other(
+        "`.sorrel/MERGE_STATE` is not a regular file; inspect and remove it manually. The working tree was left unchanged",
+    ))
+}
+
 fn merge_continue_output(resolved: &[PathBuf]) -> io::Result<CommandOutput> {
     let RepoContext {
         repo_id,
@@ -2841,6 +2853,9 @@ fn merge_continue_output(resolved: &[PathBuf]) -> io::Result<CommandOutput> {
         store,
     } = open_repo()?;
     repo::ensure_heads_migrated()?;
+    if repo::merge_in_progress() {
+        require_regular_merge_state()?;
+    }
 
     let state = repo::load_merge_state_record()?.ok_or_else(|| {
         io::Error::other("no merge in progress (`.sorrel/MERGE_STATE` not found)")

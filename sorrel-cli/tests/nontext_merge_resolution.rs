@@ -284,6 +284,16 @@ fn any_merge_state_entry_blocks_head_writes() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("a merge is in progress"));
     assert_eq!(fs::read(repo.path().join(".sorrel/HEAD")).unwrap(), head);
+    // Neither merge exit may act on it: the untracked file must survive.
+    for args in [&["merge", "--abort"][..], &["merge", "--continue"][..]] {
+        let output = run(repo.path(), args);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("not a regular file"),
+            "{args:?}"
+        );
+        assert_eq!(fs::read(repo.path().join("a.txt")).unwrap(), b"a\n");
+    }
 
     // A leftover MERGE_STATE without a workspace manifest: neither `init` nor
     // `git import` may publish a HEAD under it.
