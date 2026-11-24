@@ -2789,10 +2789,22 @@ fn merge_abort_output() -> io::Result<CommandOutput> {
     let head_snapshot =
         head_snapshot_id(&head)?.ok_or_else(|| io::Error::other("HEAD has no base snapshot"))?;
 
-    // Conflicted merges leave marker-annotated files in the worktree but do not
-    // advance HEAD. Restore HEAD's snapshot and drop MERGE_STATE.
-    let dirty_snapshot = materialize_worktree(&store, &repo_id, None, &[], None)?;
-    restore_worktree_to_snapshot(&store, &dirty_snapshot, &head_snapshot)?;
+    // A conflicted merge applies its tentative snapshot and writes conflict
+    // markers without advancing HEAD. Undo exactly that: restore from the
+    // tentative snapshot to HEAD, so tracked paths return to HEAD and paths
+    // added by the merge are removed, while files the merge never tracked
+    // (for example notes created while resolving) stay.
+    //
+    // Records written before tentative snapshots existed only overlaid markers
+    // on HEAD's own paths. If the record is unreadable, abort must still work,
+    // so fall back to restoring HEAD's paths without removing anything else.
+    let merge_snapshot = repo::load_merge_state_record()
+        .ok()
+        .flatten()
+        .and_then(|state| state.working_snapshot)
+        .and_then(|snapshot| snapshot.parse::<ObjectId>().ok())
+        .unwrap_or(head_snapshot);
+    restore_worktree_to_snapshot(&store, &merge_snapshot, &head_snapshot)?;
     repo::clear_merge_state()?;
 
     Ok(CommandOutput {

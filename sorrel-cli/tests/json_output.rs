@@ -1233,6 +1233,56 @@ fn merge_conflict_writes_markers_and_merge_state_abort_restores() {
 }
 
 #[test]
+fn merge_abort_keeps_files_created_while_resolving() {
+    let dir = TempDir::new().unwrap();
+    let root = dir.path();
+    command_json(root, &["init", "--json"]);
+    std::fs::write(root.join("a.txt"), b"base\n").unwrap();
+    command_json(root, &["change", "create", "-m", "base", "--json"]);
+    let lane = command_json(root, &["lane", "create", "--name", "feature", "--json"]);
+    let lane_id = lane["object"]["id"].as_str().unwrap().to_owned();
+    std::fs::write(root.join("a.txt"), b"ours\n").unwrap();
+    command_json(root, &["change", "create", "-m", "ours", "--json"]);
+    command_json(root, &["lane", "switch", &lane_id, "--json"]);
+    std::fs::write(root.join("a.txt"), b"theirs\n").unwrap();
+    std::fs::write(root.join("incoming.txt"), b"incoming\n").unwrap();
+    command_json(root, &["change", "create", "-m", "theirs", "--json"]);
+    command_json(root, &["lane", "switch", "lane_main", "--json"]);
+
+    let merge = Command::cargo_bin("sorrel")
+        .unwrap()
+        .current_dir(root)
+        .args(["merge", &lane_id, "--json"])
+        .output()
+        .unwrap();
+    assert!(!merge.status.success(), "a.txt must conflict");
+    assert!(root.join("incoming.txt").is_file());
+
+    // Unrecorded work created during resolution belongs to the user, not the merge.
+    std::fs::write(root.join("notes.txt"), b"resolution notes\n").unwrap();
+    std::fs::create_dir(root.join("drafts")).unwrap();
+    std::fs::write(root.join("drafts/plan.md"), b"plan\n").unwrap();
+
+    command_json(root, &["merge", "--abort", "--json"]);
+
+    assert_eq!(std::fs::read(root.join("a.txt")).unwrap(), b"ours\n");
+    assert!(
+        !root.join("incoming.txt").exists(),
+        "paths added by the merge are removed"
+    );
+    assert_eq!(
+        std::fs::read(root.join("notes.txt")).unwrap(),
+        b"resolution notes\n"
+    );
+    assert_eq!(
+        std::fs::read(root.join("drafts/plan.md")).unwrap(),
+        b"plan\n"
+    );
+    let status = command_json(root, &["status", "--json"]);
+    assert_eq!(status["worktree"]["mergeInProgress"], false);
+}
+
+#[test]
 fn merge_continue_after_manual_resolution() {
     let temp_dir = TempDir::new().expect("temp dir is available");
     command_json(temp_dir.path(), &["init", "--json"]);
