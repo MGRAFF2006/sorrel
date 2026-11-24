@@ -6,6 +6,9 @@
  *   DELETE /auth/cli/tokens/current   revoke the CLI token used for this request
  *   DELETE /auth/cli/tokens/:id       revoke one of the caller's tokens
  *
+ *   POST   /auth/cli/device | /auth/cli/token | /auth/cli/approve
+ *                                     device login (see auth/cli-device.js)
+ *
  * Owners are identified only by the verified session principal. CLI-token
  * sessions may only revoke themselves; managing other tokens needs a browser
  * or identity-provider session.
@@ -19,8 +22,12 @@ export function isCliAuthPath(pathname) {
 }
 
 export async function handleCliAuthRoute(request, response, context) {
-  const { url, session, cliTokens } = context;
+  const { url, session, cliTokens, deviceFlow } = context;
   const segments = url.pathname.split('/').filter(Boolean).slice(2);
+  if (segments.length === 1 && ['device', 'token', 'approve'].includes(segments[0])) {
+    if (!deviceFlow) throw new HttpError(404, 'CLI login is not configured on this Hub', 'cli_login_unavailable');
+    return await deviceFlow.handle(request, response, segments[0], session);
+  }
   if (segments[0] !== 'tokens' || segments.length > 2) {
     throw new HttpError(404, 'CLI auth route not found', 'not_found');
   }

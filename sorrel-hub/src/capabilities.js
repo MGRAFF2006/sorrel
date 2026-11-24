@@ -16,7 +16,7 @@ import { PROPOSAL_STATUS_TRANSITIONS } from './models.js';
  *     secrets: boolean,
  *     objectStorage: 'fs' | 'memory',
  *   },
- *   auth: { mode: 'dev' | 'workos' | 'oidc', session: 'cookie' | 'bearer' | 'none' },
+ *   auth: { mode: 'dev' | 'workos' | 'oidc', session: 'cookie' | 'bearer' | 'none', browserLogin: boolean, cliLogin: 'device' | 'none' },
  *   convex: { enabled: boolean },
  *   deploy: 'saas' | 'selfhost' | 'dev',
  * }} HubCapabilities
@@ -67,6 +67,8 @@ export function resolveCapabilities(options = {}) {
       mode: authMode === 'workos' || authMode === 'oidc' ? authMode : 'dev',
       session: options.browserLogin === true ? 'cookie' : authMode === 'dev' ? 'none' : 'bearer',
       browserLogin: options.browserLogin === true,
+      // `sorrel login` device flow; needs browser sign-in for approval.
+      cliLogin: options.cliLogin === 'device' ? 'device' : 'none',
     },
     convex: {
       enabled: options.convexEnabled ?? isConvexMirrorEnabled(env),

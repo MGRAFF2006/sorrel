@@ -3,6 +3,7 @@ import { URL } from 'node:url';
 import { acquireDatasetWriter, coreIntegration } from './core-integration.js';
 import { createProposalIntegration } from './proposal-integration.js';
 import { createAuthAdapterFromEnv } from './auth/adapter.js';
+import { createCliDeviceFlow } from './auth/cli-device.js';
 import { createCliTokens, isCliTokenBearer } from './auth/cli-tokens.js';
 import { createWorkOsBrowserAuth } from './auth/workos-browser.js';
 import { resolveCapabilities } from './capabilities.js';
@@ -37,6 +38,8 @@ export function createApp(options = {}) {
   const authAdapter = options.authAdapter ?? createAuthAdapterFromEnv(options.env);
   const browserAuth = options.browserAuth === undefined ? createWorkOsBrowserAuth(options.env) : options.browserAuth;
   const cliTokens = options.cliTokens ?? createCliTokens(store, { env: options.env });
+  // Device login needs browser sign-in: approval uses the verified cookie session.
+  const deviceFlow = options.deviceFlow ?? (browserAuth ? createCliDeviceFlow({ cliTokens, browserAuth }) : null);
   const localDemo = authAdapter.mode === 'dev' && (options.env ?? process.env).SORREL_HUB_LOCAL_DEMO === '1';
   const convexMirror = options.convexMirror ?? createConvexMirror(options.env);
   const capabilities =
@@ -44,6 +47,7 @@ export function createApp(options = {}) {
     resolveCapabilities({
       authMode: authAdapter.mode,
       browserLogin: Boolean(browserAuth),
+      cliLogin: deviceFlow ? 'device' : 'none',
       env: options.env,
       objectStorage: store.sync instanceof FsRepoSyncStore ? 'fs' : 'memory',
       convexEnabled: convexMirror.enabled === true,
@@ -136,6 +140,7 @@ export function createApp(options = {}) {
                 mode: authAdapter.mode,
                 session: capabilities.auth.session,
                 browserLogin: Boolean(browserAuth),
+                cliLogin: capabilities.auth.cliLogin,
               },
               session: session
                 ? {
@@ -161,7 +166,7 @@ export function createApp(options = {}) {
           return await serialize(async () => {
             assertWiring();
             datasetLease?.assert();
-            return await handleCliAuthRoute(request, response, { url, session, cliTokens });
+            return await handleCliAuthRoute(request, response, { url, session, cliTokens, deviceFlow });
           });
         }
 

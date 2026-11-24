@@ -478,3 +478,14 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
 .auth-panel h1 { font-size: clamp(1.75rem, 4vw, 2.5rem); line-height: 1.15; }
 .auth-panel p { max-width: 58ch; line-height: 1.6; }
 .auth-panel .button { justify-self: start; }
+
+/* CLI sign-in approval (`sorrel login`) and CLI token list */
+.cli-activate { width: min(100%, 36rem); margin: 2rem auto; padding: 1.5rem; display: grid; gap: 1rem; }
+.cli-activate form { display: grid; gap: 1rem; }
+.cli-activate p { line-height: 1.6; }
+.cli-code-field { display: grid; gap: .4rem; }
+.cli-code-field input { font-size: 1.4rem; letter-spacing: .2em; max-width: 14rem; }
+.cli-activate-actions { display: flex; gap: .75rem; }
+.cli-tokens ul { list-style: none; margin: 0; padding: 0; }
+.cli-tokens li { display: flex; align-items: center; gap: .75rem; padding: .6rem .9rem; border-top: 1px solid var(--border); }
+.cli-tokens li > div { flex: 1; min-width: 0; }

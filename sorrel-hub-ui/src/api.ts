@@ -17,6 +17,8 @@ export type HubCapabilities = {
     /** Present when sessions are established (never WorkOS on hot path). */
     session?: 'cookie' | 'bearer' | 'none';
     browserLogin?: boolean;
+    /** `device` when `sorrel login` can be approved in this browser. */
+    cliLogin?: 'device' | 'none';
   };
   convex: {
     enabled: boolean;
@@ -30,6 +32,7 @@ export type HubSessionInfo = {
     mode: 'dev' | 'workos' | 'oidc';
     session: 'cookie' | 'bearer' | 'none';
     browserLogin?: boolean;
+    cliLogin?: 'device' | 'none';
   };
   session: {
     sessionId: string;
@@ -126,6 +129,10 @@ export function apiPost(path: string, body: unknown) {
 
 export function apiPatch(path: string, body: unknown) {
   return apiRequest('PATCH', path, body);
+}
+
+export function apiDelete(path: string) {
+  return apiRequest('DELETE', path);
 }
 
 /** Hub list responses use `{ data: [...] }`. */

@@ -133,7 +133,7 @@ export function createCliTokens(store, options = {}) {
      * Issue a token for a principal taken from a verified session. Returns the
      * plaintext token exactly once together with its public record.
      */
-    issue({ principal, authMode, idpSubject, label } = {}) {
+    issue({ principal, authMode, idpSubject, label, requestId } = {}) {
       if (!validPrincipal(principal)) throw new TypeError('a verified principal is required to issue a CLI token');
       const at = now();
       const active = [...records().values()].filter(record => samePrincipal(record.principal, principal) && status(record, at) === 'active');
@@ -157,7 +157,8 @@ export function createCliTokens(store, options = {}) {
         revokedAt: null,
       };
       store.storeRecord('cliCredentials', record);
-      audit('cli_token.issued', { tokenId: id, principal: principalRef(record.principal), label: record.label, expiresAt: record.expiresAt });
+      audit('cli_token.issued', { tokenId: id, principal: principalRef(record.principal), label: record.label, expiresAt: record.expiresAt,
+        ...(typeof requestId === 'string' ? { requestId } : {}) });
       return { token: `${CLI_TOKEN_PREFIX}${id}_${secret}`, record: publicView(record, at) };
     },
 

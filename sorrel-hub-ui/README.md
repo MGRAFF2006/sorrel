@@ -26,7 +26,10 @@ adapters; see `sorrel-hub-desktop`.
 - `/inbox` — cross-project queue derived from current proposals, unresolved
   comments, and failed workflows; it is deliberately not the splash screen
 - `/orgs/:id` — organization README and projects
-- `/profile` — the active principal, authored work, and profile README surface
+- `/profile` — the active principal, authored work, profile README surface, and
+  (with a verified identity) the user's CLI tokens with revoke
+- `/cli/activate` — approve or deny a pending `sorrel login` code; signing in
+  from this page returns to it with the code
 
 The global **Switch project** button opens a searchable picker from any route.
 **Ctrl+K** (Windows/Linux) or **Cmd+K** (macOS) opens it when focus is outside

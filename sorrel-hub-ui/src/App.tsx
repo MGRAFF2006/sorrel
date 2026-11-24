@@ -22,6 +22,7 @@ import { initials } from './domain.ts';
 import type { Platform } from './platform.ts';
 import { DEV_IDENTITY_PRESETS, setActingPrincipal, setSessionPrincipal, useEffectivePrincipal } from './session.ts';
 import { InboxView } from './views/InboxView.tsx';
+import { CliActivateView } from './views/CliActivateView.tsx';
 import { OrganizationsView } from './views/OrganizationsView.tsx';
 import { ProfileView } from './views/ProfileView.tsx';
 import { ProjectOverview } from './views/ProjectOverview.tsx';
@@ -180,6 +181,12 @@ function ProjectLayout(props: RouteSectionProps) {
   );
 }
 
+/** Return to a pending CLI approval after sign-in; Hub re-validates this path. */
+function loginReturnTo(): string {
+  const { pathname, search } = window.location;
+  return pathname === '/cli/activate' ? `?returnTo=${encodeURIComponent(pathname + search)}` : '';
+}
+
 export function HubApp(props: HubAppOptions) {
   const [capabilities, { refetch: refetchCapabilities }] = createResource(fetchCapabilities);
   const [hubSession, { refetch: refetchSession }] = createResource(fetchSession);
@@ -232,7 +239,7 @@ export function HubApp(props: HubAppOptions) {
         <Show when={capabilities()?.auth.browserLogin && props.platform.kind === 'web'} fallback={
           <p>Browser sign-in is not configured for this connection. Contact your Hub operator.</p>
         }>
-          <a class="button primary" href={`${getApiBaseUrl()}/auth/login`}>Sign in</a>
+          <a class="button primary" href={`${getApiBaseUrl()}/auth/login${loginReturnTo()}`}>Sign in</a>
         </Show>
         <p class="muted">Access is by invitation. Signing in gives you access only to projects your team has shared with you.</p>
       </section></main>
@@ -255,7 +262,8 @@ export function HubApp(props: HubAppOptions) {
           <Route path="/inbox" component={InboxView} />
           <Route path="/orgs" component={OrganizationsView} />
           <Route path="/orgs/:orgId" component={OrganizationsView} />
-          <Route path="/profile" component={ProfileView} />
+          <Route path="/profile" component={() => <ProfileView cliTokens={capabilities()?.auth.mode !== 'dev'} />} />
+          <Route path="/cli/activate" component={CliActivateView} />
         </Route>
         <Route path="/projects/:projectId" component={ProjectLayout}>
           <Route path="/" component={ProjectOverview} />
