@@ -3,6 +3,7 @@ import { URL } from 'node:url';
 import { acquireDatasetWriter, coreIntegration } from './core-integration.js';
 import { createProposalIntegration } from './proposal-integration.js';
 import { createAuthAdapterFromEnv } from './auth/adapter.js';
+import { createCliTokens, isCliTokenBearer } from './auth/cli-tokens.js';
 import { createWorkOsBrowserAuth } from './auth/workos-browser.js';
 import { resolveCapabilities } from './capabilities.js';
 import { createConvexMirror } from './convex-mirror.js';
@@ -12,6 +13,7 @@ import { HttpError, sendJson, sendNotFound } from './http.js';
 import { ModelValidationError } from './models.js';
 import { resolveResourceLimits } from './resource-limits.js';
 import { handleAdminRoute } from './routes/admin.js';
+import { handleCliAuthRoute, isCliAuthPath } from './routes/cli-auth.js';
 import { handleCollaborationRoute } from './routes/collaboration.js';
 import { handleProjectsRoute } from './routes/projects.js';
 import { handleSyncRoute, mapSyncStoreError } from './routes/sync.js';
@@ -34,6 +36,7 @@ export function createApp(options = {}) {
   const trustedPoliciesById = options.trustedPoliciesById ?? {};
   const authAdapter = options.authAdapter ?? createAuthAdapterFromEnv(options.env);
   const browserAuth = options.browserAuth === undefined ? createWorkOsBrowserAuth(options.env) : options.browserAuth;
+  const cliTokens = options.cliTokens ?? createCliTokens(store, { env: options.env });
   const localDemo = authAdapter.mode === 'dev' && (options.env ?? process.env).SORREL_HUB_LOCAL_DEMO === '1';
   const convexMirror = options.convexMirror ?? createConvexMirror(options.env);
   const capabilities =
@@ -89,6 +92,7 @@ export function createApp(options = {}) {
     trustedGrantsById,
     trustedPoliciesById,
     authAdapter,
+    cliTokens,
     convexMirror,
     capabilities,
     async handleRequest(request, response) {
@@ -115,10 +119,12 @@ export function createApp(options = {}) {
           return sendJson(response, 200, { data: capabilities });
         }
 
-        if (browserAuth && await browserAuth.handleRequest(request, response, url)) return;
+        if (browserAuth && !isCliAuthPath(url.pathname) && await browserAuth.handleRequest(request, response, url)) return;
 
         // Resolve session once per request (auth off the hot object path).
-        const session = authAdapter.mode === 'dev' && !localDemo ? null :
+        // Hub-issued CLI tokens never fall through to JWT or demo identities.
+        const session = isCliTokenBearer(request.headers.authorization) ? cliTokens.resolve(request.headers.authorization) :
+          authAdapter.mode === 'dev' && !localDemo ? null :
           (request.headers.authorization ? await authAdapter.resolveSession(request) : await browserAuth?.resolveSession(request, response) ?? await authAdapter.resolveSession(request)) ?? (localDemo && request.headers['x-sorrel-acting-principal'] === undefined ? {
             principal: { type: 'user', id: 'local' }, sessionId: 'dev:user:local', authMode: 'dev',
           } : null);
@@ -138,9 +144,24 @@ export function createApp(options = {}) {
                     principal: session.principal,
                     idpSubject: session.idpSubject ?? null,
                     expiresAt: session.expiresAt ?? null,
+                    ...(session.credential ? { credential: {
+                      kind: session.credential.kind,
+                      id: session.credential.id,
+                      label: session.credential.label,
+                      scopes: session.credential.scopes,
+                      expiresAt: session.credential.expiresAt,
+                    } } : {}),
                   }
                 : null,
             },
+          });
+        }
+
+        if (isCliAuthPath(url.pathname)) {
+          return await serialize(async () => {
+            assertWiring();
+            datasetLease?.assert();
+            return await handleCliAuthRoute(request, response, { url, session, cliTokens });
           });
         }
 

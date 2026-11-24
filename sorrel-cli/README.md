@@ -52,6 +52,10 @@ until `merge --continue` or `merge --abort`. `status` still exits successfully
 when it can report the state; `status` and `worktree.dirty` continue to describe
 changes against HEAD. Human output includes a pending-merge hint.
 
+While a merge is pending, commands that would record or move HEAD outside the
+merge (`change create`, `lane switch`, `git import`, `git sync`, `pull`, and
+checkpoint/undo) refuse until the merge is continued or aborted.
+
 ## Workspace file selection
 
 `status`, `diff`, and `change create` honor nested `.gitignore` and

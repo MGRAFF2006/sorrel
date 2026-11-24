@@ -18,6 +18,7 @@ const COLLECTIONS = [
   'reviewComments',
   'workflowRuns',
   'policies',
+  'cliCredentials',
 ];
 
 /**
