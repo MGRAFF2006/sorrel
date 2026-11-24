@@ -910,9 +910,7 @@ fn restore_tree(store: &impl ObjectStore, tree_id: &ObjectId, target: &Path) -> 
                 }
 
                 let blob = read_blob(store, &entry.object.id)?;
-                fs::write(&output_path, blob.content)
-                    .map_err(|source| SnapshotError::io(&output_path, source))?;
-                set_file_mode(&output_path, entry.mode)?;
+                write_restored_file(&output_path, &blob.content, entry.mode)?;
             }
             EntryType::Directory => {
                 fs::create_dir_all(&output_path)
@@ -1027,20 +1025,47 @@ fn file_mode(_path: &Path) -> SnapshotResult<EntryMode> {
     Ok(EntryMode::Normal)
 }
 
+/// Writes restored content in place and applies the snapshot's executable bit.
+///
+/// Snapshots record executability, not read/write access. Existing files keep
+/// their read/write permissions (so private files stay private throughout the
+/// write) and new files keep the permissions the process umask gives them.
+fn write_restored_file(path: &Path, content: &[u8], mode: EntryMode) -> SnapshotResult<()> {
+    use std::io::Write;
+
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
+        .map_err(|source| SnapshotError::io(path, source))?;
+    file.write_all(content)
+        .map_err(|source| SnapshotError::io(path, source))?;
+    set_file_mode(&file, path, mode)
+}
+
 #[cfg(unix)]
-fn set_file_mode(path: &Path, mode: EntryMode) -> SnapshotResult<()> {
+fn set_file_mode(file: &fs::File, path: &Path, mode: EntryMode) -> SnapshotResult<()> {
     use std::os::unix::fs::PermissionsExt;
 
-    let permissions = match mode {
-        EntryMode::Executable => fs::Permissions::from_mode(0o755),
-        EntryMode::Normal | EntryMode::Directory => fs::Permissions::from_mode(0o644),
+    let current = file
+        .metadata()
+        .map_err(|source| SnapshotError::io(path, source))?
+        .permissions()
+        .mode();
+    let read_write = current & 0o666;
+    // Executable snapshots grant execute to each class that can read the file.
+    let execute = match mode {
+        EntryMode::Executable => (read_write & 0o444) >> 2,
+        EntryMode::Normal | EntryMode::Directory => 0,
     };
-
-    fs::set_permissions(path, permissions).map_err(|source| SnapshotError::io(path, source))
+    // Dropping the remaining bits also clears set-id and sticky bits.
+    file.set_permissions(fs::Permissions::from_mode(read_write | execute))
+        .map_err(|source| SnapshotError::io(path, source))
 }
 
 #[cfg(not(unix))]
-fn set_file_mode(_path: &Path, _mode: EntryMode) -> SnapshotResult<()> {
+fn set_file_mode(_file: &fs::File, _path: &Path, _mode: EntryMode) -> SnapshotResult<()> {
     Ok(())
 }
 
@@ -1499,6 +1524,112 @@ mod tests {
         write_file(target.path().join("a.txt"), b"original");
         assert!(restore_snapshot_to_directory(&store, &snapshot.id, target.path()).is_err());
         assert_eq!(fs::read(target.path().join("a.txt")).unwrap(), b"original");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restoration_preserves_read_write_permissions_and_adjusts_only_execute_bits() {
+        use std::os::unix::fs::PermissionsExt;
+        // (mode recorded in the snapshot, existing destination mode, expected mode)
+        for (snapshot_mode, existing_mode, expected) in [
+            (0o644, 0o600, 0o600),
+            (0o755, 0o600, 0o700),
+            (0o755, 0o640, 0o750),
+            (0o644, 0o750, 0o640),
+            (0o755, 0o620, 0o720),
+            (0o644, 0o2750, 0o640),
+        ] {
+            let source = tempfile::tempdir().unwrap();
+            write_file(source.path().join("file"), b"new");
+            fs::set_permissions(
+                source.path().join("file"),
+                fs::Permissions::from_mode(snapshot_mode),
+            )
+            .unwrap();
+            let store = InMemoryObjectStore::new();
+            let snapshot =
+                materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test"))
+                    .unwrap();
+            let target = tempfile::tempdir().unwrap();
+            write_file(target.path().join("file"), b"old");
+            fs::set_permissions(
+                target.path().join("file"),
+                fs::Permissions::from_mode(existing_mode),
+            )
+            .unwrap();
+
+            restore_snapshot_to_directory(&store, &snapshot.id, target.path()).unwrap();
+
+            assert_eq!(fs::read(target.path().join("file")).unwrap(), b"new");
+            assert_eq!(
+                fs::metadata(target.path().join("file"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o7777,
+                expected,
+                "snapshot {snapshot_mode:o} over existing {existing_mode:o}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn restoration_of_new_files_respects_umask() {
+        use std::os::unix::fs::PermissionsExt;
+        // The umask is process-wide, so each case runs this test in a child process.
+        const CHILD: &str = "SORREL_RESTORE_UMASK_CHILD";
+        let Some(mask) = std::env::var_os(CHILD) else {
+            for mask in ["022", "077"] {
+                let output = std::process::Command::new("sh")
+                    .args([
+                        "-c",
+                        "umask \"$2\"; exec \"$1\" --exact snapshot::tests::restoration_of_new_files_respects_umask --test-threads=1",
+                        "sorrel-umask-test",
+                    ])
+                    .arg(std::env::current_exe().unwrap())
+                    .arg(mask)
+                    .env(CHILD, mask)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "umask {mask}: {}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            return;
+        };
+        let source = tempfile::tempdir().unwrap();
+        for (name, mode) in [("normal", 0o644), ("executable", 0o755)] {
+            write_file(source.path().join(name), b"new");
+            fs::set_permissions(source.path().join(name), fs::Permissions::from_mode(mode))
+                .unwrap();
+        }
+        let store = InMemoryObjectStore::new();
+        let snapshot =
+            materialize_snapshot(&store, source.path(), SnapshotOptions::new("repo_test")).unwrap();
+        let target = tempfile::tempdir().unwrap();
+
+        restore_snapshot_to_directory(&store, &snapshot.id, target.path()).unwrap();
+
+        let expected = if mask == "022" {
+            [("normal", 0o644), ("executable", 0o755)]
+        } else {
+            [("normal", 0o600), ("executable", 0o700)]
+        };
+        for (name, mode) in expected {
+            assert_eq!(
+                fs::metadata(target.path().join(name))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                mode,
+                "{name} under umask {mask:?}"
+            );
+        }
     }
 
     #[cfg(unix)]

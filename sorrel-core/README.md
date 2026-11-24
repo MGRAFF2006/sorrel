@@ -88,6 +88,10 @@ snapshot tree and blobs, rejects reserved metadata paths and inconsistent tree
 entries, and refuses existing symlinks, hard-linked file destinations (on Unix),
 and incompatible filesystem entries. `validate_snapshot_restore` exposes the
 object/path preflight for callers that remove obsolete tracked files first.
+Snapshots record only executability: restoration keeps an existing file's
+read/write permissions (and the umask for new files), sets execute for each
+readable class of executable entries, clears it otherwise, and drops set-id
+bits.
 These checks do not provide rollback for I/O failures or protection against
 concurrent filesystem swaps.
 
