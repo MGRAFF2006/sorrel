@@ -1,9 +1,11 @@
 name: Expo SDK drift
 
 # Advisory: reports when installed Expo packages lag the latest patch releases
-# of the pinned SDK. The required CI gate skips this network-dependent check.
-# A failed run means: bump the reported packages with `npx expo install --fix`
-# in sorrel-hub-mobile, regenerate its lockfile and open a PR.
+# of the pinned SDK. The required CI gate checks versions offline against the
+# locked SDK instead. On failure, read the log first: install errors and other
+# doctor checks fail this job too. For reported version drift, run
+# `npx expo install --fix` in sorrel-hub-mobile and open a PR with the updated
+# package.json and package-lock.json.
 on:
   schedule:
     - cron: "17 6 * * 1"
